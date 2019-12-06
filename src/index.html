@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mechvibes</title>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+    <link rel="stylesheet" href="./assets/style.css" />
+  </head>
+
+  <body style="padding: 2rem">
+    <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 3rem">
+      <div
+        id="keycode-display"
+        style="min-width: 2rem;font-size: 2rem;background: #fff;text-align: center;border-radius: .5rem;border: 2px solid #666;padding: 1rem 2rem;font-family: sans-serif;color: #333;font-weight: 600"
+      >
+        Loading...
+      </div>
+    </div>
+    <ul id="settings" style="padding-left: 0">
+      <li class="flex">
+        <div style="color: #666">Set:</div>
+        <select id="set-list" style="font-weight: bold"></select>
+      </li>
+      <li class="flex">
+        <div style="color: #666">Volume: <span id="volume-value-display" style="font-weight: bold"></span></div>
+        <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" />
+      </li>
+      <li class="flex">
+        <div style="color: #666">Listen:</div>
+        <button id="enable" style="font-weight: bold">Pause</button>
+      </li>
+      <li>
+        If you cannot hear any sound, please install Java.
+        <br />
+        All issues please open an issue on Github, thank you!.
+      </li>
+    </ul>
+    <div style="color: #666; font-family: sans-serif; font-size: 12px">
+      <div>Mechvibes v1.0.0</div>
+      <div>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes" target="_blank" class="open-in-browser">hainguyents13</a></div>
+    </div>
+  </body>
+</html>
