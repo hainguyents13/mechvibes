@@ -10,11 +10,10 @@ This app using `gkm` package which requires **Java** to run, `iohook` doesn't re
 
 ### How to use
 
-- Clone the code
-- Install `electron-forge`
-- run `npm install`
-- run `npm start`
-- start typing and enjoy!
+- Download it https://github.com/hainguyents13/mechvibes/releases/latest
+- Extract it.
+- Run it.
+- Enjoy it.
 
 ### Issues
 
