@@ -20,18 +20,16 @@ let current_key_down = null;
 async function loadSets(status_display_elem) {
   status_display_elem.innerHTML = 'Loading...';
   sets = [];
-  const folders = await glob.sync('./src/audio/**/');
+  const folders = await glob.sync(__dirname + '/audio/**/');
   folders.shift();
   const _sets = folders.map(async folder => {
-    const folder_name = folder.split('/')[3];
-    const config_file = `./audio/${folder_name}/config`;
+    const splited = folder.split('/');
+    const folder_name = splited[splited.length - 2];
+    const config_file = `${__dirname}/audio/${folder_name}/config`;
     const { set_name, keys, sound_file } = require(config_file);
-    const sound_path = `./audio/${folder_name}/${sound_file}`;
+    const sound_path = `${__dirname}/audio/${folder_name}/${sound_file}`;
 
-    sound_data = new Howl({
-      src: [sound_path],
-      sprite: keys,
-    });
+    sound_data = new Howl({ src: [sound_path], sprite: keys });
 
     const set_data = {
       set_id: folder_name,

@@ -24,6 +24,7 @@ function createWindow() {
 
   // Open the DevTools.
   // win.webContents.openDevTools();
+  // win.openDevTools();
 
   // Emitted when the window is closed.
   win.on('closed', function() {
@@ -52,10 +53,6 @@ app.on('activate', function() {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (win === null) createWindow();
-});
-
-app.on('will-quit', () => {
-  globalShortcut.unregsiterAll();
 });
 
 // In this file you can include the rest of your app's specific main process
