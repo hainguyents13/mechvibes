@@ -25,9 +25,9 @@ async function loadSets(status_display_elem) {
   const _sets = folders.map(async folder => {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
-    const config_file = `${__dirname}/audio/${folder_name}/config`;
+    const config_file = `./audio/${folder_name}/config`;
     const { set_name, keys, sound_file } = require(config_file);
-    const sound_path = `${__dirname}/audio/${folder_name}/${sound_file}`;
+    const sound_path = `./audio/${folder_name}/${sound_file}`;
 
     sound_data = new Howl({ src: [sound_path], sprite: keys });
 
@@ -68,6 +68,9 @@ function getSet(set_id = null) {
   if (!set_id) {
     if (localStorage.getItem(MV_SET_LS_ID)) {
       set_id = localStorage.getItem(MV_SET_LS_ID);
+      if (!getSet(set_id)) {
+        return sets[0];
+      }
     } else {
       return sets[0];
     }
