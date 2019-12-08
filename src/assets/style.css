@@ -16,3 +16,17 @@ body {
   justify-content: space-between;
   align-items: center;
 }
+#keycode-display {
+  transition: all 0.1s ease;
+  box-shadow: 0 3px #f18787;
+}
+#keycode-display.pressed {
+  box-shadow: 0 0;
+  margin-bottom: -2px;
+  margin-top: 2px;
+}
+
+a.open-in-browser {
+  text-decoration: none;
+  color: #f18787;
+}

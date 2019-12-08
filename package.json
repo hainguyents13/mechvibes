@@ -1,63 +1,79 @@
 {
   "name": "mechvibes",
   "productName": "Mechvibes",
-  "version": "1.0.0",
-  "description": "Let mechanical keyboard sound plays for you only.",
+  "version": "1.0.1",
+  "description": "Play mechanical keyboard sounds as you type.",
+  "repository": "https://github.com/hainguyents13/mechvibes",
   "main": "src/main.js",
   "scripts": {
-    "start": "electron-forge start",
-    "package": "electron-forge package",
-    "make": "electron-forge make",
-    "publish": "electron-forge publish",
-    "lint": "eslint src --color"
+    "start": "electron .",
+    "build:win": "electron-builder -w",
+    "build:mac": "electron-builder -m",
+    "build:linux": "electron-builder -l"
   },
   "keywords": [],
   "author": "hainguyents13",
   "license": "MIT",
-  "config": {
-    "forge": {
-      "make_targets": {
-        "win32": [
-          "squirrel"
-        ],
-        "darwin": [
-          "zip"
-        ],
-        "linux": [
-          "AppImage"
-        ]
-      },
-      "electronPackagerConfig": {
-        "packageManager": "npm"
-      },
-      "electronWinstallerConfig": {
-        "name": "mechvibes"
-      },
-      "electronInstallerDebian": {},
-      "electronInstallerRedhat": {},
-      "github_repository": {
-        "owner": "",
-        "name": ""
-      },
-      "windowsStoreConfig": {
-        "packageName": "",
-        "name": "mechvibes"
-      }
+  "iohook": {
+    "targets": [
+      "node-64",
+      "electron-73"
+    ],
+    "platforms": [
+      "win32",
+      "darwin",
+      "linux"
+    ],
+    "arches": [
+      "x64",
+      "ia32"
+    ]
+  },
+  "build": {
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/assets/icon.png"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/assets/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "snap",
+          "arch": [
+            "x64",
+            "ia32"
+          ]
+        }
+      ],
+      "icon": "src/assets/icon.png"
     }
   },
   "dependencies": {
-    "electron-compile": "^6.4.4",
-    "gkm": "^0.2.0",
     "glob": "^7.1.6",
-    "howler": "^2.1.2"
+    "howler": "^2.1.2",
+    "iohook": "^0.6.2"
   },
   "devDependencies": {
+    "electron": "^6.1.5",
+    "app-builder-lib": "^22.2.0",
     "electron-builder": "^21.2.0",
-    "electron-compile": "^6.4.4",
-    "electron-forge": "^5.2.4",
-    "electron-installer-appimage": "^1.0.1",
-    "electron-packager": "^14.1.1",
-    "electron-prebuilt-compile": "4.0.0",
-    "electron-squirrel-startup": "^1.0.0"
+    "electron-compile": "^6.4.4"
   }
 }

@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <title>Mechvibes</title>
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+    <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
 
@@ -18,26 +19,24 @@
     </div>
     <ul id="settings" style="padding-left: 0">
       <li class="flex">
-        <div style="color: #666">Set:</div>
-        <select id="set-list" style="font-weight: bold"></select>
+        <div style="color: #666">Set</div>
+        <select id="set-list"></select>
       </li>
       <li class="flex">
-        <div style="color: #666">Volume: <span id="volume-value-display" style="font-weight: bold"></span></div>
+        <div style="color: #666">Volume <span id="volume-value-display"></span></div>
         <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" />
       </li>
       <li class="flex">
-        <div style="color: #666">Listen:</div>
-        <button id="enable" style="font-weight: bold">Pause</button>
-      </li>
-      <li>
-        If you cannot hear any sound, please install Java.
-        <br />
-        Any problem or idea please open an issue on Github, thank you!.
+        <div style="color: #666">Listen</div>
+        <button id="enable">Pause</button>
       </li>
     </ul>
-    <div style="color: #666; font-family: sans-serif; font-size: 12px">
-      <div>Mechvibes v1.0.0</div>
-      <div>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes" target="_blank" class="open-in-browser">hainguyents13</a></div>
+    <div style="color: #666; font-family: sans-serif; font-size: 12px; text-align: center">
+      <p>Mechvibes v1.0.1</p>
+      <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes" target="_blank" class="open-in-browser">hainguyents13</a></p>
+      <p>
+        <a href="https://buymeacoff.ee/hainguyents13" target="_blank" class="open-in-browser">☕ Buy me a coffee</a>
+      </p>
     </div>
   </body>
 </html>

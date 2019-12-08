@@ -1,9 +1,10 @@
 // All of the Node.js APIs are available in the preload process.
 // It has the same sandbox as a Chrome extension.
-const gkm = require('gkm');
+// const gkm = require('gkm');
 const { Howl } = require('howler');
 const glob = require('glob');
 const { shell } = require('electron');
+const iohook = require('iohook');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
@@ -20,16 +21,14 @@ let current_key_down = null;
 async function loadSets(status_display_elem) {
   status_display_elem.innerHTML = 'Loading...';
   sets = [];
-  const folders = await glob.sync(__dirname + '/audio/**/');
-  folders.shift();
+  const folders = await glob.sync(__dirname + '/audio/*/');
   const _sets = folders.map(async folder => {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
     const config_file = `./audio/${folder_name}/config`;
-    const { set_name, keys, sound_file } = require(config_file);
+    const { set_name, keycodes, sound_file } = require(config_file);
     const sound_path = `./audio/${folder_name}/${sound_file}`;
-
-    sound_data = new Howl({ src: [sound_path], sprite: keys });
+    sound_data = new Howl({ src: [sound_path], sprite: keycodes });
 
     const set_data = {
       set_id: folder_name,
@@ -157,30 +156,33 @@ function setsToOptions(sets, set_list, onselect) {
     };
 
     // listen to key press
-    gkm.events.on('key.*', function(key) {
+    iohook.start();
+
+    // if key released, clear current key
+    iohook.on('keyup', () => {
+      current_key_down = null;
+      keycode_display.classList.remove('pressed');
+    });
+
+    // key pressed, set current key and play sound
+    iohook.on('keydown', ({ rawcode }) => {
       // if turned off, play no sound
       if (!enabled) {
         return;
       }
-      // if key released, clear current key
-      if (this.event === 'key.released') {
-        current_key_down = null;
+      if (current_key_down == rawcode) {
+        return;
       }
-      // key pressed, set current key and play sound
-      if (this.event === 'key.pressed') {
-        if (current_key_down == key[0]) {
-          return;
-        }
-        // display current pressed key
-        keycode_display.innerHTML = key[0];
-        // set current pressed key
-        current_key_down = key[0];
-        // get loaded audio object
-        // if object valid, set volume and play sound
-        if (current_set) {
-          current_set.sound.volume(Number(volume.value / 100));
-          current_set.sound.play(current_key_down.toLowerCase());
-        }
+      // display current pressed key
+      // keycode_display.innerHTML = rawcode;
+      keycode_display.classList.add('pressed');
+      // set current pressed key
+      current_key_down = rawcode;
+      // get loaded audio object
+      // if object valid, set volume and play sound
+      if (current_set) {
+        current_set.sound.volume(Number(volume.value / 100));
+        current_set.sound.play(current_key_down.toString());
       }
     });
   });
