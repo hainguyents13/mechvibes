@@ -10,7 +10,7 @@ This app using `gkm` package which requires **Java** to run, `iohook` doesn't re
 
 ### How to use
 
-- Download it https://github.com/hainguyents13/mechvibes/releases/latest
+- Download it from [Releases](https://github.com/hainguyents13/mechvibes/releases/latest)
 - Extract it.
 - Run it.
 - Enjoy it.
