@@ -24,12 +24,11 @@
           "zip"
         ],
         "linux": [
-          "deb",
-          "rpm"
+          "AppImage"
         ]
       },
       "electronPackagerConfig": {
-        "packageManager": "yarn"
+        "packageManager": "npm"
       },
       "electronWinstallerConfig": {
         "name": "mechvibes"
@@ -47,15 +46,18 @@
     }
   },
   "dependencies": {
+    "electron-compile": "^6.4.4",
     "gkm": "^0.2.0",
     "glob": "^7.1.6",
-    "howler": "^2.1.2",
-    "electron-compile": "^6.4.4"
+    "howler": "^2.1.2"
   },
   "devDependencies": {
+    "electron-builder": "^21.2.0",
     "electron-compile": "^6.4.4",
-    "electron-squirrel-startup": "^1.0.0",
     "electron-forge": "^5.2.4",
-    "electron-prebuilt-compile": "4.0.0"
+    "electron-installer-appimage": "^1.0.1",
+    "electron-packager": "^14.1.1",
+    "electron-prebuilt-compile": "4.0.0",
+    "electron-squirrel-startup": "^1.0.0"
   }
 }
