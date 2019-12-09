@@ -1,5 +1,7 @@
+@import url('https://fonts.googleapis.com/css?family=Lato:400,900&display=swap');
+
 body {
-  font-family: sans-serif;
+  font-family: 'Lato', sans-serif;
   font-size: 13px;
 }
 
@@ -18,7 +20,8 @@ body {
 }
 #keycode-display {
   transition: all 0.1s ease;
-  box-shadow: 0 3px #f18787;
+  box-shadow: 0 2px #ff3333;
+  font-weight: 900;
 }
 #keycode-display.pressed {
   box-shadow: 0 0;
@@ -28,5 +31,5 @@ body {
 
 a.open-in-browser {
   text-decoration: none;
-  color: #f18787;
+  color: #ff3333;
 }
