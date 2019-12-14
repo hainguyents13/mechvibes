@@ -20,7 +20,7 @@ body {
 }
 #keycode-display {
   transition: all 0.1s ease;
-  box-shadow: 0 2px #ff3333;
+  box-shadow: 0 2px #ff6666;
   font-weight: 900;
 }
 #keycode-display.pressed {

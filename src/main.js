@@ -1,12 +1,15 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, Tray, Menu } = require('electron');
 const path = require('path');
+
+const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
 let win;
+let tray = null;
 
-function createWindow() {
+function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
@@ -17,6 +20,7 @@ function createWindow() {
       contextIsolation: false,
       nodeIntegration: true,
     },
+    show,
   });
 
   // remove menu bar
@@ -36,14 +40,74 @@ function createWindow() {
     // when you should delete the corresponding element.
     win = null;
   });
+
+  win.on('minimize', function(event) {
+    event.preventDefault();
+    win.hide();
+  });
+
+  win.on('close', function(event) {
+    if (!app.isQuiting) {
+      event.preventDefault();
+      win.hide();
+    }
+
+    return false;
+  });
+
+  return win;
 }
+
+app.requestSingleInstanceLock();
+app.on('second-instance', (event, argv, cwd) => {
+  // Someone tried to run a second instance, we should focus our window.
+  if (win) {
+    win.show();
+  }
+});
 
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // This method will be called when Electron has finished
 // initialization and is ready to create browser windows.
 // Some APIs can only be used after this event occurs.
-app.on('ready', createWindow);
+// Don't show the window and create a tray instead
+app.on('ready', () => {
+  // create and get window instance
+  win = createWindow(false);
+
+  // start tray icon
+  tray = new Tray(SYSTRAY_ICON);
+
+  // tray icon tooltip
+  tray.setToolTip('Mechvibes.');
+
+  // context menu when hover on tray icon
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: 'Mechvibes.',
+      click: function() {
+        // show app on click
+        win.show();
+      },
+    },
+    {
+      label: 'Quit',
+      click: function() {
+        // quit
+        app.isQuiting = true;
+        app.quit();
+      },
+    },
+  ]);
+
+  // double click on tray icon, show the app
+  tray.on('double-click', () => {
+    win.show();
+  });
+
+  tray.setContextMenu(contextMenu);
+});
 
 // Quit when all windows are closed.
 app.on('window-all-closed', function() {
