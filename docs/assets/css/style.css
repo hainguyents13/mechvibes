@@ -160,12 +160,12 @@ h3,
 h4,
 h5,
 h6 {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 16px;
 }
 
 p {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 14px;
 }
 
@@ -228,7 +228,7 @@ body {
 /*------ Navbar Styling ------*/
 
 .navbar {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   padding-top: 25px;
   padding-bottom: 25px;
   background-color: transparent !important;
@@ -237,7 +237,7 @@ body {
 }
 
 .navbar .navbar-brand {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 16px;
   font-weight: 600;
   letter-spacing: 0;
@@ -399,7 +399,7 @@ body {
   margin-top: 15px;
 }
 .btn-action {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   display: inline-block;
   height: 38px;
   padding: 0 30px;
@@ -456,7 +456,7 @@ body {
   opacity: 0.9;
 }
 .btn-cta {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   display: inline-block;
   height: 30px;
   padding: 0 30px;
@@ -523,7 +523,7 @@ body {
 }
 .hero-2 .form-alt input {
   color: #222222;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   padding: 0;
   font-size: 13px;
   font-weight: 500;
@@ -546,7 +546,7 @@ body {
   margin-left: -25px;
   padding: 0 25px 0 25px;
   background: #dc3545;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 14px;
   font-weight: 500;
   text-transform: capitalize;
@@ -564,7 +564,7 @@ body {
   left: 0;
   right: 0;
   bottom: -50%;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: #ff3333;
@@ -574,7 +574,7 @@ body {
   left: 0;
   bottom: -45%;
   vertical-align: middle;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px !important;
   font-weight: 500;
   color: #15ccbe;
@@ -584,7 +584,7 @@ body {
   left: 0;
   bottom: -45%;
   vertical-align: middle;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: red;
@@ -654,7 +654,7 @@ body {
   margin-bottom: 15px;
 }
 .flex-inner .f-text .left-content a {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 14px;
   font-weight: bold;
   color: #8798ab;
@@ -806,7 +806,7 @@ body {
   margin: 25px 0;
 }
 .yd-link a {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 15px;
   font-weight: 500;
   color: #dc3545;
@@ -972,7 +972,7 @@ body {
 .table-col .pricing-details span,
 .table-col .pricing-details span {
   display: block;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 32px;
   font-weight: 600;
   color: #364655;
@@ -1000,7 +1000,7 @@ body {
 }
 .table-col .pricing-details li,
 .table-col .pricing-details li {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: #97a6b5;
@@ -1140,7 +1140,7 @@ body {
   line-height: 1.4;
 }
 .yd-reviews .card-single .review-attribution a {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 12px;
   font-weight: 500;
   color: #dc3545;
@@ -1222,7 +1222,7 @@ body {
   width: 100%;
   margin: 0 auto;
   color: #dc3545;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   padding: 0;
   font-size: 13px;
   font-weight: 500;
@@ -1248,7 +1248,7 @@ body {
   margin: 15px 0;
   padding: 0 25px 0 25px;
   background: #dc3545;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 14px;
   font-weight: 500;
   text-transform: capitalize;
@@ -1273,7 +1273,7 @@ body {
   left: 0;
   right: 0;
   bottom: -50%;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: #ff3333;
@@ -1283,7 +1283,7 @@ body {
   left: 0;
   bottom: -45%;
   vertical-align: middle;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px !important;
   font-weight: 500;
   color: #15ccbe;
@@ -1294,7 +1294,7 @@ body {
   right: 0;
   bottom: -45%;
   vertical-align: middle;
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 500;
   color: red;
@@ -1320,7 +1320,7 @@ body {
   text-align: center;
 }
 .footer-sm .footer-logo {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 18px;
   font-weight: 600;
   color: #dc3545;
@@ -1342,7 +1342,7 @@ body {
   margin-top: 10px;
 }
 .footer-sm ul li {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 13px;
   font-weight: 400;
   letter-spacing: 0;
@@ -1405,7 +1405,7 @@ body {
   text-align: center;
 }
 .back-to-top {
-  font-family: 'Montserrat', sans-serif;
+  font-family: 'LatoBlack', sans-serif;
   font-size: 12px;
   font-weight: 700;
   color: #ffffff;
