@@ -1602,3 +1602,8 @@ Adapted from: http://blog.heyimcat.com/universal-signup-form/ */
   font-size: 12px;
   color: #999;
 }
+
+.owl-carousel {
+  -ms-touch-action: pan-y;
+  touch-action: pan-y;
+}
