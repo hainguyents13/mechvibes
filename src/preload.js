@@ -39,7 +39,7 @@ async function loadSets(status_display_elem) {
     sound_data.once('load', function() {
       set_data._loaded = true;
       if (isAllSetsLoaded()) {
-        status_display_elem.innerHTML = 'Mechvibes.';
+        status_display_elem.innerHTML = 'Mechvibes';
       }
     });
 

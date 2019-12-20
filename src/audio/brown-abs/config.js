@@ -6,7 +6,7 @@ const set_tags = {
   is_lubed: false,
   keycap: 'abs',
 };
-const sound_file = 'sound.wav';
+const sound_file = 'sound.ogg';
 const keycodes = {
   // row 1
   '27': [1402, 170], // escape
