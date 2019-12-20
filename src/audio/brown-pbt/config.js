@@ -1,4 +1,4 @@
-const set_name = 'CherryMX Brown - PBT keycaps - Alt';
+const set_name = 'CherryMX Brown - PBT keycaps';
 const set_tags = {
   switches: 'cherrymx',
   type: 'brown',

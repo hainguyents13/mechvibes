@@ -99,6 +99,7 @@ jQuery(function($) {
 
       const latest = rs.shift();
       let tag_name = latest.tag_name;
+      $(`.version`).html(tag_name);
 
       const dl = {
         exe: latest.assets.find(a => a.content_type == 'application/x-msdownload'),

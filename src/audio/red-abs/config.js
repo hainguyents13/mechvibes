@@ -1,10 +1,10 @@
-const set_name = 'CherryMX Red - ABS keycaps - Alt';
+const set_name = 'CherryMX Red - ABS keycaps';
 const set_tags = {
   switches: 'cherrymx',
-  type: 'brown',
-  feedback: 'tactile',
+  type: 'red',
+  feedback: 'linear',
   is_lubed: false,
-  keycap: 'pbt',
+  keycap: 'abs',
 };
 const sound_file = 'sound.wav';
 const keycodes = {
