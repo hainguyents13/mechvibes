@@ -103,7 +103,7 @@ jQuery(function($) {
 
       const dl = {
         exe: latest.assets.find(a => a.content_type == 'application/x-msdownload'),
-        zip: latest.assets.find(a => a.content_type == 'application/zip'),
+        zip: latest.assets.find(a => a.content_type == 'application/zip' || a.content_type == 'application/x-zip-compressed'),
         dmg: latest.assets.find(a => a.content_type == 'application/octet-stream'),
         ai: latest.assets.find(a => a.content_type == 'application/x-iso9660-appimage'),
       };
