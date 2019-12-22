@@ -58,56 +58,72 @@ function createWindow(show = true) {
   return win;
 }
 
-app.requestSingleInstanceLock();
+const gotTheLock = app.requestSingleInstanceLock();
 app.on('second-instance', (event, argv, cwd) => {
   // Someone tried to run a second instance, we should focus our window.
   if (win) {
     win.show();
+    win.focus();
   }
 });
 
-app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
-
-// This method will be called when Electron has finished
-// initialization and is ready to create browser windows.
-// Some APIs can only be used after this event occurs.
-// Don't show the window and create a tray instead
-app.on('ready', () => {
-  // create and get window instance
-  win = createWindow(false);
-
-  // start tray icon
-  tray = new Tray(SYSTRAY_ICON);
-
-  // tray icon tooltip
-  tray.setToolTip('Mechvibes.');
-
-  // context menu when hover on tray icon
-  const contextMenu = Menu.buildFromTemplate([
-    {
-      label: 'Mechvibes.',
-      click: function() {
-        // show app on click
-        win.show();
-      },
-    },
-    {
-      label: 'Quit',
-      click: function() {
-        // quit
-        app.isQuiting = true;
-        app.quit();
-      },
-    },
-  ]);
-
-  // double click on tray icon, show the app
-  tray.on('double-click', () => {
-    win.show();
+if (!gotTheLock) {
+  app.quit();
+} else {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
+    // Someone tried to run a second instance, we should focus our window.
+    if (win) {
+      if (win.isMinimized()) {
+        win.restore();
+      }
+      win.show();
+      win.focus();
+    }
   });
 
-  tray.setContextMenu(contextMenu);
-});
+  // This method will be called when Electron has finished
+  // initialization and is ready to create browser windows.
+  // Some APIs can only be used after this event occurs.
+  // Don't show the window and create a tray instead
+  // create and get window instance
+  app.on('ready', () => {
+    win = createWindow(false);
+
+    // start tray icon
+    tray = new Tray(SYSTRAY_ICON);
+
+    // tray icon tooltip
+    tray.setToolTip('Mechvibes.');
+
+    // context menu when hover on tray icon
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Mechvibes.',
+        click: function() {
+          // show app on click
+          win.show();
+        },
+      },
+      {
+        label: 'Quit',
+        click: function() {
+          // quit
+          app.isQuiting = true;
+          app.quit();
+        },
+      },
+    ]);
+
+    // double click on tray icon, show the app
+    tray.on('double-click', () => {
+      win.show();
+    });
+
+    tray.setContextMenu(contextMenu);
+  });
+}
+
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // Quit when all windows are closed.
 app.on('window-all-closed', function() {
