@@ -2,12 +2,15 @@
 // It has the same sandbox as a Chrome extension.
 // const gkm = require('gkm');
 const { Howl } = require('howler');
-const glob = require('glob');
 const { shell } = require('electron');
+const glob = require('glob');
 const iohook = require('iohook');
+
+const os_keycodes = require('./os-keycodes');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
+const { platform } = process;
 
 let current_set = null;
 let sets = [];
@@ -26,9 +29,9 @@ async function loadSets(status_display_elem) {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
     const config_file = `./audio/${folder_name}/config`;
-    const { set_name, keycodes, sound_file } = require(config_file);
+    const { set_name, keychars, sound_file } = require(config_file);
     const sound_path = `./audio/${folder_name}/${sound_file}`;
-    sound_data = new Howl({ src: [sound_path], sprite: keycodes });
+    sound_data = new Howl({ src: [sound_path], sprite: keycharsToOsBasedKeycodes(keychars) });
 
     const set_data = {
       set_id: folder_name,
@@ -55,6 +58,19 @@ async function loadSets(status_display_elem) {
 // check if all sets loaded
 function isAllSetsLoaded() {
   return sets.every(set => set._loaded);
+}
+
+// ==================================================
+// ==================================================
+// ==================================================
+function keycharsToOsBasedKeycodes(keychars) {
+  const sprite = {};
+  const keycodes = os_keycodes[platform];
+  Object.keys(keycodes).forEach(char => {
+    const keycode = keycodes[char];
+    sprite[keycode] = keychars[char];
+  });
+  return sprite;
 }
 
 // ==================================================

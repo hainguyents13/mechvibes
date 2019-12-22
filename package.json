@@ -10,11 +10,15 @@
     "build:win": "electron-builder -w",
     "build:win:zip": "electron-builder -w zip",
     "build:mac": "electron-builder -m",
-    "build:linux": "electron-builder -l",
-    "build:linux:ai": "electron-builder -l AppImage"
+    "build:linux:ai": "electron-builder -l AppImage",
+    "build:linux:deb": "electron-builder -l AppImage"
   },
   "keywords": [],
-  "author": "hainguyents13",
+  "homepage": "https://hainguyents13.github.io/mechvibes/",
+  "author": {
+    "name": "Hai Nguyen",
+    "email": "hainguyen.ts13"
+  },
   "license": "MIT",
   "iohook": {
     "targets": [
@@ -57,7 +61,7 @@
     "linux": {
       "target": [
         {
-          "target": "snap",
+          "target": "deb",
           "arch": [
             "x64",
             "ia32"
@@ -68,6 +72,7 @@
     }
   },
   "dependencies": {
+    "getos": "^3.1.1",
     "glob": "^7.1.6",
     "howler": "^2.1.2",
     "iohook": "^0.6.2"
