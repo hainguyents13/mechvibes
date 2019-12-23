@@ -11,13 +11,13 @@
     "build:win:zip": "electron-builder -w zip",
     "build:mac": "electron-builder -m",
     "build:linux:ai": "electron-builder -l AppImage",
-    "build:linux:deb": "electron-builder -l AppImage"
+    "build:linux:deb": "electron-builder -l deb"
   },
   "keywords": [],
   "homepage": "https://hainguyents13.github.io/mechvibes/",
   "author": {
     "name": "Hai Nguyen",
-    "email": "hainguyen.ts13"
+    "email": "hainguyen.ts13@gmail.com"
   },
   "license": "MIT",
   "iohook": {
