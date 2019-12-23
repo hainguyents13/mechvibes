@@ -68,7 +68,13 @@ function keycharsToOsBasedKeycodes(keychars) {
   const keycodes = os_keycodes[platform];
   Object.keys(keycodes).forEach(char => {
     const keycode = keycodes[char];
-    sprite[keycode] = keychars[char];
+    if (Array.isArray(keycode)) {
+      for (let kc of keycode) {
+        sprite[kc] = keychars[char];
+      }
+    } else {
+      sprite[keycode] = keychars[char];
+    }
   });
   return sprite;
 }
