@@ -12,7 +12,7 @@ let tray = null;
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 400,
+    width: 1000,
     height: 600,
     webSecurity: false,
     webPreferences: {
@@ -30,7 +30,7 @@ function createWindow(show = true) {
   win.loadFile('./src/index.html');
 
   // Open the DevTools.
-  // win.openDevTools();
+  win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.

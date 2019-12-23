@@ -98,7 +98,7 @@ const keychars = {
   leftcontrol: [40191, 178], // 'left control'
   leftmeta: [40588, 184], // 'left meta'
   leftalt: [40985, 175], // 'left alt'
-  space: [41553, 280], // space
+  space: [47621, 300], // space
   rightalt: [42367, 194], // 'right alt'
   rightmeta: [43196, 203], // menu key // 'right meta'
   /* blank */

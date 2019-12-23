@@ -5,17 +5,19 @@ const { Howl } = require('howler');
 const { shell } = require('electron');
 const glob = require('glob');
 const iohook = require('iohook');
+const { platform } = process;
 
 const os_keycodes = require('./os-keycodes');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
-const { platform } = process;
+const KEYPRESS_TIMEOUT = 5; // ms
 
 let current_set = null;
 let sets = [];
 let enabled = true;
 let current_key_down = null;
+let last_key_pressed = Date.now();
 
 // ==================================================
 // ==================================================
@@ -183,6 +185,7 @@ function setsToOptions(sets, set_list, onselect) {
     // if key released, clear current key
     iohook.on('keyup', () => {
       current_key_down = null;
+      last_key_pressed = Date.now();
       keycode_display.classList.remove('pressed');
     });
 
@@ -192,9 +195,18 @@ function setsToOptions(sets, set_list, onselect) {
       if (!enabled) {
         return;
       }
+
+      // if hold down a key, not repeat the sound
       if (current_key_down == rawcode) {
         return;
       }
+
+      // this code prevent language input tools (unikey, ibus...)
+      // send multiple keys when they perform auto correct
+      if (Date.now() - last_key_pressed <= KEYPRESS_TIMEOUT) {
+        return;
+      }
+
       // display current pressed key
       // keycode_display.innerHTML = rawcode;
       keycode_display.classList.add('pressed');
@@ -204,7 +216,8 @@ function setsToOptions(sets, set_list, onselect) {
       // if object valid, set volume and play sound
       if (current_set) {
         current_set.sound.volume(Number(volume.value / 100));
-        current_set.sound.play(current_key_down.toString());
+        const pressed = current_set.sound.play(current_key_down.toString());
+        console.log(pressed);
       }
     });
   });
