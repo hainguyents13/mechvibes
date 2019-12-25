@@ -12,7 +12,7 @@ let tray = null;
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 400,
+    width: 1000,
     height: 600,
     webSecurity: false,
     webPreferences: {
@@ -30,7 +30,7 @@ function createWindow(show = true) {
   win.loadFile('./src/index.html');
 
   // Open the DevTools.
-  // win.openDevTools();
+  win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.
@@ -42,12 +42,18 @@ function createWindow(show = true) {
   });
 
   win.on('minimize', function(event) {
+    if (process.platform === 'darwin') {
+      app.dock.hide();
+    }
     event.preventDefault();
     win.hide();
   });
 
   win.on('close', function(event) {
     if (!app.isQuiting) {
+      if (process.platform === 'darwin') {
+        app.dock.hide();
+      }
       event.preventDefault();
       win.hide();
     }
@@ -93,7 +99,7 @@ if (!gotTheLock) {
     tray = new Tray(SYSTRAY_ICON);
 
     // tray icon tooltip
-    tray.setToolTip('Mechvibes.');
+    tray.setToolTip('Mechvibes');
 
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
@@ -120,6 +126,14 @@ if (!gotTheLock) {
     });
 
     tray.setContextMenu(contextMenu);
+
+    // prevent Electron app from interrupting macOS system shutdown
+    if (process.platform == 'darwin') {
+      const { powerMonitor } = require('electron');
+      powerMonitor.on('shutdown', () => {
+        app.quit();
+      });
+    }
   });
 }
 
@@ -136,6 +150,11 @@ app.on('activate', function() {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (win === null) createWindow();
+});
+
+// always be sure that your application handles the 'quit' event in your main process
+app.on('quit', () => {
+  app.quit();
 });
 
 // In this file you can include the rest of your app's specific main process

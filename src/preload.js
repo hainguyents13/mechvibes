@@ -73,10 +73,10 @@ function keycharsToOsBasedKeycodes(keychars) {
     const keycode = keycodes[char];
     if (Array.isArray(keycode)) {
       for (let kc of keycode) {
-        sprite[kc] = keychars[char];
+        sprite[`keycode-${kc}`] = keychars[char];
       }
     } else {
-      sprite[keycode] = keychars[char];
+      sprite[`keycode-${keycode}`] = keychars[char];
     }
   });
   return sprite;
@@ -232,13 +232,18 @@ function setsToOptions(sets, set_list, onselect) {
       // display current pressed key
       // keycode_display.innerHTML = rawcode;
       keycode_display.classList.add('pressed');
+
       // set current pressed key
       current_key_down = rawcode;
+
+      // set sprite id from keycode
+      const sprite_id = `keycode-${current_key_down.toString()}`;
+
       // get loaded audio object
       // if object valid, set volume and play sound
       if (current_set) {
         current_set.sound.volume(Number(volume.value / 100));
-        current_set.sound.play(current_key_down.toString());
+        current_set.sound.play(sprite_id);
       }
     });
   });
