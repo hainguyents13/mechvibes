@@ -11,13 +11,24 @@ const os_keycodes = require('./os-keycodes');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
-const KEYPRESS_TIMEOUT = 5; // ms
+const KEYPRESS_TIMEOUT = 10; // ms
 
 let current_set = null;
 let sets = [];
 let enabled = true;
 let current_key_down = null;
 let last_key_pressed = Date.now();
+
+var gkm = require('gkm');
+
+// Listen to all key events (pressed, released, typed)
+gkm.events.on('key.*', function(data) {
+  if (this.event == 'key.pressed') {
+    console.log(data);
+  }
+});
+
+return;
 
 // ==================================================
 // ==================================================
@@ -225,7 +236,9 @@ function setsToOptions(sets, set_list, onselect) {
 
       // this code prevent language input tools (unikey, ibus...)
       // send multiple keys when they perform auto correct
-      if (Date.now() - last_key_pressed <= KEYPRESS_TIMEOUT) {
+      const threshold = Date.now() - last_key_pressed;
+      console.log(threshold);
+      if (threshold <= KEYPRESS_TIMEOUT) {
         return;
       }
 
