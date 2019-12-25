@@ -31,13 +31,14 @@ async function loadSets(status_display_elem) {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
     const config_file = `./audio/${folder_name}/config`;
-    const { set_name, keychars, sound_file } = require(config_file);
+    const { set_name, keychars, sound_file, set_tags } = require(config_file);
     const sound_path = `./audio/${folder_name}/${sound_file}`;
     sound_data = new Howl({ src: [sound_path], sprite: keycharsToOsBasedKeycodes(keychars) });
 
     const set_data = {
       set_id: folder_name,
       set_name,
+      set_tags,
       sound: sound_data,
     };
 
@@ -109,20 +110,41 @@ function getSet(set_id = null) {
 function setsToOptions(sets, set_list, onselect) {
   // get saved set id
   const selected_set_id = localStorage.getItem(MV_SET_LS_ID);
-  for (let set of sets) {
-    // check if selected
-    const is_selected = selected_set_id == set.set_id;
-    if (is_selected) {
-      // set current set to saved set
-      current_set = set;
+  const groups = [];
+  sets.map(set => {
+    const exists = groups.find(group => group.id == set.set_tags.group);
+    if (!exists) {
+      const group = {
+        id: set.set_tags.group,
+        name: set.set_tags.group.toUpperCase(),
+        sets: [set],
+      };
+      groups.push(group);
+    } else {
+      exists.sets.push(set);
     }
-    // add set to set list
-    const opt = document.createElement('option');
-    opt.text = set.set_name;
-    opt.value = set.set_id;
-    opt.selected = is_selected ? 'selected' : false;
-    set_list.add(opt);
+  });
+
+  for (let group of groups) {
+    const optgroup = document.createElement('optgroup');
+    optgroup.label = group.name;
+    for (let set of group.sets) {
+      // check if selected
+      const is_selected = selected_set_id == set.set_id;
+      if (is_selected) {
+        // set current set to saved set
+        current_set = set;
+      }
+      // add set to set list
+      const opt = document.createElement('option');
+      opt.text = set.set_name;
+      opt.value = set.set_id;
+      opt.selected = is_selected ? 'selected' : false;
+      optgroup.appendChild(opt);
+    }
+    set_list.appendChild(optgroup);
   }
+
   // on select an option
   // update saved list id
   set_list.addEventListener('change', e => {
@@ -216,8 +238,7 @@ function setsToOptions(sets, set_list, onselect) {
       // if object valid, set volume and play sound
       if (current_set) {
         current_set.sound.volume(Number(volume.value / 100));
-        const pressed = current_set.sound.play(current_key_down.toString());
-        console.log(pressed);
+        current_set.sound.play(current_key_down.toString());
       }
     });
   });

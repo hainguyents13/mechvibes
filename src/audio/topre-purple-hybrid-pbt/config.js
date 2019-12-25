@@ -7,6 +7,7 @@ const set_tags = {
   keycap: 'pbt',
   desc: 'Topre Purple Hybrid from Novatouch',
   keyboard: 'CMStorm Novatouch',
+  group: 'ec-topre',
 };
 const sound_file = 'sound.ogg';
 const keychars = {

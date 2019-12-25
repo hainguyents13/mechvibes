@@ -12,7 +12,7 @@ let tray = null;
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 1000,
+    width: 400,
     height: 600,
     webSecurity: false,
     webPreferences: {
@@ -30,7 +30,7 @@ function createWindow(show = true) {
   win.loadFile('./src/index.html');
 
   // Open the DevTools.
-  win.openDevTools();
+  // win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.
@@ -87,7 +87,7 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
-    win = createWindow(false);
+    win = createWindow(true);
 
     // start tray icon
     tray = new Tray(SYSTRAY_ICON);
@@ -98,7 +98,7 @@ if (!gotTheLock) {
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
       {
-        label: 'Mechvibes.',
+        label: 'Mechvibes',
         click: function() {
           // show app on click
           win.show();

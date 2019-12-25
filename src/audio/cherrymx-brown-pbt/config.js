@@ -5,6 +5,7 @@ const set_tags = {
   feedback: 'tactile',
   is_lubed: false,
   keycap: 'pbt',
+  group: 'cherrymx',
 };
 const sound_file = 'sound.ogg';
 const keychars = {
