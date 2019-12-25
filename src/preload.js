@@ -19,17 +19,6 @@ let enabled = true;
 let current_key_down = null;
 let last_key_pressed = Date.now();
 
-var gkm = require('gkm');
-
-// Listen to all key events (pressed, released, typed)
-gkm.events.on('key.*', function(data) {
-  if (this.event == 'key.pressed') {
-    console.log(data);
-  }
-});
-
-return;
-
 // ==================================================
 // ==================================================
 // ==================================================
@@ -223,7 +212,8 @@ function setsToOptions(sets, set_list, onselect) {
     });
 
     // key pressed, set current key and play sound
-    iohook.on('keydown', ({ rawcode }) => {
+    iohook.on('keydown', ({ rawcode, keycode }) => {
+      console.log(rawcode, keycode);
       // if turned off, play no sound
       if (!enabled) {
         return;
@@ -237,7 +227,6 @@ function setsToOptions(sets, set_list, onselect) {
       // this code prevent language input tools (unikey, ibus...)
       // send multiple keys when they perform auto correct
       const threshold = Date.now() - last_key_pressed;
-      console.log(threshold);
       if (threshold <= KEYPRESS_TIMEOUT) {
         return;
       }
