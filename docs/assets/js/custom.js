@@ -105,7 +105,7 @@ jQuery(function($) {
         exe: latest.assets.find(a => a.content_type == 'application/x-msdownload'),
         zip: latest.assets.find(a => a.content_type == 'application/zip' || a.content_type == 'application/x-zip-compressed'),
         dmg: latest.assets.find(a => a.content_type == 'application/octet-stream'),
-        ai: latest.assets.find(a => a.content_type == 'application/x-iso9660-appimage'),
+        // ai: latest.assets.find(a => a.content_type == 'application/x-iso9660-appimage'),
         deb: latest.assets.find(a => a.content_type == 'application/vnd.debian.binary-package'),
       };
 
