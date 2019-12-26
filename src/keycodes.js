@@ -80,7 +80,7 @@ const keycodes = [
 
   { keycode: 0x001a, key: 'KC_OPEN_BRACKET', info: '[' }, // '['
   { keycode: 0x001b, key: 'KC_CLOSE_BRACKET', info: ']' }, // ']'
-  { keycode: 0x002b, key: 'KC_BACK_SLASH', info: '' }, // ''
+  { keycode: 0x002b, key: 'KC_BACK_SLASH', info: 'Back slash' }, // ''
 
   { keycode: 0x0027, key: 'KC_SEMICOLON', info: ';' }, // ';'
   { keycode: 0x0028, key: 'KC_QUOTE', info: 'Quote' },
@@ -108,7 +108,7 @@ const keycodes = [
 
   // Begin Cursor Key Zone
   { keycode: 0xe048, key: 'KC_UP', info: 'Up' },
-  { keycode: 0x25, key: 'KC_LEFT', info: 'Left' },
+  { keycode: 0xe04b, key: 'KC_LEFT', info: 'Left' },
   { keycode: 0xe04c, key: 'KC_CLEAR', info: 'Clear' },
   { keycode: 0xe04d, key: 'KC_RIGHT', info: 'Right' },
   { keycode: 0xe050, key: 'KC_DOWN', info: 'Down' },

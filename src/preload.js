@@ -211,6 +211,7 @@ function setsToOptions(sets, set_list, onselect) {
       last_key_pressed = Date.now();
       keycode_display.classList.remove('pressed');
     });
+
     // key pressed, set current key and play sound
     iohook.on('keydown', ({ keycode }) => {
       const pressed = keycodes.find(key => key.keycode == keycode);
