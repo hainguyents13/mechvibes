@@ -107,11 +107,17 @@ const keycodes = [
   // End Edit Key Zone
 
   // Begin Cursor Key Zone
+  // Mac
   { keycode: 57416, keycode_hex: 0xe048, key: 'KC_UP', info: 'Up' },
   { keycode: 57419, keycode_hex: 0xe04b, key: 'KC_LEFT', info: 'Left' },
   { keycode: 57420, keycode_hex: 0xe04c, key: 'KC_CLEAR', info: 'Clear' },
   { keycode: 57421, keycode_hex: 0xe04d, key: 'KC_RIGHT', info: 'Right' },
   { keycode: 57424, keycode_hex: 0xe050, key: 'KC_DOWN', info: 'Down' },
+  // Windows
+  { keycode: 61000, keycode_hex: 0xee48, key: 'KC_UP', info: 'Up' },
+  { keycode: 61003, keycode_hex: 0x25, key: 'KC_LEFT', info: 'Left' },
+  { keycode: 61005, keycode_hex: 0x27, key: 'KC_RIGHT', info: 'Right' },
+  { keycode: 61008, keycode_hex: 0x28, key: 'KC_DOWN', info: 'Down' },
   // End Cursor Key Zone
 
   // Begin Numeric Zone

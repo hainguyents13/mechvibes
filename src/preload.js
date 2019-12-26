@@ -1,3 +1,5 @@
+'use strict';
+
 // All of the Node.js APIs are available in the preload process.
 // It has the same sandbox as a Chrome extension.
 // const gkm = require('gkm');
@@ -34,7 +36,7 @@ async function loadSets(status_display_elem) {
     const config_file = `./audio/${folder_name}/config`;
     const { set_name, keychars, sound_file, set_tags } = require(config_file);
     const sound_path = `./audio/${folder_name}/${sound_file}`;
-    sound_data = new Howl({ src: [sound_path], sprite: keycharsToOsBasedKeycodes(keychars) });
+    const sound_data = new Howl({ src: [sound_path], sprite: keycharsToOsBasedKeycodes(keychars) });
 
     const set_data = {
       set_id: folder_name,
@@ -212,14 +214,14 @@ function setsToOptions(sets, set_list, onselect) {
       keycode_display.classList.remove('pressed');
     });
 
-    keycodes.map(item => {
-      console.log(item.keycode_hex);
-    });
+    // keycodes.map(item => {
+    //   console.log(item.keycode_hex);
+    // });
 
     // key pressed, set current key and play sound
-    iohook.on('keydown', ({ keycode }) => {
+    iohook.on('keydown', ({ keycode, keychar }) => {
       const pressed = keycodes.find(key => key.keycode == keycode);
-      console.log(keycode, pressed ? pressed.info : null);
+      console.log(keychar, keycode, pressed ? pressed.info : null);
 
       // if turned off, play no sound
       if (!enabled) {
