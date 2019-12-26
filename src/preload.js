@@ -212,6 +212,10 @@ function setsToOptions(sets, set_list, onselect) {
       keycode_display.classList.remove('pressed');
     });
 
+    keycodes.map(item => {
+      console.log(item.keycode_hex);
+    });
+
     // key pressed, set current key and play sound
     iohook.on('keydown', ({ keycode }) => {
       const pressed = keycodes.find(key => key.keycode == keycode);
