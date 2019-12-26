@@ -1607,3 +1607,22 @@ Adapted from: http://blog.heyimcat.com/universal-signup-form/ */
   -ms-touch-action: pan-y;
   touch-action: pan-y;
 }
+
+.pricing-section .table-col {
+  min-height: 290px;
+}
+.pricing-section .table-col .os-name {
+  display: none;
+}
+.pricing-section .table-col:hover .os-icon {
+  display: block;
+}
+.pricing-section .table-col:hover .os-name {
+  display: none;
+}
+.pricing-section .table-col:hover .os-icon {
+  display: none;
+}
+.pricing-section .table-col:hover .os-name {
+  display: block;
+}

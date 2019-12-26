@@ -8,6 +8,7 @@ const iohook = require('iohook');
 const { platform } = process;
 
 const os_keycodes = require('./os-keycodes');
+const keycodes = require('./keycodes');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
@@ -210,17 +211,18 @@ function setsToOptions(sets, set_list, onselect) {
       last_key_pressed = Date.now();
       keycode_display.classList.remove('pressed');
     });
-
     // key pressed, set current key and play sound
-    iohook.on('keydown', ({ rawcode, keycode }) => {
-      console.log(rawcode, keycode);
+    iohook.on('keydown', ({ keycode }) => {
+      const pressed = keycodes.find(key => key.keycode == keycode);
+      console.log(keycode, pressed ? pressed.info : null);
+
       // if turned off, play no sound
       if (!enabled) {
         return;
       }
 
       // if hold down a key, not repeat the sound
-      if (current_key_down == rawcode) {
+      if (current_key_down == keycode) {
         return;
       }
 
@@ -232,11 +234,11 @@ function setsToOptions(sets, set_list, onselect) {
       }
 
       // display current pressed key
-      // keycode_display.innerHTML = rawcode;
+      // keycode_display.innerHTML = keycode;
       keycode_display.classList.add('pressed');
 
       // set current pressed key
-      current_key_down = rawcode;
+      current_key_down = keycode;
 
       // set sprite id from keycode
       const sprite_id = `keycode-${current_key_down.toString()}`;
