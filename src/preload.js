@@ -214,21 +214,9 @@ function setsToOptions(sets, set_list, onselect) {
       keycode_display.classList.remove('pressed');
     });
 
-    const duplicated = {};
-    keycodes.map(item => {
-      const exists = duplicated[item.keycode];
-      if (exists) {
-        exists.keys.push(item.info);
-        console.log('dup', item.keycode);
-      } else {
-        duplicated[item.keycode] = Object.assign(item, { keys: [item.info] });
-      }
-    });
-    console.log(duplicated);
-
     // key pressed, set current key and play sound
     iohook.on('keydown', ({ keycode }) => {
-      const pressed = keycodes.find(key => key.keycode == keycode);
+      const pressed = keycodes.win32.find(key => key.keycode == keycode);
       console.log(keycode, pressed ? pressed.info : null);
 
       return;
