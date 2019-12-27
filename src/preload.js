@@ -214,14 +214,24 @@ function setsToOptions(sets, set_list, onselect) {
       keycode_display.classList.remove('pressed');
     });
 
-    // keycodes.map(item => {
-    //   console.log(item.keycode_hex);
-    // });
+    const duplicated = {};
+    keycodes.map(item => {
+      const exists = duplicated[item.keycode];
+      if (exists) {
+        exists.keys.push(item.info);
+        console.log('dup', item.keycode);
+      } else {
+        duplicated[item.keycode] = Object.assign(item, { keys: [item.info] });
+      }
+    });
+    console.log(duplicated);
 
     // key pressed, set current key and play sound
-    iohook.on('keydown', ({ keycode, keychar }) => {
+    iohook.on('keydown', ({ keycode }) => {
       const pressed = keycodes.find(key => key.keycode == keycode);
-      console.log(keychar, keycode, pressed ? pressed.info : null);
+      console.log(keycode, pressed ? pressed.info : null);
+
+      return;
 
       // if turned off, play no sound
       if (!enabled) {
