@@ -238,6 +238,7 @@ function setsToOptions(sets, set_list, onselect) {
 
       // get loaded audio object
       // if object valid, set volume and play sound
+      console.log(sprite_id, current_set.sound._sprite[sprite_id]);
       if (current_set) {
         current_set.sound.volume(Number(volume.value / 100));
         current_set.sound.play(sprite_id);
