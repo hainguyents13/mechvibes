@@ -5,9 +5,9 @@ function remapper(from = 'standard', to = 'darwin', timing = []) {
       case 'linux':
         break;
       case 'darwin': {
-        timing[92] = timing[3639]; // mac f14
-        timing[93] = timing[70]; // mac f15
-        timing[99] = timing[3653]; // mac f16
+        timing[91] = timing[3639]; // mac f13
+        timing[92] = timing[70]; // mac f14
+        timing[93] = timing[3653]; // mac f15
         timing[91] = timing[57416];
         timing[56] = timing[3675];
         timing[3675] = timing[56];
@@ -41,9 +41,9 @@ function remapper(from = 'standard', to = 'darwin', timing = []) {
     // from linux, darwin, win32 to standard
     switch (from) {
       case 'darwin': {
-        timing[3639] = timing[92];
-        timing[70] = timing[93];
-        timing[3653] = timing[99];
+        timing[3639] = timing[91];
+        timing[70] = timing[92];
+        timing[3653] = timing[93];
         timing[57416] = timing[91];
         timing[3675] = timing[56];
         timing[56] = timing[3675];
