@@ -56,6 +56,11 @@ function remap(to = 'win32') {
       layout.main[5][4] = 3675;
       layout.main[5][5] = 56;
       layout.main[5][6] = 29;
+
+      // numpad
+      layout.numpad[0] = [69, 3597, 3637, 55];
+      layout.numpad[1][3] = 74;
+      layout.numpad[2][3] = 78;
       break;
     }
   }
