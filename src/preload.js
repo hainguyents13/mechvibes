@@ -24,13 +24,11 @@ let current_key_down = null;
 let last_key_pressed = Date.now();
 
 // ==================================================
-// ==================================================
-// ==================================================
 // load all set
 async function loadSets(status_display_elem) {
   status_display_elem.innerHTML = 'Loading...';
   sets = [];
-  const folders = await glob.sync(__dirname + '/audio/cherrymx-black-abs/');
+  const folders = await glob.sync(__dirname + '/audio/*/');
   const _sets = folders.map(async folder => {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
@@ -59,16 +57,13 @@ async function loadSets(status_display_elem) {
 }
 
 // ==================================================
-// ==================================================
-// ==================================================
 // check if all sets loaded
 function isAllSetsLoaded() {
   return sets.every(set => set._loaded);
 }
 
 // ==================================================
-// ==================================================
-// ==================================================
+// remap keycodes from standard to os based keycodes
 function keycodesRemap(timing) {
   const sprite = remapper('standard', platform, timing);
   Object.keys(sprite).map(kc => {
@@ -78,8 +73,6 @@ function keycodesRemap(timing) {
   return sprite;
 }
 
-// ==================================================
-// ==================================================
 // ==================================================
 // get set by id,
 // if id is null,
@@ -99,8 +92,6 @@ function getSet(set_id = null) {
   return sets.find(set => set.set_id == set_id);
 }
 
-// ==================================================
-// ==================================================
 // ==================================================
 // transform set to select option list
 function setsToOptions(sets, set_list, onselect) {
@@ -150,8 +141,6 @@ function setsToOptions(sets, set_list, onselect) {
   });
 }
 
-// ==================================================
-// ==================================================
 // ==================================================
 // main
 (function(window, document) {
@@ -215,14 +204,14 @@ function setsToOptions(sets, set_list, onselect) {
       }
 
       // if hold down a key, not repeat the sound
-      if (current_key_down == keycode) {
+      if (current_key_down != null && current_key_down == keycode) {
         return;
       }
 
       // this code prevent language input tools (unikey, ibus...)
       // send multiple keys when they perform auto correct
       const threshold = Date.now() - last_key_pressed;
-      if (threshold <= KEYPRESS_TIMEOUT) {
+      if (threshold <= 30) {
         return;
       }
 
@@ -238,7 +227,6 @@ function setsToOptions(sets, set_list, onselect) {
 
       // get loaded audio object
       // if object valid, set volume and play sound
-      console.log(sprite_id, current_set.sound._sprite[sprite_id]);
       if (current_set) {
         current_set.sound.volume(Number(volume.value / 100));
         current_set.sound.play(sprite_id);
