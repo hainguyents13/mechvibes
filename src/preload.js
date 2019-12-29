@@ -9,8 +9,9 @@ const glob = require('glob');
 const iohook = require('iohook');
 const { platform } = process;
 
-const os_keycodes = require('./os-keycodes');
-const keycodes = require('./keycodes');
+const keycodes = require('./libs/keycodes');
+const layouts = require('./libs/layouts');
+const remapper = require('./utils/remapper');
 
 const MV_SET_LS_ID = 'mechvibes-saved-set';
 const MV_VOL_LS_ID = 'mechvibes-saved-volume';
@@ -29,19 +30,18 @@ let last_key_pressed = Date.now();
 async function loadSets(status_display_elem) {
   status_display_elem.innerHTML = 'Loading...';
   sets = [];
-  const folders = await glob.sync(__dirname + '/audio/*/');
+  const folders = await glob.sync(__dirname + '/audio/cherrymx-black-abs/');
   const _sets = folders.map(async folder => {
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
     const config_file = `./audio/${folder_name}/config`;
-    const { set_name, keychars, sound_file, set_tags } = require(config_file);
-    const sound_path = `./audio/${folder_name}/${sound_file}`;
-    const sound_data = new Howl({ src: [sound_path], sprite: keycharsToOsBasedKeycodes(keychars) });
+    const { info, timing } = require(config_file);
+    const sound_path = `./audio/${folder_name}/${info.sound}`;
+    const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(timing) });
 
     const set_data = {
       set_id: folder_name,
-      set_name,
-      set_tags,
+      info,
       sound: sound_data,
     };
 
@@ -69,18 +69,11 @@ function isAllSetsLoaded() {
 // ==================================================
 // ==================================================
 // ==================================================
-function keycharsToOsBasedKeycodes(keychars) {
-  const sprite = {};
-  const keycodes = os_keycodes[platform];
-  Object.keys(keycodes).forEach(char => {
-    const keycode = keycodes[char];
-    if (Array.isArray(keycode)) {
-      for (let kc of keycode) {
-        sprite[`keycode-${kc}`] = keychars[char];
-      }
-    } else {
-      sprite[`keycode-${keycode}`] = keychars[char];
-    }
+function keycodesRemap(timing) {
+  const sprite = remapper('standard', platform, timing);
+  Object.keys(sprite).map(kc => {
+    sprite[`keycode-${kc}`] = sprite[kc];
+    delete sprite[kc];
   });
   return sprite;
 }
@@ -115,11 +108,11 @@ function setsToOptions(sets, set_list, onselect) {
   const selected_set_id = localStorage.getItem(MV_SET_LS_ID);
   const groups = [];
   sets.map(set => {
-    const exists = groups.find(group => group.id == set.set_tags.group);
+    const exists = groups.find(group => group.id == set.info.group);
     if (!exists) {
       const group = {
-        id: set.set_tags.group,
-        name: set.set_tags.group.toUpperCase(),
+        id: set.info.group,
+        name: set.info.group.toUpperCase(),
         sets: [set],
       };
       groups.push(group);
@@ -140,7 +133,7 @@ function setsToOptions(sets, set_list, onselect) {
       }
       // add set to set list
       const opt = document.createElement('option');
-      opt.text = set.set_name;
+      opt.text = set.info.name;
       opt.value = set.set_id;
       opt.selected = is_selected ? 'selected' : false;
       optgroup.appendChild(opt);
@@ -216,11 +209,6 @@ function setsToOptions(sets, set_list, onselect) {
 
     // key pressed, set current key and play sound
     iohook.on('keydown', ({ keycode }) => {
-      const pressed = keycodes.win32.find(key => key.keycode == keycode);
-      console.log(keycode, pressed ? pressed.info : null);
-
-      return;
-
       // if turned off, play no sound
       if (!enabled) {
         return;
@@ -245,8 +233,8 @@ function setsToOptions(sets, set_list, onselect) {
       // set current pressed key
       current_key_down = keycode;
 
-      // set sprite id from keycode
-      const sprite_id = `keycode-${current_key_down.toString()}`;
+      // set sprite id
+      const sprite_id = `keycode-${current_key_down}`;
 
       // get loaded audio object
       // if object valid, set volume and play sound
