@@ -1,7 +1,7 @@
 {
   "name": "mechvibes",
   "productName": "Mechvibes",
-  "version": "1.1.4",
+  "version": "v1.1.4",
   "description": "Play mechanical keyboard sounds as you type.",
   "repository": "https://github.com/hainguyents13/mechvibes",
   "main": "src/main.js",
@@ -72,14 +72,17 @@
     }
   },
   "dependencies": {
+    "@blueprintjs/core": "^3.22.3",
+    "electron-updater": "^4.2.0",
     "glob": "^7.1.6",
     "howler": "^2.1.2",
     "iohook": "^0.6.2"
   },
   "devDependencies": {
-    "electron": "^6.1.5",
     "app-builder-lib": "^22.2.0",
+    "electron": "^6.1.5",
     "electron-builder": "^21.2.0",
-    "electron-compile": "^6.4.4"
+    "electron-compile": "^6.4.4",
+    "electron-packager": "^14.1.1"
   }
 }

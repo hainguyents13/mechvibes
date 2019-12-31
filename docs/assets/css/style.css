@@ -1626,3 +1626,18 @@ Adapted from: http://blog.heyimcat.com/universal-signup-form/ */
 .pricing-section .table-col:hover .os-name {
   display: block;
 }
+
+ul.qa {
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+  padding-left: 0;
+  padding-right: 0;
+}
+.qa li h6 {
+  font-weight: bold;
+}
+.qa li {
+  line-height: 2rem;
+  color: #333;
+  margin-bottom: 2rem;
+}

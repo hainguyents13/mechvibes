@@ -5,6 +5,8 @@
     <title>Mechvibes</title>
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
     <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
+    <link href="../node_modules/@blueprintjs/core/lib/css/blueprint.css" rel="stylesheet" />
+    <link href="../node_modules/@blueprintjs/icons/lib/css/blueprint-icons.css" rel="stylesheet" />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
 
@@ -19,23 +21,30 @@
     </div>
     <ul id="settings" style="padding-left: 0">
       <li class="flex">
-        <div style="color: #666">Set</div>
+        <select id="set-types" disabled="">
+          <option value="default" selected="">Default Sets</option>
+          <option value="custom">My Sets</option>
+        </select>
         <select id="set-list"></select>
       </li>
       <li class="flex">
         <div style="color: #666">Volume <span id="volume-value-display"></span></div>
-        <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" />
-      </li>
-      <li class="flex">
-        <div style="color: #666">Listen</div>
-        <button id="enable">Pause</button>
+        <div>
+          <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" />
+        </div>
       </li>
     </ul>
+    <div class="divider"></div>
     <div style="color: #666; font-size: 12px; text-align: center">
       <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes" target="_blank" class="open-in-browser">hainguyents13</a></p>
       <p>
         <a href="https://buymeacoff.ee/hainguyents13" target="_blank" class="open-in-browser">☕ Buy me a coffee</a>
       </p>
+      <p id="app-version">-</p>
+      <div class="updater-message flex hidden" style="text-align: left">
+        <div class="updater-message"></div>
+        <a href="" style="font-weight: 400" class="updater-button hidden">Restart</a>
+      </div>
     </div>
   </body>
 </html>

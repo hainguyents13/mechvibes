@@ -1,5 +1,6 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Tray, Menu } = require('electron');
+const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
+const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
@@ -159,3 +160,6 @@ app.on('quit', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
+ipcMain.on('app_version', event => {
+  event.sender.send('app_version', { version: app.getVersion() });
+});

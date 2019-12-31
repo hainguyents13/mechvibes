@@ -7,7 +7,10 @@ const { Howl } = require('howler');
 const { shell } = require('electron');
 const glob = require('glob');
 const iohook = require('iohook');
+const { ipcRenderer } = require('electron');
 const { platform } = process;
+
+console.log('start');
 
 const keycodes = require('./libs/keycodes');
 const layouts = require('./libs/layouts');
@@ -26,34 +29,57 @@ let last_key_pressed = Date.now();
 // ==================================================
 // load all set
 async function loadSets(status_display_elem) {
+  // init
   status_display_elem.innerHTML = 'Loading...';
   sets = [];
+
+  // get all audio folders
   const folders = await glob.sync(__dirname + '/audio/*/');
+
+  // get set data
   const _sets = folders.map(async folder => {
+    // get folder name
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
+
+    // define config file path
     const config_file = `./audio/${folder_name}/config`;
+
+    // get set info and timing data
     const { info, timing } = require(config_file);
+
+    // define sound path
     const sound_path = `./audio/${folder_name}/${info.sound}`;
+
+    // init sound data
     const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(timing) });
 
+    // set sound set data
     const set_data = {
       set_id: folder_name,
       info,
       sound: sound_data,
     };
 
+    // event when sound loaded
     sound_data.once('load', function() {
       set_data._loaded = true;
+
+      // if all set loaded
       if (isAllSetsLoaded()) {
         status_display_elem.innerHTML = 'Mechvibes';
       }
     });
 
+    // push set data to set list
     sets.push(set_data);
   });
 
-  return await Promise.all(_sets);
+  // run promises
+  await Promise.all(_sets);
+
+  // end load
+  return;
 }
 
 // ==================================================
@@ -147,9 +173,18 @@ function setsToOptions(sets, set_list, onselect) {
   'use strict';
 
   window.addEventListener('DOMContentLoaded', async () => {
+    const version = document.getElementById('app-version');
+    // request current app version
+    ipcRenderer.send('app_version');
+    ipcRenderer.on('app_version', (event, arg) => {
+      ipcRenderer.removeAllListeners('app_version');
+      version.innerText = arg.version;
+    });
+
+    // display keycode
     const keycode_display = document.getElementById('keycode-display');
     const set_list = document.getElementById('set-list');
-    const enable_btn = document.getElementById('enable');
+    // const enable_btn = document.getElementById('enable');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
 
@@ -162,10 +197,10 @@ function setsToOptions(sets, set_list, onselect) {
     });
 
     // listen toggle button
-    enable_btn.addEventListener('click', () => {
-      enabled = !enabled;
-      enable_btn.innerHTML = enabled ? 'Pause' : 'Start';
-    });
+    // enable_btn.addEventListener('click', () => {
+    //   enabled = !enabled;
+    //   enable_btn.innerHTML = enabled ? 'Pause' : 'Start';
+    // });
 
     // load all sets
     await loadSets(keycode_display);
@@ -199,9 +234,9 @@ function setsToOptions(sets, set_list, onselect) {
     // key pressed, set current key and play sound
     iohook.on('keydown', ({ keycode }) => {
       // if turned off, play no sound
-      if (!enabled) {
-        return;
-      }
+      // if (!enabled) {
+      //   return;
+      // }
 
       // if hold down a key, not repeat the sound
       if (current_key_down != null && current_key_down == keycode) {

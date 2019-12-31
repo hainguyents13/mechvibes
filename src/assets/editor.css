@@ -1,0 +1,79 @@
+#keyboard {
+	clear: both;
+}
+#keyboard tr td {
+	padding: 5px;
+	vertical-align: top;
+}
+.key_row div {
+	float: left;
+}
+.key_block {
+	border-collapse: separate;
+	border-spacing: 8px;
+	margin: 0;
+	padding: 0;
+}
+
+.key_block td.blank {
+	border-color: transparent;
+}
+.key_small {
+	font-size: 10px;
+}
+.key_row {
+	clear: both;
+}
+.key_un {
+	border-color: silver;
+}
+.key_highlight {
+	border-color: orange;
+}
+.key_pressed {
+	border-color: green;
+}
+.key_pressed_m {
+	border-color: gray;
+}
+
+body {
+	--keybasewidth: 25px;
+}
+
+.key {
+	padding: 5px;
+	font-family: monospace;
+	height: var(--keybasewidth);
+	font-size: 13px;
+	border-style: solid;
+	border-width: 2px;
+	margin: 4px;
+	width: var(--keybasewidth);
+}
+
+.key-125u {
+	width: calc(var(--keybasewidth) * 1.25) !important;
+}
+.key-15u {
+	width: calc(var(--keybasewidth) * 1.5) !important;
+}
+.key-175u {
+	width: calc(var(--keybasewidth) * 1.75) !important;
+}
+
+.key-2u {
+	width: calc(var(--keybasewidth) * 2) !important;
+}
+
+.key-225u {
+	width: calc(var(--keybasewidth) * 2.25) !important;
+}
+
+.key-275u {
+	width: calc(var(--keybasewidth) * 2.75) !important;
+}
+
+.key-625u {
+	width: calc(var(--keybasewidth) * 6.2) !important;
+}
