@@ -1,5 +1,6 @@
+'use strict';
 const standard = {
-  1: 'Escape',
+  1: 'Esc',
 
   59: 'F1',
   60: 'F2',
@@ -14,7 +15,11 @@ const standard = {
   87: 'F11',
   88: 'F12',
 
-  41: 'Backquote',
+  91: 'F13',
+  92: 'F14',
+  93: 'F15',
+
+  41: '`',
 
   2: '1',
   3: '2',
@@ -32,7 +37,7 @@ const standard = {
   14: 'Backspace',
 
   15: 'Tab',
-  58: 'Caps Lock',
+  58: 'CapsLock',
 
   30: 'A',
   48: 'B',
@@ -63,10 +68,10 @@ const standard = {
 
   26: '[',
   27: ']',
-  43: 'Back Slash',
+  43: '\\',
 
   39: ';',
-  40: 'Quote',
+  40: "'",
   28: 'Enter',
 
   51: ',',
@@ -75,82 +80,81 @@ const standard = {
 
   57: 'Space',
 
-  3639: 'Printscreen',
-  70: 'Scroll Lock',
+  3639: 'PrtSc',
+  70: 'ScrLk',
   3653: 'Pause',
 
-  3666: 'Insert',
-  3667: 'Delete',
+  3666: 'Ins',
+  3667: 'Del',
   3655: 'Home',
   3663: 'End',
-  3657: 'Page Up',
-  3665: 'Page Down',
+  3657: 'PgUp',
+  3665: 'PgDn',
 
-  57416: 'Up',
-  57419: 'Left',
-  57421: 'Right',
-  57424: 'Down',
+  57416: '↑',
+  57419: '←',
+  57421: '→',
+  57424: '↓',
 
-  42: 'Left Shift',
-  54: 'Right Shift',
-  29: 'Left Ctrl',
-  3613: 'Right Ctrl',
-  56: 'Left Alt',
-  3640: 'Right Alt',
+  42: 'Shift',
+  54: 'Shift',
+  29: 'Ctrl',
+  3613: 'Ctrl',
+  56: 'Alt',
+  3640: 'Alt',
   3675: 'Meta',
   3676: 'Meta',
+  3677: 'Menu',
 
   // Numpad
-  69: 'Numlock',
-  3637: 'Devide (Numpad)',
-  55: 'Multiply (Numpad)',
-  74: 'Subtract (Numpad)',
-  3597: 'Equals (Numpad)',
-  78: 'Add (Numpad)',
-  3612: 'Enter (Numpad)',
-  83: 'Separator (Numpad)',
+  69: 'Num\nLock',
+  3637: '/', // Numpad
+  55: '*', // Numpad
+  74: '-', // Numpad
+  3597: '=', // Numpad
+  78: '+', // Numpad
+  3612: 'Enter', // Numpad
+  83: '.', // Numpad
 
-  79: '1 (Numpad)',
-  80: '2 (Numpad)',
-  81: '3 (Numpad)',
-  75: '4 (Numpad)',
-  76: '5 (Numpad)',
-  77: '6 (Numpad)',
-  71: '7 (Numpad)',
-  72: '8 (Numpad)',
-  73: '9 (Numpad)',
-  82: '0 (Numpad)',
-
-  // Error
-  0: 'KeyCode Unknown',
-  65535: 'CharCode Unknown',
+  79: '1', // Numpad
+  80: '2', // Numpad
+  81: '3', // Numpad
+  75: '4', // Numpad
+  76: '5', // Numpad
+  77: '6', // Numpad
+  71: '7', // Numpad
+  72: '8', // Numpad
+  73: '9', // Numpad
+  82: '0', // Numpad
 };
 
-const darwin = Object.assign({}, standard, {
+const darwin = JSON.parse(JSON.stringify(standard));
+Object.assign(darwin, {
   28: 'Return',
-  56: 'Left Option',
+  56: 'Option',
   69: 'Clear',
-  3640: 'Right Option',
+  3640: 'Option',
   3666: 'Fn',
-  3675: 'Left Command',
-  3676: 'Right Command',
+  3675: 'Command',
+  3676: 'Command',
 });
 
-const win32 = Object.assign({}, standard, {
-  3675: 'Left Windows',
-  3676: 'Right Windows',
-  61010: 'Insert',
-  61011: 'Delete',
+const win32 = JSON.parse(JSON.stringify(standard));
+Object.assign(win32, {
+  3675: 'Win',
+  3676: 'Win',
+  61010: 'Ins',
+  61011: 'Del',
   60999: 'Home',
   61007: 'End',
-  61001: 'Page up',
-  61009: 'Page down',
-  61000: 'Up',
-  61003: 'Left',
-  61005: 'Right',
-  61008: 'Down',
+  61001: 'PgUp',
+  61009: 'PgDn',
+  61000: '↑',
+  61003: '←',
+  61005: '→',
+  61008: '↓',
 });
 
-const linux = Object.assign({}, standard);
+const linux = JSON.parse(JSON.stringify(standard));
 
 module.exports = { darwin, win32, linux };

@@ -1,6 +1,5 @@
 // Modules to control application life and create native browser window
 const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
-const { autoUpdater } = require('electron-updater');
 const path = require('path');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
@@ -16,6 +15,8 @@ function createWindow(show = true) {
     width: 1000,
     height: 600,
     webSecurity: false,
+    resizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: false,
@@ -112,6 +113,12 @@ if (!gotTheLock) {
         },
       },
       {
+        label: 'Editor',
+        click: function() {
+          openEditorWindow();
+        },
+      },
+      {
         label: 'Quit',
         click: function() {
           // quit
@@ -163,3 +170,34 @@ app.on('quit', () => {
 ipcMain.on('app_version', event => {
   event.sender.send('app_version', { version: app.getVersion() });
 });
+
+let editor_window = null;
+
+function openEditorWindow() {
+  if (editor_window) {
+    editor_window.focus();
+    return;
+  }
+
+  editor_window = new BrowserWindow({
+    height: 800,
+    width: 1800,
+    resizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    modal: true,
+    parent: win,
+    webPreferences: {
+      // preload: path.join(__dirname, 'editor.js'),
+      nodeIntegration: true,
+    },
+  });
+
+  editor_window.openDevTools();
+
+  editor_window.loadURL(__dirname + '/editor.html');
+
+  editor_window.on('closed', function() {
+    editor_window = null;
+  });
+}

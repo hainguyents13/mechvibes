@@ -5,8 +5,6 @@
     <title>Mechvibes</title>
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
     <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
-    <link href="../node_modules/@blueprintjs/core/lib/css/blueprint.css" rel="stylesheet" />
-    <link href="../node_modules/@blueprintjs/icons/lib/css/blueprint-icons.css" rel="stylesheet" />
     <link rel="stylesheet" href="./assets/style.css" />
   </head>
 
@@ -20,17 +18,21 @@
       </div>
     </div>
     <ul id="settings" style="padding-left: 0">
-      <li class="flex">
-        <select id="set-types" disabled="">
-          <option value="default" selected="">Default Sets</option>
-          <option value="custom">My Sets</option>
-        </select>
-        <select id="set-list"></select>
+      <li>
+        <select id="pack-list" style=" width: 100%"></select>
       </li>
       <li class="flex">
-        <div style="color: #666">Volume <span id="volume-value-display"></span></div>
+        <div>Volume <span id="volume-value-display" style="font-weight: bold"></span></div>
+        <div style="width: 50%">
+          <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" style="width: 100%" />
+        </div>
+      </li>
+      <li class="flex">
+        <div>Tools</div>
         <div>
-          <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" />
+          <button>Browse</button>
+          <button>Import</button>
+          <button>Editor</button>
         </div>
       </li>
     </ul>

@@ -1,5 +1,9 @@
 @import url('https://fonts.googleapis.com/css?family=Lato:400,900&display=swap');
 
+body {
+  font-family: Lato, sans-serif;
+}
+
 #settings {
   list-style: none;
 }
@@ -42,3 +46,19 @@ a.open-in-browser {
   margin-bottom: 1rem;
 }
 
+button {
+  padding: 6px 10px;
+  border-radius: 3px;
+  background: #efefef;
+  border: 1px solid #d6d6d6;
+  cursor: pointer;
+}
+button:hover {
+  background: #e6e6e6;
+}
+
+select#pack-list {
+  padding: 5px;
+  border-radius: 3px;
+  border-color: #d3d3d3;
+}

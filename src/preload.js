@@ -7,91 +7,142 @@ const { Howl } = require('howler');
 const { shell } = require('electron');
 const glob = require('glob');
 const iohook = require('iohook');
+const path = require('path');
 const { ipcRenderer } = require('electron');
 const { platform } = process;
-
-console.log('start');
 
 const keycodes = require('./libs/keycodes');
 const layouts = require('./libs/layouts');
 const remapper = require('./utils/remapper');
 
-const MV_SET_LS_ID = 'mechvibes-saved-set';
-const MV_VOL_LS_ID = 'mechvibes-saved-volume';
+const MV_PACK_LSID = 'mechvibes-saved-pack';
+const MV_VOL_LSID = 'mechvibes-saved-volume';
 const KEYPRESS_TIMEOUT = 10; // ms
 
-let current_set = null;
-let sets = [];
-let enabled = true;
+const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
+const OFFICIAL_PACKS_DIR = path.join(__dirname, './audio');
+
+let current_pack_id = null;
+let current_pack = null;
+let packs = [];
+let loaded = false;
 let current_key_down = null;
 let last_key_pressed = Date.now();
+const all_sound_files = {};
 
 // ==================================================
-// load all set
-async function loadSets(status_display_elem) {
+// load all pack
+async function loadPacks(status_display_elem) {
   // init
   status_display_elem.innerHTML = 'Loading...';
-  sets = [];
+  packs = [];
 
   // get all audio folders
-  const folders = await glob.sync(__dirname + '/audio/*/');
+  const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*/');
+  const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*/');
+  const folders = [...official_packs, ...custom_packs];
 
-  // get set data
-  const _sets = folders.map(async folder => {
+  // get pack data
+  folders.map(folder => {
+    // define group by types
+    const is_custom = folder.indexOf('/custom/') > -1 ? true : false;
+
     // get folder name
     const splited = folder.split('/');
     const folder_name = splited[splited.length - 2];
 
     // define config file path
-    const config_file = `./audio/${folder_name}/config`;
+    const config_file = `${folder}/config.json`;
 
-    // get set info and timing data
-    const { info, timing } = require(config_file);
+    // get pack info and defines data
+    const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
 
-    // define sound path
-    const sound_path = `./audio/${folder_name}/${info.sound}`;
-
-    // init sound data
-    const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(timing) });
-
-    // set sound set data
-    const set_data = {
-      set_id: folder_name,
-      info,
-      sound: sound_data,
+    // pack sound pack data
+    const pack_data = {
+      pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
+      group: is_custom ? 'Custom' : 'Default',
+      abs_path: folder,
+      key_define_type,
+      name,
+      includes_numpad,
     };
 
-    // event when sound loaded
-    sound_data.once('load', function() {
-      set_data._loaded = true;
+    // init sound data
+    if (key_define_type == 'single') {
+      // define sound path
+      const sound_path = `${folder}${sound}`;
 
-      // if all set loaded
-      if (isAllSetsLoaded()) {
-        status_display_elem.innerHTML = 'Mechvibes';
+      const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
+      Object.assign(pack_data, { sound: sound_data });
+      all_sound_files[pack_data.pack_id] = false;
+      // event when sound loaded
+      sound_data.once('load', function() {
+        all_sound_files[pack_data.pack_id] = true;
+        checkIfAllSoundLoaded(status_display_elem);
+      });
+    } else {
+      const sound_data = {};
+      Object.keys(defines).map(kc => {
+        if (defines[kc]) {
+          // define sound path
+          console.log(defines[kc]);
+          const sound_path = `${folder}${defines[kc]}`;
+          sound_data[kc] = new Howl({ src: [sound_path] });
+          all_sound_files[`${pack_data.pack_id}-${kc}`] = false;
+          // event when sound_data loaded
+          sound_data[kc].once('load', function() {
+            all_sound_files[`${pack_data.pack_id}-${kc}`] = true;
+            checkIfAllSoundLoaded(status_display_elem);
+          });
+        }
+      });
+      if (Object.keys(sound_data).length) {
+        Object.assign(pack_data, { sound: keycodesRemap(sound_data) });
       }
-    });
+    }
 
-    // push set data to set list
-    sets.push(set_data);
+    // push pack data to pack list
+    packs.push(pack_data);
   });
-
-  // run promises
-  await Promise.all(_sets);
 
   // end load
   return;
 }
 
 // ==================================================
-// check if all sets loaded
-function isAllSetsLoaded() {
-  return sets.every(set => set._loaded);
+// universal play function
+function playSound(sound_id, volume) {
+  const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
+  const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
+  if (!sound) {
+    return;
+  }
+  sound.volume(Number(volume / 100));
+  if (play_type == 'single') {
+    sound.play(sound_id);
+  } else {
+    sound.play();
+  }
+}
+
+// ==================================================
+// check if all packs loaded
+function checkIfAllSoundLoaded(status_display_elem) {
+  Object.keys(all_sound_files).map(key => {
+    if (!all_sound_files[key]) {
+      loaded = false;
+      return false;
+    }
+  });
+  status_display_elem.innerHTML = 'Mechvibes';
+  loaded = true;
+  return true;
 }
 
 // ==================================================
 // remap keycodes from standard to os based keycodes
-function keycodesRemap(timing) {
-  const sprite = remapper('standard', platform, timing);
+function keycodesRemap(defines) {
+  const sprite = remapper('standard', platform, defines);
   Object.keys(sprite).map(kc => {
     sprite[`keycode-${kc}`] = sprite[kc];
     delete sprite[kc];
@@ -100,78 +151,77 @@ function keycodesRemap(timing) {
 }
 
 // ==================================================
-// get set by id,
+// get pack by id,
 // if id is null,
-// get saved set
-function getSet(set_id = null) {
-  if (!set_id) {
-    if (localStorage.getItem(MV_SET_LS_ID)) {
-      set_id = localStorage.getItem(MV_SET_LS_ID);
-      if (!getSet(set_id)) {
-        return sets[0];
+// get saved pack
+function getPack(pack_id = null) {
+  if (!pack_id) {
+    if (localStorage.getItem(MV_PACK_LSID)) {
+      pack_id = localStorage.getItem(MV_PACK_LSID);
+      if (!getPack(pack_id)) {
+        return packs[0];
       }
     } else {
-      return sets[0];
+      return packs[0];
     }
   }
-  localStorage.setItem(MV_SET_LS_ID, set_id);
-  return sets.find(set => set.set_id == set_id);
+  localStorage.setItem(MV_PACK_LSID, pack_id);
+  return packs.find(pack => pack.pack_id == pack_id);
 }
 
 // ==================================================
-// transform set to select option list
-function setsToOptions(sets, set_list, onselect) {
-  // get saved set id
-  const selected_set_id = localStorage.getItem(MV_SET_LS_ID);
+// transform pack to select option list
+function packsToOptions(packs, pack_list, onselect) {
+  // get saved pack id
+  const selected_pack_id = localStorage.getItem(MV_PACK_LSID);
   const groups = [];
-  sets.map(set => {
-    const exists = groups.find(group => group.id == set.info.group);
+  packs.map(pack => {
+    const exists = groups.find(group => group.id == pack.group);
     if (!exists) {
       const group = {
-        id: set.info.group,
-        name: set.info.group.toUpperCase(),
-        sets: [set],
+        id: pack.group,
+        name: pack.group || 'Default',
+        packs: [pack],
       };
       groups.push(group);
     } else {
-      exists.sets.push(set);
+      exists.packs.push(pack);
     }
   });
 
   for (let group of groups) {
     const optgroup = document.createElement('optgroup');
     optgroup.label = group.name;
-    for (let set of group.sets) {
+    for (let pack of group.packs) {
       // check if selected
-      const is_selected = selected_set_id == set.set_id;
+      const is_selected = selected_pack_id == pack.pack_id;
       if (is_selected) {
-        // set current set to saved set
-        current_set = set;
+        // pack current pack to saved pack
+        current_pack = pack;
       }
-      // add set to set list
+      // add pack to pack list
       const opt = document.createElement('option');
-      opt.text = set.info.name;
-      opt.value = set.set_id;
+      opt.text = pack.name;
+      opt.value = pack.pack_id;
       opt.selected = is_selected ? 'selected' : false;
       optgroup.appendChild(opt);
     }
-    set_list.appendChild(optgroup);
+    pack_list.appendChild(optgroup);
   }
 
   // on select an option
   // update saved list id
-  set_list.addEventListener('change', e => {
+  pack_list.addEventListener('change', e => {
     const selected_id = e.target.options[e.target.selectedIndex].value;
-    localStorage.setItem(MV_SET_LS_ID, selected_id);
-    current_set = getSet();
+    localStorage.setItem(MV_PACK_LSID, selected_id);
+    current_pack = getPack();
+    current_pack_id = current_pack.pack_id;
   });
 }
 
 // ==================================================
 // main
 (function(window, document) {
-  'use strict';
-
   window.addEventListener('DOMContentLoaded', async () => {
     const version = document.getElementById('app-version');
     // request current app version
@@ -183,7 +233,7 @@ function setsToOptions(sets, set_list, onselect) {
 
     // display keycode
     const keycode_display = document.getElementById('keycode-display');
-    const set_list = document.getElementById('set-list');
+    const pack_list = document.getElementById('pack-list');
     // const enable_btn = document.getElementById('enable');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
@@ -196,29 +246,23 @@ function setsToOptions(sets, set_list, onselect) {
       });
     });
 
-    // listen toggle button
-    // enable_btn.addEventListener('click', () => {
-    //   enabled = !enabled;
-    //   enable_btn.innerHTML = enabled ? 'Pause' : 'Start';
-    // });
+    // load all packs
+    await loadPacks(keycode_display);
 
-    // load all sets
-    await loadSets(keycode_display);
+    // get last selected pack
+    current_pack = getPack();
 
-    // get last selected set
-    current_set = getSet();
-
-    // transform sets to options list
-    setsToOptions(sets, set_list);
+    // transform packs to options list
+    packsToOptions(packs, pack_list);
 
     // display volume value
-    if (localStorage.getItem(MV_VOL_LS_ID)) {
-      volume.value = localStorage.getItem(MV_VOL_LS_ID);
+    if (localStorage.getItem(MV_VOL_LSID)) {
+      volume.value = localStorage.getItem(MV_VOL_LSID);
     }
     volume_value.innerHTML = volume.value;
     volume.oninput = function(e) {
       volume_value.innerHTML = this.value;
-      localStorage.setItem(MV_VOL_LS_ID, this.value);
+      localStorage.setItem(MV_VOL_LSID, this.value);
     };
 
     // listen to key press
@@ -231,13 +275,8 @@ function setsToOptions(sets, set_list, onselect) {
       keycode_display.classList.remove('pressed');
     });
 
-    // key pressed, set current key and play sound
+    // key pressed, pack current key and play sound
     iohook.on('keydown', ({ keycode }) => {
-      // if turned off, play no sound
-      // if (!enabled) {
-      //   return;
-      // }
-
       // if hold down a key, not repeat the sound
       if (current_key_down != null && current_key_down == keycode) {
         return;
@@ -254,17 +293,16 @@ function setsToOptions(sets, set_list, onselect) {
       // keycode_display.innerHTML = keycode;
       keycode_display.classList.add('pressed');
 
-      // set current pressed key
+      // pack current pressed key
       current_key_down = keycode;
 
-      // set sprite id
-      const sprite_id = `keycode-${current_key_down}`;
+      // pack sprite id
+      const sound_id = `keycode-${current_key_down}`;
 
       // get loaded audio object
-      // if object valid, set volume and play sound
-      if (current_set) {
-        current_set.sound.volume(Number(volume.value / 100));
-        current_set.sound.play(sprite_id);
+      // if object valid, pack volume and play sound
+      if (current_pack) {
+        playSound(sound_id);
       }
     });
   });

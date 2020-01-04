@@ -1,79 +1,172 @@
-#keyboard {
-	clear: both;
-}
-#keyboard tr td {
-	padding: 5px;
-	vertical-align: top;
-}
-.key_row div {
-	float: left;
-}
-.key_block {
-	border-collapse: separate;
-	border-spacing: 8px;
-	margin: 0;
-	padding: 0;
-}
-
-.key_block td.blank {
-	border-color: transparent;
-}
-.key_small {
-	font-size: 10px;
-}
-.key_row {
-	clear: both;
-}
-.key_un {
-	border-color: silver;
-}
-.key_highlight {
-	border-color: orange;
-}
-.key_pressed {
-	border-color: green;
-}
-.key_pressed_m {
-	border-color: gray;
-}
-
 body {
-	--keybasewidth: 25px;
+  --keybasewidth: 50px;
+  font-family: arial, sans-serif;
+  font-size: 13px;
+}
+
+.container {
+  margin: 0 auto;
+  width: 1150px;
+}
+
+.header {
+  border-bottom: 1px solid #ccc;
+  padding: 20px 0;
+  margin-bottom: 30px;
+}
+
+.header h3 {
+  font-family: monospace;
+  font-weight: bold;
+  margin-bottom: 0;
+}
+
+.header .sub-header {
+  color: #999;
+  font-size: 14px;
+}
+
+/* keyboard layout css */
+#kb {
+  display: flex;
+}
+
+#zone-main {
+  margin-right: 15px;
+}
+
+#zone-edit {
+  margin-right: 15px;
+}
+
+#zone-numpad {
+}
+
+.key-row {
+  width: 100%;
+  height: var(--keybasewidth);
+  display: flex;
+}
+
+.key-row-top {
+  margin-bottom: 15px;
 }
 
 .key {
-	padding: 5px;
-	font-family: monospace;
-	height: var(--keybasewidth);
-	font-size: 13px;
-	border-style: solid;
-	border-width: 2px;
-	margin: 4px;
-	width: var(--keybasewidth);
+  cursor: pointer;
+  height: var(--keybasewidth);
+  font-size: 13px;
+  outline: 1px solid #333;
+  width: var(--keybasewidth);
+  position: relative;
+  background: #fff;
+}
+.key .key-rk {
+  font-size: 10px;
+  color: #999;
+  position: absolute;
+  bottom: 5px;
+  left: 5px;
+}
+
+.key:hover {
+  opacity: 1;
+  background: #ffe0e0;
+}
+.key-pressed {
+  color: #000;
+  background: #f5b6b6 !important;
+}
+.key-has-sound {
+  background: #defbde !important;
+}
+
+.popover {
+  cursor: default;
+  z-index: 999;
+  display: none;
+}
+
+.key-show-popover .popover {
+  display: inline-block;
+  position: absolute;
+  top: var(--keybasewidth);
+  left: -1px;
+  background: #fff;
+  padding: 10px;
+  border: 1px solid #000;
+  box-shadow: 2px #999;
+}
+
+.key-hide {
+  opacity: 0.2;
+}
+
+.key-blank:hover,
+.key-blank {
+  cursor: default;
+  opacity: 0;
+  border-color: transparent;
+}
+
+.key .letter {
+  font-family: monospace;
+  position: absolute;
+  top: 5px;
+  left: 5px;
 }
 
 .key-125u {
-	width: calc(var(--keybasewidth) * 1.25) !important;
+  width: calc(var(--keybasewidth) * 1.25) !important;
 }
 .key-15u {
-	width: calc(var(--keybasewidth) * 1.5) !important;
+  width: calc(var(--keybasewidth) * 1.5) !important;
 }
 .key-175u {
-	width: calc(var(--keybasewidth) * 1.75) !important;
+  width: calc(var(--keybasewidth) * 1.75) !important;
 }
 
 .key-2u {
-	width: calc(var(--keybasewidth) * 2) !important;
+  width: calc(var(--keybasewidth) * 2) !important;
+}
+
+.key-height-2u {
+  height: calc(var(--keybasewidth) * 2) !important;
+  z-index: 99;
 }
 
 .key-225u {
-	width: calc(var(--keybasewidth) * 2.25) !important;
+  width: calc(var(--keybasewidth) * 2.25) !important;
 }
 
 .key-275u {
-	width: calc(var(--keybasewidth) * 2.75) !important;
+  width: calc(var(--keybasewidth) * 2.75) !important;
 }
 
 .key-625u {
-	width: calc(var(--keybasewidth) * 6.2) !important;
+  width: calc(var(--keybasewidth) * 6.25) !important;
+}
+
+/* pack info editor */
+#pack-header {
+  margin-bottom: 30px;
+}
+
+#pack-detail {
+  margin-top: 30px;
+  display: flex;
+}
+#pack-detail .col {
+  border-right: 1px solid #e4e4e4;
+}
+#pack-detail .col:last-child {
+  border-right: 0;
+}
+
+.divider {
+  display: block;
+  width: 100%;
+  border-bottom: 1px solid #e4e4e4;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
 }
