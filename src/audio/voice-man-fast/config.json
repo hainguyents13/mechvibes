@@ -1,6 +1,6 @@
 {
-  "id": "custom-sound-pack-1578135904974",
-  "name": "New pack",
+  "id": "voice-man-fast",
+  "name": "Voice",
   "key_define_type": "multi",
   "includes_numpad": false,
   "sound": "sound.ogg",
