@@ -1,7 +1,5 @@
 'use strict';
 
-// const remote = require('remote'); // Load remote component that contains the dialog dependency
-// const dialog = remote.require('dialog'); // Load the dialogs component of the OS
 const fs = require('fs'); // Load the File System to execute our common tasks (CRUD)
 
 const remapper = require('./utils/remapper');
@@ -47,9 +45,10 @@ Object.keys(pack_data.defines).map(kc => {
         if (row.length) {
           for (let key of row) {
             // visual edit
+            // <div class="key-rk">${r}-${k++}</div>
             const _key = $(`
               <div id="key-${key}" class="key ${sizes[key] ? sizes[key] : ''} ${key ? '' : 'key-blank'}" data-keycode="${key}">
-                <div class="letter">${os_keycode[key] || ''}</div> <div class="key-rk">${r}-${k++}</div>
+                <div class="letter">${os_keycode[key] || ''}</div> 
               </div>
            `);
             _key.appendTo(_row);
@@ -213,7 +212,7 @@ Object.keys(pack_data.defines).map(kc => {
 
   function _genPopover(target, keycode, up, left) {
     const popover = $(`
-      <div class="popover ${up ? 'up' : ''} ${left ? 'left' : ''}" style="min-width: 250px">
+      <div class="popover ${up ? 'up' : ''} ${left ? 'left' : ''}" style="min-width: 250px; position: relative">
         <div class="define-mode define-mode-single" style="margin-bottom: 10px">
           <div style="margin-bottom: 5px">Set start and length (ms)</div>
           <div style="display: flex;">
@@ -224,7 +223,7 @@ Object.keys(pack_data.defines).map(kc => {
 
         <div class="define-mode define-mode-multi" style="margin-bottom: 10px">
           <div style="margin-bottom: 5px">Enter audio file name:</div>
-          <input type="text" placeholder="Sound file name..."  class="key-define custom-input sound-name" style="width: 950%; margin-right: 10px;"/>
+          <input type="text" placeholder="Sound file name..."  class="key-define custom-input sound-name" style="width: 95%; margin-right: 10px;"/>
         </div>
 
         <div style="display: flex; justify-content: space-between">

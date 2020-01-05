@@ -376,7 +376,6 @@ body {
   max-width: 720px !important;
   width: 100%;
   margin: 20px 0;
-  height: 317px;
   object-fit: cover;
   object-position: top;
 }
@@ -855,7 +854,6 @@ body {
   text-align: center;
 }
 .yd-ft .yd-ft-inner .yd-ft-right img {
-  max-width: 90%;
   margin: 0 auto;
 }
 /*---------------------------------------------------
@@ -1313,7 +1311,7 @@ body {
 --------------------------------------------------------------*/
 .footer-sm {
   padding: 30px 0;
-  background: #f9f9f9;
+  background: #fff8f8;
   text-align: center;
 }
 .footer-sm .col-md-4:nth-child(even) {

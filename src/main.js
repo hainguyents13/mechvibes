@@ -12,7 +12,7 @@ let tray = null;
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 1000,
+    width: 400,
     height: 600,
     webSecurity: false,
     resizable: false,
@@ -32,7 +32,7 @@ function createWindow(show = true) {
   win.loadFile('./src/index.html');
 
   // Open the DevTools.
-  win.openDevTools();
+  // win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.
@@ -180,20 +180,20 @@ function openEditorWindow() {
   }
 
   editor_window = new BrowserWindow({
-    height: 800,
-    width: 1800,
+    width: 1200,
+    height: 600,
     resizable: false,
-    minimizable: false,
-    fullscreenable: false,
-    modal: true,
-    parent: win,
+    // minimizable: false,
+    // fullscreenable: false,
+    // modal: true,
+    // parent: win,
     webPreferences: {
       // preload: path.join(__dirname, 'editor.js'),
       nodeIntegration: true,
     },
   });
 
-  editor_window.openDevTools();
+  // editor_window.openDevTools();
 
   editor_window.loadURL(__dirname + '/editor.html');
 
