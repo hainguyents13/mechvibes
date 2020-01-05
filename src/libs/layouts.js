@@ -37,13 +37,10 @@ function remap(to = 'win32') {
       break;
 
     case 'win32': {
-      layout.edit[1][0] = 61010;
-      layout.edit[1][1] = 60999;
-      layout.edit[1][2] = 61001;
-
-      layout.edit[2][0] = 61011;
-      layout.edit[2][1] = 61007;
-      layout.edit[2][2] = 61009;
+      layout.edit[1] = [61010, 60999, 61001];
+      layout.edit[2] = [61011, 61007, 61009];
+      layout.edit[4] = [0, 61000, 0];
+      layout.edit[5] = [61003, 61008, 61005];
       break;
     }
 

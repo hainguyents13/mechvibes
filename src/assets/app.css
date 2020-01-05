@@ -1,7 +1,40 @@
-@import url('https://fonts.googleapis.com/css?family=Lato:400,900&display=swap');
+#settings {
+  list-style: none;
+}
+#settings li {
+  margin-bottom: 1rem;
+  /*border-bottom: 1px solid #e4e4e4;*/
+  padding-bottom: 1rem;
+}
+#settings li.flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
 
-body {
-  font-family: Lato, sans-serif;
+#app-logo {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 50px;
+}
+#logo {
+  font-family: 'Lato', sans-serif;
+  transition: all 0.1s ease;
+  box-shadow: 0 2px #ff6666;
+  font-weight: 900;
+  min-width: 2rem;
+  font-size: 2rem;
+  background: #fff;
+  text-align: center;
+  border-radius: 0.5rem;
+  border: 2px solid #000;
+  padding: 1rem 2rem;
+  color: #333;
+}
+#logo.pressed {
+  box-shadow: 0 0;
+  margin-bottom: -2px;
+  margin-top: 2px;
 }
 
 a.open-in-browser {
@@ -33,19 +66,10 @@ button:hover {
   background: #e6e6e6;
 }
 
-label {
-  display: block;
-  color: #666;
-}
-
-.custom-input {
+select#pack-list {
   padding: 5px;
   border-radius: 3px;
-  border: 1px solid #ccc;
-}
-
-input.custom-input {
-  padding: 6px 5px;
+  border-color: #ccc;
 }
 
 /* The slider itself */
@@ -71,17 +95,17 @@ input.custom-input {
 .slider::-webkit-slider-thumb {
   -webkit-appearance: none; /* Override default look */
   appearance: none;
-  width: 20px; /* Set a specific slider handle width */
-  height: 20px; /* Slider handle height */
-  background: #ff5050; /* Green background */
+  width: 16px; /* Set a specific slider handle width */
+  height: 16px; /* Slider handle height */
+  background: #000; /* Green background */
   cursor: pointer; /* Cursor on hover */
   border-radius: 50%;
 }
 
 .slider::-moz-range-thumb {
-  width: 20px; /* Set a specific slider handle width */
-  height: 20px; /* Slider handle height */
-  background: #ff5050; /* Green background */
+  width: 16px; /* Set a specific slider handle width */
+  height: 16px; /* Slider handle height */
+  background: #000; /* Green background */
   cursor: pointer; /* Cursor on hover */
   border-radius: 50%;
 }

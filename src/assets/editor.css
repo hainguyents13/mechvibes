@@ -14,15 +14,8 @@ body {
   padding: 20px 0;
   margin-bottom: 30px;
 }
-
-.header h3 {
-  font-family: monospace;
-  font-weight: bold;
-  margin-bottom: 0;
-}
-
 .header .sub-header {
-  color: #999;
+  color: #666;
   font-size: 14px;
 }
 
@@ -85,17 +78,25 @@ body {
   cursor: default;
   z-index: 999;
   display: none;
-}
-
-.key-show-popover .popover {
-  display: inline-block;
   position: absolute;
   top: var(--keybasewidth);
   left: -1px;
   background: #fff;
   padding: 10px;
   border: 1px solid #000;
-  box-shadow: 2px #999;
+}
+
+.popover.up {
+  bottom: var(--keybasewidth);
+  top: auto;
+}
+.popover.left {
+  right: -1px;
+  left: auto;
+}
+
+.key-show-popover .popover {
+  display: inline-block;
 }
 
 .key-hide {
@@ -110,7 +111,6 @@ body {
 }
 
 .key .letter {
-  font-family: monospace;
   position: absolute;
   top: 5px;
   left: 5px;
@@ -152,14 +152,14 @@ body {
   margin-bottom: 30px;
 }
 
-#pack-detail {
+.pack-detail {
   margin-top: 30px;
   display: flex;
 }
-#pack-detail .col {
+.pack-detail .col {
   border-right: 1px solid #e4e4e4;
 }
-#pack-detail .col:last-child {
+.pack-detail .col:last-child {
   border-right: 0;
 }
 

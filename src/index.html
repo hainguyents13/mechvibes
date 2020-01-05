@@ -6,46 +6,43 @@
     <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
     <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
     <link rel="stylesheet" href="./assets/style.css" />
+    <link rel="stylesheet" href="./assets/app.css" />
   </head>
 
   <body style="padding: 2rem">
-    <div style="display: flex; justify-content: center; align-items: center; margin-bottom: 3rem">
-      <div
-        id="keycode-display"
-        style="min-width: 2rem;font-size: 2rem;background: #fff;text-align: center;border-radius: .5rem;border: 2px solid #000;padding: 1rem 2rem;color: #333;font-weight: 600; color: #000;"
-      >
-        Loading...
-      </div>
+    <div id="app-logo">
+      <div id="logo">Loading...</div>
     </div>
-    <ul id="settings" style="padding-left: 0">
-      <li>
-        <select id="pack-list" style=" width: 100%"></select>
-      </li>
-      <li class="flex">
-        <div>Volume <span id="volume-value-display" style="font-weight: bold"></span></div>
-        <div style="width: 50%">
-          <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" style="width: 100%" />
+    <div id="app-body" class="loading">
+      <ul id="settings" style="padding-left: 0">
+        <li class="flex">
+          <select id="pack-list" class="custom-input" style=" width: 100%; margin-right: 5px"></select>
+          <button>More</button>
+        </li>
+        <li class="flex">
+          <div>Volume <span id="volume-value-display" style="font-weight: bold"></span></div>
+          <div style="width: 50%">
+            <input type="range" min="0" max="100" value="20" step="5" class="slider" id="volume" style="width: 100%" />
+          </div>
+        </li>
+      </ul>
+      <div class="divider"></div>
+      <div style="color: #666; font-size: 12px; text-align: center">
+        <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes/" target="_blank" class="open-in-browser">hainguyents13</a></p>
+        <p>
+          <a href="https://github.com/hainguyents13/mechvibes/" target="_blank" class="open-in-browser">Home page</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <a href="https://github.com/hainguyents13/mechvibes/#qna" target="_blank" class="open-in-browser">Q&A</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <a href="https://buymeacoff.ee/hainguyents13" target="_blank" class="open-in-browser">Buy me a coffee</a>
+        </p>
+        <p id="app-version" style="color: #999">-</p>
+        <div id="update-available" class="hidden">
+          New version of Mechvibes is available (<span id="new-version">-</span>)
+          <div style="margin-top: 5px">
+            <a href="https://hainguyents13.github.io/mechvibes/" target="_blank" class="open-in-browser">Check it out</a>
+          </div>
         </div>
-      </li>
-      <li class="flex">
-        <div>Tools</div>
-        <div>
-          <button>Browse</button>
-          <button>Import</button>
-          <button>Editor</button>
-        </div>
-      </li>
-    </ul>
-    <div class="divider"></div>
-    <div style="color: #666; font-size: 12px; text-align: center">
-      <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes" target="_blank" class="open-in-browser">hainguyents13</a></p>
-      <p>
-        <a href="https://buymeacoff.ee/hainguyents13" target="_blank" class="open-in-browser">☕ Buy me a coffee</a>
-      </p>
-      <p id="app-version">-</p>
-      <div class="updater-message flex hidden" style="text-align: left">
-        <div class="updater-message"></div>
-        <a href="" style="font-weight: 400" class="updater-button hidden">Restart</a>
       </div>
     </div>
   </body>

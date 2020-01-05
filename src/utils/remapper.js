@@ -49,10 +49,6 @@ function remapper(from = 'standard', to = 'darwin', defines = {}) {
         defines['3640'] = defines['3675'];
         defines['3676'] = defines['56'];
         defines['3613'] = defines['29'];
-
-        for (let i of ['91', '92', '93', '56', '3675', '3675', '56', '29']) {
-          delete defines[i];
-        }
         break;
       }
       case 'win32': {
@@ -70,10 +66,6 @@ function remapper(from = 'standard', to = 'darwin', defines = {}) {
         defines['57419'] = defines['61003'];
         defines['57424'] = defines['61008'];
         defines['57421'] = defines['61005'];
-
-        for (let i of ['61010', '60999', '61001', '61011', '61007', '61009', '61000', '61003', '61008', '61005']) {
-          delete defines[i];
-        }
         break;
       }
     }

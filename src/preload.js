@@ -22,6 +22,7 @@ const KEYPRESS_TIMEOUT = 10; // ms
 const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, './audio');
 
+let app_current_version = null;
 let current_pack_id = null;
 let current_pack = null;
 let packs = [];
@@ -32,7 +33,7 @@ const all_sound_files = {};
 
 // ==================================================
 // load all pack
-async function loadPacks(status_display_elem) {
+async function loadPacks(status_display_elem, app_body) {
   // init
   status_display_elem.innerHTML = 'Loading...';
   packs = [];
@@ -71,28 +72,26 @@ async function loadPacks(status_display_elem) {
     if (key_define_type == 'single') {
       // define sound path
       const sound_path = `${folder}${sound}`;
-
       const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
       Object.assign(pack_data, { sound: sound_data });
       all_sound_files[pack_data.pack_id] = false;
       // event when sound loaded
       sound_data.once('load', function() {
         all_sound_files[pack_data.pack_id] = true;
-        checkIfAllSoundLoaded(status_display_elem);
+        checkIfAllSoundLoaded(status_display_elem, app_body);
       });
     } else {
       const sound_data = {};
       Object.keys(defines).map(kc => {
         if (defines[kc]) {
           // define sound path
-          console.log(defines[kc]);
           const sound_path = `${folder}${defines[kc]}`;
           sound_data[kc] = new Howl({ src: [sound_path] });
           all_sound_files[`${pack_data.pack_id}-${kc}`] = false;
           // event when sound_data loaded
           sound_data[kc].once('load', function() {
             all_sound_files[`${pack_data.pack_id}-${kc}`] = true;
-            checkIfAllSoundLoaded(status_display_elem);
+            checkIfAllSoundLoaded(status_display_elem, app_body);
           });
         }
       });
@@ -110,24 +109,8 @@ async function loadPacks(status_display_elem) {
 }
 
 // ==================================================
-// universal play function
-function playSound(sound_id, volume) {
-  const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
-  const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
-  if (!sound) {
-    return;
-  }
-  sound.volume(Number(volume / 100));
-  if (play_type == 'single') {
-    sound.play(sound_id);
-  } else {
-    sound.play();
-  }
-}
-
-// ==================================================
 // check if all packs loaded
-function checkIfAllSoundLoaded(status_display_elem) {
+function checkIfAllSoundLoaded(status_display_elem, app_body) {
   Object.keys(all_sound_files).map(key => {
     if (!all_sound_files[key]) {
       loaded = false;
@@ -135,6 +118,7 @@ function checkIfAllSoundLoaded(status_display_elem) {
     }
   });
   status_display_elem.innerHTML = 'Mechvibes';
+  app_body.classList.remove('loading');
   loaded = true;
   return true;
 }
@@ -224,17 +208,30 @@ function packsToOptions(packs, pack_list, onselect) {
 (function(window, document) {
   window.addEventListener('DOMContentLoaded', async () => {
     const version = document.getElementById('app-version');
+    const update_available = document.getElementById('update-available');
+    const new_version = document.getElementById('new-version');
     // request current app version
     ipcRenderer.send('app_version');
     ipcRenderer.on('app_version', (event, arg) => {
       ipcRenderer.removeAllListeners('app_version');
       version.innerText = arg.version;
+      app_current_version = arg.version;
     });
 
+    // check for new version
+    fetch('https://api.github.com/repos/hainguyents13/mechvibes/releases/latest')
+      .then(res => res.json())
+      .then(json => {
+        if (Date(json.published_at) > new Date()) {
+          new_version.innerHTML = json.tag_name;
+          update_available.classList.remove('hidden');
+        }
+      });
+
     // display keycode
-    const keycode_display = document.getElementById('keycode-display');
+    const app_logo = document.getElementById('logo');
+    const app_body = document.getElementById('app-body');
     const pack_list = document.getElementById('pack-list');
-    // const enable_btn = document.getElementById('enable');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
 
@@ -247,7 +244,7 @@ function packsToOptions(packs, pack_list, onselect) {
     });
 
     // load all packs
-    await loadPacks(keycode_display);
+    await loadPacks(app_logo, app_body);
 
     // get last selected pack
     current_pack = getPack();
@@ -272,7 +269,7 @@ function packsToOptions(packs, pack_list, onselect) {
     iohook.on('keyup', () => {
       current_key_down = null;
       last_key_pressed = Date.now();
-      keycode_display.classList.remove('pressed');
+      app_logo.classList.remove('pressed');
     });
 
     // key pressed, pack current key and play sound
@@ -290,8 +287,8 @@ function packsToOptions(packs, pack_list, onselect) {
       }
 
       // display current pressed key
-      // keycode_display.innerHTML = keycode;
-      keycode_display.classList.add('pressed');
+      // app_logo.innerHTML = keycode;
+      app_logo.classList.add('pressed');
 
       // pack current pressed key
       current_key_down = keycode;
@@ -302,8 +299,24 @@ function packsToOptions(packs, pack_list, onselect) {
       // get loaded audio object
       // if object valid, pack volume and play sound
       if (current_pack) {
-        playSound(sound_id);
+        playSound(sound_id, localStorage.getItem(MV_VOL_LSID));
       }
     });
   });
 })(window, document);
+
+// ==================================================
+// universal play function
+function playSound(sound_id, volume) {
+  const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
+  const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
+  if (!sound) {
+    return;
+  }
+  sound.volume(Number(volume / 100));
+  if (play_type == 'single') {
+    sound.play(sound_id);
+  } else {
+    sound.play();
+  }
+}
