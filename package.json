@@ -1,7 +1,7 @@
 {
   "name": "mechvibes",
   "productName": "Mechvibes",
-  "version": "v1.1.4",
+  "version": "v2.0.0",
   "description": "Play mechanical keyboard sounds as you type.",
   "repository": "https://github.com/hainguyents13/mechvibes",
   "main": "src/main.js",
@@ -14,7 +14,7 @@
     "build:linux:deb": "electron-builder -l deb"
   },
   "keywords": [],
-  "homepage": "https://hainguyents13.github.io/mechvibes/",
+  "homepage": "https://mechvibes.com",
   "author": {
     "name": "Hai Nguyen",
     "email": "hainguyen.ts13@gmail.com"
@@ -45,18 +45,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "portable",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "icon": "src/assets/icon.png"
@@ -68,12 +56,6 @@
           "arch": [
             "x64"
           ]
-        },
-        {
-          "target": "zip",
-          "arch": [
-            "x64"
-          ]
         }
       ],
       "icon": "src/assets/icon.png"
@@ -82,12 +64,6 @@
       "target": [
         {
           "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "AppImage",
           "arch": [
             "x64"
           ]
