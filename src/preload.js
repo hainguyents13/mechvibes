@@ -221,7 +221,7 @@ function packsToOptions(packs, pack_list, onselect) {
     fetch('https://api.github.com/repos/hainguyents13/mechvibes/releases/latest')
       .then(res => res.json())
       .then(json => {
-        if (Date(json.published_at) > new Date()) {
+        if (json.tag_name > app_current_version) {
           new_version.innerHTML = json.tag_name;
           update_available.classList.remove('hidden');
         }

@@ -104,3 +104,10 @@ select#pack-list {
   cursor: pointer; /* Cursor on hover */
   border-radius: 50%;
 }
+
+#update-available {
+  padding: 8px 5px;
+  border: 1px solid #ffb8b8;
+  background: #fff2f2;
+  border-radius: 5px;
+}
