@@ -4,7 +4,7 @@ body {
   font-family: Lato, sans-serif;
 }
 
-a.open-in-browser {
+a {
   text-decoration: none;
   color: #ff3333;
 }

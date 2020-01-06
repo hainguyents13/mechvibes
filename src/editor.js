@@ -1,6 +1,8 @@
 'use strict';
 
-const fs = require('fs'); // Load the File System to execute our common tasks (CRUD)
+const fs = require('fs');
+const path = require('path');
+const { shell } = require('electron');
 
 const remapper = require('./utils/remapper');
 const layouts = require('./libs/layouts');
@@ -10,6 +12,7 @@ const $ = require('./assets/jquery');
 const layout = layouts[process.platform];
 const { sizes } = layouts;
 const os_keycode = keycodes[process.platform];
+const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
 
 let selected_keycode = null;
 let current_edit_mode = 'visual';
@@ -29,6 +32,19 @@ Object.keys(pack_data.defines).map(kc => {
 
 (function(document) {
   $(document).ready(() => {
+    // a little hack for open link in browser
+    Array.from(document.getElementsByClassName('open-in-browser')).forEach(elem => {
+      elem.addEventListener('click', e => {
+        e.preventDefault();
+        shell.openExternal(e.target.href);
+      });
+    });
+
+    // open custom sound pack folder
+    $('#open-custom-pack-folder').on('click', () => {
+      shell.showItemInFolder(CUSTOM_PACKS_DIR);
+    });
+
     $('#pack-name').val(pack_data.name);
     $('#single-sound-file').val(pack_data.sound);
 

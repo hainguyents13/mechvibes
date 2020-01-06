@@ -1639,3 +1639,22 @@ ul.qa {
   color: #333;
   margin-bottom: 2rem;
 }
+
+/* custom */
+.divider {
+  display: block;
+  width: 100%;
+  border-bottom: 1px solid #e4e4e4;
+  margin-top: 1rem;
+  margin-bottom: 1rem;
+}
+p {
+  line-height: 1.5rem;
+  margin-bottom: 20px;
+  font-size: 1rem;
+}
+h2 {
+  font-weight: bold;
+  margin-bottom: 20px;
+  font-size: 1rem;
+}
