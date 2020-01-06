@@ -195,7 +195,7 @@ function openEditorWindow() {
 
   // editor_window.openDevTools();
 
-  editor_window.loadURL(__dirname + '/editor.html');
+  editor_window.loadFile('./src/editor.html');
 
   editor_window.on('closed', function() {
     editor_window = null;
