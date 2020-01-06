@@ -17,7 +17,6 @@ const remapper = require('./utils/remapper');
 
 const MV_PACK_LSID = 'mechvibes-saved-pack';
 const MV_VOL_LSID = 'mechvibes-saved-volume';
-const KEYPRESS_TIMEOUT = 10; // ms
 
 const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, './audio');
@@ -276,13 +275,6 @@ function packsToOptions(packs, pack_list, onselect) {
     iohook.on('keydown', ({ keycode }) => {
       // if hold down a key, not repeat the sound
       if (current_key_down != null && current_key_down == keycode) {
-        return;
-      }
-
-      // this code prevent language input tools (unikey, ibus...)
-      // send multiple keys when they perform auto correct
-      const threshold = Date.now() - last_key_pressed;
-      if (threshold <= 30) {
         return;
       }
 
