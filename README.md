@@ -1,17 +1,20 @@
-![Mechvibes](https://i.imgur.com/GRkhYGl.png)
+![Mechvibes](https://i.imgur.com/78qUULA.jpg)
 
 # Mechvibes
 
-It's an app that let you define and play mechanical key press sound as you type your current keyboard, although it is membrane or mech key with any kind of switch. Just select switch type, keycaps type and modifications such as lubed, silenced... (comming soon) put on headphone or turn on speakers to enjoy the sound!
+It's a side project that I made for myself since when I use my own mechanical keyboard at late night or in the office and my parents and my coworkers hate that a lot because the sound of the keyboard is very loud (especially in quiet places). So if you are facing this issue just like me then this product is for you!
 
-- You can update new sound set by cloning and edit set detail in `/src/audio/`.
-- Selected set and volume will be saved every time you change them for next use.
-- Select set bases on keycap types, lubed or silenced switches are comming soon, I'm working on it.
+- You can add more keyboard sound set by recording any sound you like and add them to this app with some easy steps.
+
+- Use your laptop keyboard or non-mechanical keyboard at work and still hear your loved sound.
+
+- Use this app as any purpose as you want (such as demo for the buyer about the keyboard sound before they buy it, custom any sound for any key...)
+
+With Mechvibes Editor, you can create a new sound pack, edit existing sound pack or share them with your friends.
 
 ### How to use
 
 - Download it from [Releases](https://github.com/hainguyents13/mechvibes/releases/latest)
-- Extract it.
 - Run it.
 - Enjoy it.
 
