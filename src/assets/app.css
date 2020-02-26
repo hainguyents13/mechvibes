@@ -67,47 +67,46 @@ select#pack-list {
   border-color: #ccc;
 }
 
-/* The slider itself */
-.slider {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 5px;
-  background: #d8d8d8;
-  outline: none;
-  opacity: 0.7;
-  -webkit-transition: 0.2s;
-  transition: opacity 0.2s;
-  border-radius: 5px;
-}
-
-/* Mouse-over effects */
-.slider:hover {
-  opacity: 1; /* Fully shown on mouse-over */
-}
-
-/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none; /* Override default look */
-  appearance: none;
-  width: 16px; /* Set a specific slider handle width */
-  height: 16px; /* Slider handle height */
-  background: #000; /* Green background */
-  cursor: pointer; /* Cursor on hover */
-  border-radius: 50%;
-}
-
-.slider::-moz-range-thumb {
-  width: 16px; /* Set a specific slider handle width */
-  height: 16px; /* Slider handle height */
-  background: #000; /* Green background */
-  cursor: pointer; /* Cursor on hover */
-  border-radius: 50%;
-}
-
 #update-available {
   padding: 8px 5px;
   border: 1px solid #ffb8b8;
   background: #fff2f2;
   border-radius: 5px;
+}
+
+.dropdown {
+  position: relative;
+  display: inline-block;
+}
+
+.dropdown-menu {
+  list-style: none;
+  display: none;
+  position: absolute;
+  z-index: 1;
+  right: 0;
+  padding: 0;
+  margin: 0;
+  padding-top: 15px;
+  border: 1px solid #e3e3e3;
+  background: #fff;
+  border-radius: 3px;
+}
+.dropdown-menu li {
+  margin-bottom: 0 !important;
+  padding-bottom: 0 !important;
+}
+.dropdown-menu li a {
+  display: block;
+  padding: 0 15px 15px 15px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: #333;
+}
+.dropdown-menu li:hover a {
+  color: #ff3333;
+}
+
+.dropdown:hover .dropdown-menu {
+  display: block;
 }

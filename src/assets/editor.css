@@ -101,6 +101,7 @@ body {
 
 .key-hide {
   opacity: 0.2;
+  z-index: auto !important;
 }
 
 .key-blank:hover,

@@ -228,7 +228,7 @@ Object.keys(pack_data.defines).map(kc => {
 
   function _genPopover(target, keycode, up, left) {
     const popover = $(`
-      <div class="popover ${up ? 'up' : ''} ${left ? 'left' : ''}" style="min-width: 250px; position: relative">
+      <div class="popover ${up ? 'up' : ''} ${left ? 'left' : ''}" style="min-width: 250px; position: absolute">
         <div class="define-mode define-mode-single" style="margin-bottom: 10px">
           <div style="margin-bottom: 5px">Set start and length (ms)</div>
           <div style="display: flex;">

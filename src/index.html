@@ -17,7 +17,14 @@
       <ul id="settings" style="padding-left: 0">
         <li class="flex">
           <select id="pack-list" class="custom-input" style=" width: 100%; margin-right: 5px"></select>
-          <button>More</button>
+          <div class="dropdown">
+            <button style="white-space: nowrap;">+ More</button>
+            <ul class="dropdown-menu">
+              <li><a href="https://mechvibes.com/sound-packs" class="open-in-browser">Browse Online library</a></li>
+              <li><a href="" id="open-editor">Open Editor</a></li>
+              <li><a id="open-custom-pack-folder" href="#">Open Custom folder</a></li>
+            </ul>
+          </div>
         </li>
         <li class="flex">
           <div>Volume <span id="volume-value-display" style="font-weight: bold"></span></div>
@@ -32,7 +39,7 @@
         <p>
           <a href="https://mechvibes.com" target="_blank" class="open-in-browser">Home page</a>
           &nbsp;&nbsp;|&nbsp;&nbsp;
-          <a href="https://mechvibes.com/#qna" target="_blank" class="open-in-browser">Q&A</a>
+          <a href="https://mechvibes.com/#qna" target="_blank" class="open-in-browser">FAQs</a>
           &nbsp;&nbsp;|&nbsp;&nbsp;
           <a href="https://buymeacoff.ee/hainguyents13" target="_blank" class="open-in-browser">Buy me a coffee</a>
         </p>

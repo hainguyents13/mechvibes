@@ -52,7 +52,7 @@ async function loadPacks(status_display_elem, app_body) {
     const folder_name = splited[splited.length - 2];
 
     // define config file path
-    const config_file = `${folder}/config.json`;
+    const config_file = `${folder.replace(/\/$/, '')}/config.json`;
 
     // get pack info and defines data
     const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
@@ -209,12 +209,24 @@ function packsToOptions(packs, pack_list, onselect) {
     const version = document.getElementById('app-version');
     const update_available = document.getElementById('update-available');
     const new_version = document.getElementById('new-version');
+    const open_custom_sound_pack_button = document.getElementById('open-custom-pack-folder');
+    const open_editor_button = document.getElementById('open-editor');
     // request current app version
     ipcRenderer.send('app_version');
     ipcRenderer.on('app_version', (event, arg) => {
       ipcRenderer.removeAllListeners('app_version');
       version.innerText = arg.version;
       app_current_version = arg.version;
+    });
+
+    // open custom sound pack folder
+    open_custom_sound_pack_button.addEventListener('click', () => {
+      shell.showItemInFolder(CUSTOM_PACKS_DIR);
+    });
+
+    // open editor
+    open_editor_button.addEventListener('click', () => {
+      ipcRenderer.send('open_editor');
     });
 
     // check for new version

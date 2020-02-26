@@ -182,7 +182,7 @@ function openEditorWindow() {
   editor_window = new BrowserWindow({
     width: 1200,
     height: 600,
-    resizable: false,
+    // resizable: false,
     // minimizable: false,
     // fullscreenable: false,
     // modal: true,
@@ -201,3 +201,8 @@ function openEditorWindow() {
     editor_window = null;
   });
 }
+
+// open editor
+ipcMain.on('open_editor', event => {
+  openEditorWindow();
+});
