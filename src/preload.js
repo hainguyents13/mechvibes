@@ -11,8 +11,6 @@ const path = require('path');
 const { ipcRenderer } = require('electron');
 const { platform } = process;
 
-const keycodes = require('./libs/keycodes');
-const layouts = require('./libs/layouts');
 const remapper = require('./utils/remapper');
 
 const MV_PACK_LSID = 'mechvibes-saved-pack';
@@ -22,12 +20,9 @@ const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, './audio');
 
 let app_current_version = null;
-let current_pack_id = null;
 let current_pack = null;
 let packs = [];
-let loaded = false;
 let current_key_down = null;
-let last_key_pressed = Date.now();
 const all_sound_files = {};
 
 // ==================================================
