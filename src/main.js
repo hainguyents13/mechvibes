@@ -1,6 +1,7 @@
 // Modules to control application life and create native browser window
 const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
 const path = require('path');
+const StartupHandler = require('./utils/startupHandler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 
@@ -103,6 +104,8 @@ if (!gotTheLock) {
     // tray icon tooltip
     tray.setToolTip('Mechvibes');
 
+    const startupHandler = new StartupHandler(app);
+
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -117,6 +120,14 @@ if (!gotTheLock) {
         click: function() {
           openEditorWindow();
         },
+      },
+      {
+        label: 'Enable at Startup',
+        type: 'checkbox',
+        checked: startupHandler.isEnabled,
+        click: function() {
+          startupHandler.toggle()
+        }
       },
       {
         label: 'Quit',
