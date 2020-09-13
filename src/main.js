@@ -10,16 +10,18 @@ const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 let win;
 let tray = null;
 
+console.log(app.getPath('userData'));
+
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 400,
+    width: 1000,
     height: 600,
     webSecurity: false,
-    resizable: false,
-    fullscreenable: false,
+    // resizable: false,
+    // fullscreenable: false,
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'index.js'),
       contextIsolation: false,
       nodeIntegration: true,
     },
@@ -33,18 +35,18 @@ function createWindow(show = true) {
   win.loadFile('./src/index.html');
 
   // Open the DevTools.
-  // win.openDevTools();
+  win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.
-  win.on('closed', function() {
+  win.on('closed', function () {
     // Dereference the window object, usually you would store windows
     // in an array if your app supports multi windows, this is the time
     // when you should delete the corresponding element.
     win = null;
   });
 
-  win.on('minimize', function(event) {
+  win.on('minimize', function (event) {
     if (process.platform === 'darwin') {
       app.dock.hide();
     }
@@ -52,7 +54,7 @@ function createWindow(show = true) {
     win.hide();
   });
 
-  win.on('close', function(event) {
+  win.on('close', function (event) {
     if (!app.isQuiting) {
       if (process.platform === 'darwin') {
         app.dock.hide();
@@ -110,14 +112,14 @@ if (!gotTheLock) {
     const contextMenu = Menu.buildFromTemplate([
       {
         label: 'Mechvibes',
-        click: function() {
+        click: function () {
           // show app on click
           win.show();
         },
       },
       {
         label: 'Editor',
-        click: function() {
+        click: function () {
           openEditorWindow();
         },
       },
@@ -125,13 +127,13 @@ if (!gotTheLock) {
         label: 'Enable at Startup',
         type: 'checkbox',
         checked: startupHandler.isEnabled,
-        click: function() {
-          startupHandler.toggle()
-        }
+        click: function () {
+          startupHandler.toggle();
+        },
       },
       {
         label: 'Quit',
-        click: function() {
+        click: function () {
           // quit
           app.isQuiting = true;
           app.quit();
@@ -159,13 +161,13 @@ if (!gotTheLock) {
 app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 // Quit when all windows are closed.
-app.on('window-all-closed', function() {
+app.on('window-all-closed', function () {
   // On macOS it is common for applications and their menu bar
   // to stay active until the user quits explicitly with Cmd + Q
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('activate', function() {
+app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (win === null) createWindow();
@@ -178,7 +180,7 @@ app.on('quit', () => {
 
 // In this file you can include the rest of your app's specific main process
 // code. You can also put them in separate files and require them here.
-ipcMain.on('app_version', event => {
+ipcMain.on('app_version', (event) => {
   event.sender.send('app_version', { version: app.getVersion() });
 });
 
@@ -208,12 +210,12 @@ function openEditorWindow() {
 
   editor_window.loadFile('./src/editor.html');
 
-  editor_window.on('closed', function() {
+  editor_window.on('closed', function () {
     editor_window = null;
   });
 }
 
 // open editor
-ipcMain.on('open_editor', event => {
+ipcMain.on('open_editor', (event) => {
   openEditorWindow();
 });

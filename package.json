@@ -33,9 +33,10 @@
     ]
   },
   "build": {
-    "extraResources": [
-      "../../../custom"
-    ],
+    "extraResources": {
+      "from": "path/to/source",
+      "to": "path/to/destination"
+    },
     "win": {
       "target": [
         {

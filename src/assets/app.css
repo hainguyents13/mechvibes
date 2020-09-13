@@ -1,15 +1,10 @@
-#settings {
-  list-style: none;
+a,
+a:hover {
+  color: #ff5050;
 }
-#settings li {
-  margin-bottom: 1rem;
-  /*border-bottom: 1px solid #e4e4e4;*/
-  padding-bottom: 1rem;
-}
-#settings li.flex {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+
+a:hover {
+  text-decoration: underline;
 }
 
 #app-logo {
@@ -17,13 +12,13 @@
   justify-content: center;
   margin-bottom: 50px;
 }
+
 #logo {
   font-family: 'Lato', sans-serif;
   transition: all 0.1s ease;
   box-shadow: 0 2px #ff6666;
   font-weight: 900;
-  min-width: 2rem;
-  font-size: 2rem;
+  font-size: 3rem;
   background: #fff;
   text-align: center;
   border-radius: 0.5rem;
@@ -31,6 +26,7 @@
   padding: 1rem 2rem;
   color: #333;
 }
+
 #logo.pressed {
   box-shadow: 0 0;
   margin-bottom: -2px;
@@ -46,25 +42,7 @@
   width: 100%;
   border-bottom: 1px solid #e4e4e4;
   margin-top: 1rem;
-  margin-bottom: 1rem;
-}
-
-button {
-  padding: 6px 10px;
-  border-radius: 3px;
-  background: #efefef;
-  border: 1px solid #d6d6d6;
-  cursor: pointer;
-}
-
-button:hover {
-  background: #e6e6e6;
-}
-
-select#pack-list {
-  padding: 5px;
-  border-radius: 3px;
-  border-color: #ccc;
+  margin-bottom: 2rem;
 }
 
 #update-available {
@@ -74,39 +52,63 @@ select#pack-list {
   border-radius: 5px;
 }
 
-.dropdown {
-  position: relative;
-  display: inline-block;
+.mb-0 {
+  margin-bottom: 0
 }
 
-.dropdown-menu {
-  list-style: none;
-  display: none;
-  position: absolute;
-  z-index: 1;
-  right: 0;
-  padding: 0;
-  margin: 0;
-  padding-top: 15px;
-  border: 1px solid #e3e3e3;
-  background: #fff;
-  border-radius: 3px;
-}
-.dropdown-menu li {
-  margin-bottom: 0 !important;
-  padding-bottom: 0 !important;
-}
-.dropdown-menu li a {
-  display: block;
-  padding: 0 15px 15px 15px;
-  font-size: 12px;
-  white-space: nowrap;
-  color: #333;
-}
-.dropdown-menu li:hover a {
-  color: #ff3333;
+/* The slider itself */
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 5px;
+  background: #d8d8d8;
+  outline: none;
+  opacity: 0.7;
+  -webkit-transition: 0.2s;
+  transition: opacity 0.2s;
+  border-radius: 5px;
+  margin-bottom: 12px;
 }
 
-.dropdown:hover .dropdown-menu {
-  display: block;
+/* Mouse-over effects */
+.slider:hover {
+  opacity: 1;
+  /* Fully shown on mouse-over */
+}
+
+/* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  /* Override default look */
+  appearance: none;
+  width: 20px;
+  /* Set a specific slider handle width */
+  height: 20px;
+  /* Slider handle height */
+  background: #ff5050;
+  /* Green background */
+  cursor: pointer;
+  /* Cursor on hover */
+  border-radius: 50%;
+}
+
+.slider::-moz-range-thumb {
+  width: 20px;
+  /* Set a specific slider handle width */
+  height: 20px;
+  /* Slider handle height */
+  background: #ff5050;
+  /* Green background */
+  cursor: pointer;
+  /* Cursor on hover */
+  border-radius: 50%;
+}
+
+table tr td {
+  border-bottom: 0
+}
+
+table {
+  margin-bottom: 0;
 }
