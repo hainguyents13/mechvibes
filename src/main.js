@@ -1,27 +1,34 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Tray, Menu, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
-const StartupHandler = require('./utils/startupHandler');
+const fs = require('fs-extra');
+
+const StartupHandler = require('./utils/startup_handler');
+const ListenHandler = require('./utils/listen_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
+const home_dir = app.getPath('home');
+const custom_dir = path.join(home_dir, '/mechvibes_custom');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
-let win;
-let tray = null;
-
-console.log(app.getPath('userData'));
+var win;
+var tray = null;
+global.app_version = app.getVersion();
+global.custom_dir = custom_dir;
+// create custom sound folder if not exists
+fs.ensureDirSync(custom_dir);
 
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
-    width: 1000,
+    width: 400,
     height: 600,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
     webPreferences: {
-      preload: path.join(__dirname, 'index.js'),
+      preload: path.join(__dirname, 'app.js'),
       contextIsolation: false,
       nodeIntegration: true,
     },
@@ -32,10 +39,10 @@ function createWindow(show = true) {
   win.removeMenu();
 
   // and load the index.html of the app.
-  win.loadFile('./src/index.html');
+  win.loadFile('./src/app.html');
 
   // Open the DevTools.
-  win.openDevTools();
+  // win.openDevTools();
   // win.webContents.openDevTools();
 
   // Emitted when the window is closed.
@@ -62,7 +69,6 @@ function createWindow(show = true) {
       event.preventDefault();
       win.hide();
     }
-
     return false;
   });
 
@@ -70,7 +76,7 @@ function createWindow(show = true) {
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
-app.on('second-instance', (event, argv, cwd) => {
+app.on('second-instance', () => {
   // Someone tried to run a second instance, we should focus our window.
   if (win) {
     win.show();
@@ -81,7 +87,7 @@ app.on('second-instance', (event, argv, cwd) => {
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', (event, commandLine, workingDirectory) => {
+  app.on('second-instance', () => {
     // Someone tried to run a second instance, we should focus our window.
     if (win) {
       if (win.isMinimized()) {
@@ -106,7 +112,8 @@ if (!gotTheLock) {
     // tray icon tooltip
     tray.setToolTip('Mechvibes');
 
-    const startupHandler = new StartupHandler(app);
+    const startup_handler = new StartupHandler(app);
+    const listen_handler = new ListenHandler(app);
 
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
@@ -124,11 +131,26 @@ if (!gotTheLock) {
         },
       },
       {
+        label: 'Custom Folder',
+        click: function () {
+          shell.openItem(custom_dir);
+        },
+      },
+      {
+        label: 'Mute',
+        type: 'checkbox',
+        checked: listen_handler.is_muted,
+        click: function () {
+          listen_handler.toggle();
+          win.webContents.send('muted', listen_handler.is_muted);
+        },
+      },
+      {
         label: 'Enable at Startup',
         type: 'checkbox',
-        checked: startupHandler.isEnabled,
+        checked: startup_handler.is_enabled,
         click: function () {
-          startupHandler.toggle();
+          startup_handler.toggle();
         },
       },
       {
@@ -178,13 +200,7 @@ app.on('quit', () => {
   app.quit();
 });
 
-// In this file you can include the rest of your app's specific main process
-// code. You can also put them in separate files and require them here.
-ipcMain.on('app_version', (event) => {
-  event.sender.send('app_version', { version: app.getVersion() });
-});
-
-let editor_window = null;
+var editor_window = null;
 
 function openEditorWindow() {
   if (editor_window) {
@@ -214,8 +230,3 @@ function openEditorWindow() {
     editor_window = null;
   });
 }
-
-// open editor
-ipcMain.on('open_editor', (event) => {
-  openEditorWindow();
-});
