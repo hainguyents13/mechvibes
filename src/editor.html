@@ -12,7 +12,7 @@
   <body>
     <div class="container">
       <div class="header" style="display: flex; justify-content: space-between; align-items: center">
-        <div style="margin-right: 10px;"><img src="./assets/icon.png" alt="" style="width: 60px" /></div>
+        <div style="margin-right: 10px"><img src="./assets/icon.png" alt="" style="width: 60px" /></div>
         <div style="width: 100%">
           <h1 style="margin: 0; font-family: Lato, sans-serif">Editor</h1>
           <div class="sub-header">Create, edit, share your sound pack! <a href="https://mechvibes.com/say-hi-to-mechvibes-editor/" target="_blank" class="open-in-browser">How to?</a></div>
@@ -22,33 +22,30 @@
           <button id="import">Edit existing pack</button>
           <input id="import-input" type="file" accept=".json" style="display: none" />
           <button id="export">Export</button>
-          <div style="margin-top: 5px;">
-            <a href="" id="open-custom-pack-folder">Browse custom packs</a>
-          </div>
         </div>
       </div>
 
       <div id="pack-header">
         <div class="pack-detail" style="margin-bottom: 10px">
-          <div class="col" style="padding-right: 10px;">
+          <div class="col" style="padding-right: 10px">
             <label>Pack name</label>
             <input type="text" placeholder="Pack name..." class="custom-input" id="pack-name" style="width: 250px" />
           </div>
-          <div class="col" style="padding: 0 10px;">
+          <div class="col" style="padding: 0 10px">
             <label>Edit mode</label>
             <select name="" id="edit-mode" class="custom-input">
               <option value="visual">Visual (select on keyboard)</option>
               <option value="manual">Manual (edit on key list)</option>
             </select>
           </div>
-          <div class="col" style="padding: 0 10px;">
+          <div class="col" style="padding: 0 10px">
             <label>Key define mode</label>
             <select name="" id="key-define-mode" class="custom-input">
               <option value="single">Single file (Determine time start and length)</option>
               <option value="multi">Multiple files (Use one sound file for one key)</option>
             </select>
           </div>
-          <div class="col" style="padding-left: 10px;">
+          <div class="col" style="padding-left: 10px">
             <label>Sound file</label>
             <input type="text" id="single-sound-file" class="custom-input" placeholder="Sound file name..." />
           </div>
@@ -59,7 +56,7 @@
 
       <div class="pack-detail edit-mode edit-mode-manual" style="display: flex; margin-bottom: 50px">
         <div class="col" style="width: 25%; padding-right: 10px" id="pack-zone-main"></div>
-        <div class="col" style="padding: 0 10px; width: 25%;" id="pack-zone-edit"></div>
+        <div class="col" style="padding: 0 10px; width: 25%" id="pack-zone-edit"></div>
         <div class="col" style="width: 25%; padding: 0 10px" id="pack-zone-numpad"></div>
       </div>
     </div>
