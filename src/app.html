@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mechvibes</title>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+    <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./assets/milligram.min.css" />
+    <link rel="stylesheet" href="./assets/app.css" />
+  </head>
+
+  <body style="padding: 2rem">
+    <div id="app-logo">
+      <div id="logo">Loading...</div>
+    </div>
+
+    <div id="app-body" class="loading">
+      <table style="display: table">
+        <tbody>
+          <tr>
+            <td colspan="2">
+              <select id="pack-list" class="custom-input mb-0" style="width: 100%; margin-right: 10px"></select>
+              <div style="text-align: right">
+                <small>
+                  <a href="https://mechvibes.com/sound-packs/" class="open-in-browser">More sounds...</a>
+                </small>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="width: 50%">Volume <span id="volume-value-display" style="font-weight: bold"></span></td>
+            <td style="width: 50%">
+              <input type="range" min="0" max="100" value="20" step="5" class="slider mb-0" id="volume" style="width: 100%" />
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="divider"></div>
+      <div style="color: #666; font-size: 12px; text-align: center">
+        <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes/" class="open-in-browser">hainguyents13</a></p>
+        <p>
+          <a href="https://mechvibes.com" class="open-in-browser">Home page</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <a href="https://mechvibes.com/#qna" class="open-in-browser">FAQs</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <a href="https://buymeacoff.ee/hainguyents13" class="open-in-browser">Buy me a coffee</a>
+        </p>
+        <p id="app-version" style="color: #999">-</p>
+        <div id="update-available" class="hidden">
+          New version of Mechvibes is available (<span id="new-version">-</span>)
+          <div style="margin-top: 5px">
+            <a href="https://mechvibes.com" class="open-in-browser">Check it out</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>
