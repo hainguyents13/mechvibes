@@ -1,7 +1,7 @@
 {
   "name": "mechvibes",
   "productName": "Mechvibes",
-  "version": "v2.2.0",
+  "version": "v2.3.0",
   "description": "Play mechanical keyboard sounds as you type.",
   "repository": "https://github.com/hainguyents13/mechvibes",
   "main": "src/main.js",

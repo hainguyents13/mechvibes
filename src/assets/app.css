@@ -14,11 +14,11 @@ a:hover {
 }
 
 #logo {
-  font-family: 'Lato', sans-serif;
+  font-family: sans-serif;
   transition: all 0.1s ease;
   box-shadow: 0 2px #ff6666;
-  font-weight: 900;
   font-size: 3rem;
+  font-weight: 600;
   background: #fff;
   text-align: center;
   border-radius: 0.5rem;
@@ -53,7 +53,7 @@ a:hover {
 }
 
 .mb-0 {
-  margin-bottom: 0
+  margin-bottom: 0;
 }
 
 /* The slider itself */
@@ -106,7 +106,7 @@ a:hover {
 }
 
 table tr td {
-  border-bottom: 0
+  border-bottom: 0;
 }
 
 table {
