@@ -51,8 +51,29 @@
           <div style="margin-top: 5px">
             <a href="https://mechvibes.com" class="open-in-browser">Check it out</a>
           </div>
+          <!-- PART FOR DARK MODE CHECKBOX-->
+          <input type="checkbox" id="theme-checkbox"> Dark Mode</input>
         </div>
       </div>
     </div>
   </body>
 </html>
+
+<script>
+  //javascript for dark mode checkbox
+  let themeCheck = document.getElementById("theme-checkbox");
+  if(themeCheck.enabled){
+    document.body.style.backgroundColor = "#0A0E12"; //dark mode color i picked but of course can be changed
+    document.body.style.color = "white";
+  }
+  else{
+   
+    document.body.style.backgroundColor = "white"; //dark mode color i picked but of course can be changed
+    document.body.style.color = "black";
+  
+  }
+  
+  #All colors can be changed i just implented the functionality it self.
+  
+</script>
+<!--END DARK MODE CHECKBOX-->
