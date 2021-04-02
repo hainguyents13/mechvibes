@@ -5,7 +5,7 @@ const fs = require('fs-extra');
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
-
+const StartupHandlermin=require('./utils/startup_handler_min');
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
@@ -156,9 +156,9 @@ if (!gotTheLock) {
       {
         label: 'Enable at Startup Minimized',
         type: 'checkbox',
-        checked: startup_handler.is_enabled,
+        checked: startup_handler_min.is_enabled,
         click: function () {
-          startup_handler.toggle();
+          startup_handler_min.toggle();
         },
       },
       {
