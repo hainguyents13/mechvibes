@@ -114,7 +114,7 @@ if (!gotTheLock) {
 
     const startup_handler = new StartupHandler(app);
     const listen_handler = new ListenHandler(app);
-
+    const startup_handler = new StartupHandler(app);
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
       {
@@ -147,6 +147,14 @@ if (!gotTheLock) {
       },
       {
         label: 'Enable at Startup',
+        type: 'checkbox',
+        checked: startup_handler.is_enabled,
+        click: function () {
+          startup_handler.toggle();
+        },
+      },
+      {
+        label: 'Enable at Startup Minimized',
         type: 'checkbox',
         checked: startup_handler.is_enabled,
         click: function () {
