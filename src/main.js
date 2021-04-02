@@ -114,7 +114,7 @@ if (!gotTheLock) {
 
     const startup_handler = new StartupHandler(app);
     const listen_handler = new ListenHandler(app);
-    const startup_handler = new StartupHandler(app);
+    const startup_handler = new StartupHandlermin(app);
     // context menu when hover on tray icon
     const contextMenu = Menu.buildFromTemplate([
       {
