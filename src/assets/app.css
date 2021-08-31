@@ -56,6 +56,16 @@ a:hover {
   margin-bottom: 0;
 }
 
+#volume-value-display {
+  width: 32%;
+  outline: none;
+  font-size: medium;
+  border: 0px solid;
+  color: #666;
+  margin: 0;
+  padding: 0;
+}
+
 /* The slider itself */
 .slider {
   -webkit-appearance: none;

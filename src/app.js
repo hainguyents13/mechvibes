@@ -241,9 +241,13 @@ function packsToOptions(packs, pack_list) {
     if (store.get(MV_VOL_LSID)) {
       volume.value = store.get(MV_VOL_LSID);
     }
-    volume_value.innerHTML = volume.value;
+    volume_value.value = volume.value;
     volume.oninput = function (e) {
-      volume_value.innerHTML = this.value;
+      volume_value.value = this.value;
+      store.set(MV_VOL_LSID, this.value);
+    };
+    volume_value.oninput = function (e) {
+      volume.value = this.value;
       store.set(MV_VOL_LSID, this.value);
     };
 
