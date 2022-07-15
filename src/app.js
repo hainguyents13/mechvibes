@@ -15,6 +15,7 @@ const remapper = require('./utils/remapper');
 
 const MV_PACK_LSID = 'mechvibes-pack';
 const MV_VOL_LSID = 'mechvibes-volume';
+const MV_MOUSE_VOL_LSID = 'mechvibes-mouse-volume';
 
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, 'audio');
@@ -66,7 +67,9 @@ async function loadPacks(status_display_elem, app_body) {
     if (key_define_type == 'single') {
       // define sound path
       const sound_path = `${folder}${sound}`;
-      const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
+      var remap = keycodesRemap(defines);
+      const sound_data = new Howl({ src: [sound_path], sprite: remap });
+      console.log(remap);
       Object.assign(pack_data, { sound: sound_data });
       all_sound_files[pack_data.pack_id] = false;
       // event when sound loaded
@@ -120,7 +123,11 @@ function checkIfAllSoundLoaded(status_display_elem, app_body) {
 function keycodesRemap(defines) {
   const sprite = remapper('standard', platform, defines);
   Object.keys(sprite).map((kc) => {
-    sprite[`keycode-${kc}`] = sprite[kc];
+    if (kc >= 0)
+      sprite[`keycode-${kc}`] = sprite[kc];
+    else {
+      sprite[`mouse-${-kc}`] = sprite[kc];
+    }
     delete sprite[kc];
   });
   return sprite;
@@ -206,6 +213,8 @@ function packsToOptions(packs, pack_list) {
     const pack_list = document.getElementById('pack-list');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
+    const mouse_volume_value = document.getElementById('mouse-volume-value-display');
+    const mouse_volume = document.getElementById('mouse-volume');
 
     // set app version
     version.innerHTML = APP_VERSION;
@@ -247,6 +256,16 @@ function packsToOptions(packs, pack_list) {
       store.set(MV_VOL_LSID, this.value);
     };
 
+    // display mouse volume value
+    if (store.get(MV_MOUSE_VOL_LSID)) {
+      mouse_volume.value = store.get(MV_MOUSE_VOL_LSID);
+    }
+    mouse_volume_value.innerHTML = volume.value;
+    mouse_volume.oninput = function (e) {
+      mouse_volume_value.innerHTML = this.value;
+      store.set(MV_MOUSE_VOL_LSID, this.value);
+    };
+
     if (!is_muted) {
       iohook.start();
     }
@@ -261,12 +280,20 @@ function packsToOptions(packs, pack_list) {
       }
     });
 
+    iohook.on('mousedown', ({ button }) => {
+      const sound_id = `mouse-${button}`;
+
+      // get loaded audio object
+      // if object valid, pack volume and play sound
+      if (current_pack) {
+        playSound(sound_id, store.get(MV_MOUSE_VOL_LSID));
+      }
+    });
     // if key released, clear current key
     iohook.on('keyup', () => {
       current_key_down = null;
       app_logo.classList.remove('pressed');
     });
-
     // key pressed, pack current key and play sound
     iohook.on('keydown', ({ keycode }) => {
       // if hold down a key, not repeat the sound
@@ -298,9 +325,11 @@ function packsToOptions(packs, pack_list) {
 function playSound(sound_id, volume) {
   const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
   const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
+  console.log(sound_id);
   if (!sound) {
     return;
   }
+  console.log(sound);
   sound.volume(Number(volume / 100));
   if (play_type == 'single') {
     sound.play(sound_id);

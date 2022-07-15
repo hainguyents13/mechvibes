@@ -5,6 +5,8 @@
   "includes_numpad": false,
   "sound": "sound.ogg",
   "defines": {
+    "-1": "q.wav",
+    "-2": "w.wav",
     "1": "q.wav",
     "2": "w.wav",
     "3": "e.wav",
