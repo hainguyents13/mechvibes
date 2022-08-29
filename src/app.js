@@ -131,13 +131,20 @@ function keycodesRemap(defines) {
 }
 
 // ==================================================
-// get pack by id,
+// get pack by id or random,
 // if id is null,
 // get saved pack
-function getPack(pack_id = null) {
+function getPack(pack_id = null, is_random = false) {
   if (!pack_id) {
     if (store.get(MV_PACK_LSID)) {
       pack_id = store.get(MV_PACK_LSID);
+      if (is_random) {
+        const randomId = Math.floor(Math.random() * packs.length);
+        if (packs[randomId].pack_id === current_pack.pack_id) {
+          getPack(null, true);
+        }
+        return packs[randomId];
+      }
       if (!getPack(pack_id)) {
         return packs[0];
       }
@@ -208,6 +215,7 @@ function packsToOptions(packs, pack_list) {
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
     const pack_list = document.getElementById('pack-list');
+    const random_button = document.getElementById('random-button');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
@@ -320,6 +328,13 @@ function packsToOptions(packs, pack_list) {
       if (current_pack) {
         playSound(sound_id, store.get(MV_VOL_LSID));
       }
+    });
+
+    // on random button click
+    // set random sound
+    random_button.addEventListener('click', (e) => {
+      e.preventDefault();
+      current_pack = getPack(null, true);
     });
   });
 })(window, document);
