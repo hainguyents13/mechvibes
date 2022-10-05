@@ -268,9 +268,9 @@ function packsToOptions(packs, pack_list) {
     });
 
     // key pressed, pack current key and play sound
-    iohook.on('keydown', ({ keycode }) => {
+    iohook.on('keydown', ({ keycode, metaKey }) => {
       // if hold down a key, not repeat the sound
-      if (current_key_down != null && current_key_down == keycode) {
+      if (current_key_down != null && current_key_down == keycode || metaKey) {
         return;
       }
 
