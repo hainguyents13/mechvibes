@@ -53,14 +53,6 @@ function createWindow(show = true) {
     win = null;
   });
 
-  win.on('minimize', function (event) {
-    if (process.platform === 'darwin') {
-      app.dock.hide();
-    }
-    event.preventDefault();
-    win.hide();
-  });
-
   win.on('close', function (event) {
     if (!app.isQuiting) {
       if (process.platform === 'darwin') {
@@ -106,69 +98,95 @@ if (!gotTheLock) {
   app.on('ready', () => {
     win = createWindow(true);
 
-    // start tray icon
-    tray = new Tray(SYSTRAY_ICON);
+    function createTrayIcon(){
+      // prevent dupe tray icons
+      if(tray !== null) return;
 
-    // tray icon tooltip
-    tray.setToolTip('Mechvibes');
+      // start tray icon
+      tray = new Tray(SYSTRAY_ICON);
 
-    const startup_handler = new StartupHandler(app);
-    const listen_handler = new ListenHandler(app);
+      // tray icon tooltip
+      tray.setToolTip('Mechvibes');
 
-    // context menu when hover on tray icon
-    const contextMenu = Menu.buildFromTemplate([
-      {
-        label: 'Mechvibes',
-        click: function () {
-          // show app on click
+      const startup_handler = new StartupHandler(app);
+      const listen_handler = new ListenHandler(app);
+
+      // context menu when hover on tray icon
+      const contextMenu = Menu.buildFromTemplate([
+        {
+          label: 'Mechvibes',
+          click: function () {
+            // show app on click
+            win.show();
+          },
+        },
+        {
+          label: 'Editor',
+          click: function () {
+            openEditorWindow();
+          },
+        },
+        {
+          label: 'Custom Folder',
+          click: function () {
+            shell.openItem(custom_dir);
+          },
+        },
+        {
+          label: 'Mute',
+          type: 'checkbox',
+          checked: listen_handler.is_muted,
+          click: function () {
+            listen_handler.toggle();
+            win.webContents.send('muted', listen_handler.is_muted);
+          },
+        },
+        {
+          label: 'Enable at Startup',
+          type: 'checkbox',
+          checked: startup_handler.is_enabled,
+          click: function () {
+            startup_handler.toggle();
+          },
+        },
+        {
+          label: 'Quit',
+          click: function () {
+            // quit
+            app.isQuiting = true;
+            app.quit();
+          },
+        },
+      ]);
+
+      // On macOS double click doesn't work if we use tray.setContextMenu(), so we'll do it manually.
+      if(process.platform == "darwin"){ 
+        // click on tray icon, show context menu
+        tray.on('click', () => {
+          tray.popUpContextMenu(contextMenu);
+        });
+        
+        // right click on tray icon, show the app
+        tray.on("right-click", () => {
           win.show();
-        },
-      },
-      {
-        label: 'Editor',
-        click: function () {
-          openEditorWindow();
-        },
-      },
-      {
-        label: 'Custom Folder',
-        click: function () {
-          shell.openItem(custom_dir);
-        },
-      },
-      {
-        label: 'Mute',
-        type: 'checkbox',
-        checked: listen_handler.is_muted,
-        click: function () {
-          listen_handler.toggle();
-          win.webContents.send('muted', listen_handler.is_muted);
-        },
-      },
-      {
-        label: 'Enable at Startup',
-        type: 'checkbox',
-        checked: startup_handler.is_enabled,
-        click: function () {
-          startup_handler.toggle();
-        },
-      },
-      {
-        label: 'Quit',
-        click: function () {
-          // quit
-          app.isQuiting = true;
-          app.quit();
-        },
-      },
-    ]);
+        })
+      }else{
+        tray.setContextMenu(contextMenu);
+        // double click on tray icon, show the app
+        tray.on("double-click", () => {
+          win.show();
+        })
+      }
+    }
 
-    // double click on tray icon, show the app
-    tray.on('double-click', () => {
-      win.show();
-    });
-
-    tray.setContextMenu(contextMenu);
+    ipcMain.on("hide_tray_icon", (event, hide) => {
+      if(hide && tray !== null){
+        tray.destroy()
+        tray = null;
+      }else if(!hide && tray === null){
+        createTrayIcon();
+      }
+    })
 
     // prevent Electron app from interrupting macOS system shutdown
     if (process.platform == 'darwin') {
@@ -192,7 +210,16 @@ app.on('window-all-closed', function () {
 app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
-  if (win === null) createWindow();
+  if (win === null){
+    createWindow();
+  }else{
+    // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
+    if (win.isMinimized()) {
+      win.restore();
+    }
+    win.show();
+    win.focus();
+  }
 });
 
 // always be sure that your application handles the 'quit' event in your main process

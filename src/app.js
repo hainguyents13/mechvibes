@@ -15,6 +15,7 @@ const remapper = require('./utils/remapper');
 
 const MV_PACK_LSID = 'mechvibes-pack';
 const MV_VOL_LSID = 'mechvibes-volume';
+const MV_TRAY_LSID = 'mechvibes-hidden';
 
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, 'audio');
@@ -206,6 +207,8 @@ function packsToOptions(packs, pack_list) {
     const pack_list = document.getElementById('pack-list');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
+    const tray_icon_toggle = document.getElementById("tray_icon_toggle");
+    const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
 
     // set app version
     version.innerHTML = APP_VERSION;
@@ -236,6 +239,27 @@ function packsToOptions(packs, pack_list) {
 
     // get last selected pack
     current_pack = getPack();
+
+    // handle tray hiding
+    console.log(store.get(MV_TRAY_LSID));
+    if (store.get(MV_TRAY_LSID) !== undefined){
+      tray_icon_toggle.checked = store.get(MV_TRAY_LSID);
+    }
+    tray_icon_toggle.onclick = function(e) { 
+      let value = tray_icon_toggle.checked;
+      ipcRenderer.send("hide_tray_icon", !value);
+      store.set(MV_TRAY_LSID, value);
+    }
+    tray_icon_toggle_group.onclick = function(e) {
+      tray_icon_toggle.click();
+    }
+
+    // ensure tray icon is reflected
+    let initTray = () => {
+      let value = tray_icon_toggle.checked;
+      ipcRenderer.send("hide_tray_icon", !value);
+    }
+    initTray();
 
     // display volume value
     if (store.get(MV_VOL_LSID)) {
