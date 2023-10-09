@@ -112,3 +112,65 @@ table tr td {
 table {
   margin-bottom: 0;
 }
+
+:root {
+  --checkbox-color: #ff5050;
+  --checkbox-background: #fff;
+}
+
+.checkbox{
+  /* Add if not using autoprefixer */
+  -webkit-appearance: none;
+  /* Remove most all native input styles */
+  appearance: none;
+  /* For iOS < 15 */
+  background-color: var(--checkbox-background);
+  /* Not removed via appearance */
+  margin: 0;
+
+  opacity: 0.7;
+  -webkit-transition: 0.2s;
+  transition: opacity 0.2s;
+
+  font: inherit;
+  color: currentColor;
+  width: 1.15em;
+  height: 1.15em;
+  border: 0.15em solid currentColor;
+  border-radius: 0.15em;
+  transform: translateY(-0.075em);
+
+  display: grid!important;
+  place-content: center;
+}
+
+.checkbox::before{
+  content: "";
+  width: 0.65em;
+  height: 0.65em;
+  clip-path: polygon(14% 44%, 0 65%, 50% 100%, 100% 16%, 80% 0%, 43% 62%);
+  opacity:0;
+  transition: 200ms opacity ease-in-out;
+  box-shadow: inset 1em 1em var(--checkbox-color);
+  /* Windows High Contrast Mode */
+  background-color: CanvasText;
+}
+
+.checkbox-group{
+  user-select: none;
+  cursor: pointer;
+}
+
+/* Mouse-over effects */
+.checkbox-group:hover .checkbox {
+  opacity: 1;
+  /* Fully shown on mouse-over */
+}
+
+.checkbox:checked::before {
+  opacity:1;
+}
+
+.checkbox:focus {
+  outline: none;
+}
