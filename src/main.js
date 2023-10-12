@@ -192,8 +192,10 @@ if (!gotTheLock) {
       }
     }
 
-    ipcMain.on("hide_tray_icon", (event, hide) => {
-      if(hide && tray !== null){
+    ipcMain.on("show_tray_icon", (event, show) => {
+      if(show && tray === null){
+        createTrayIcon();
+      }else if(!show && tray !== null){
         tray.destroy()
         tray = null;
       }else if(!hide && tray === null){
