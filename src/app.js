@@ -245,19 +245,23 @@ function packsToOptions(packs, pack_list) {
     if (store.get(MV_TRAY_LSID) !== undefined){
       tray_icon_toggle.checked = store.get(MV_TRAY_LSID);
     }
-    tray_icon_toggle.onclick = function(e) { 
-      let value = tray_icon_toggle.checked;
-      ipcRenderer.send("hide_tray_icon", !value);
-      store.set(MV_TRAY_LSID, value);
-    }
+    // tray_icon_toggle.onclick = function(e) { 
+    //   e.preventDefault();
+    //   e.stopPropagation();
+    //   tray_icon_toggle_group.click();
+    // }
     tray_icon_toggle_group.onclick = function(e) {
-      tray_icon_toggle.click();
+      e.preventDefault();
+      e.stopPropagation();
+      // toggle checkbox
+      tray_icon_toggle.checked = !tray_icon_toggle.checked;
+      ipcRenderer.send("show_tray_icon", tray_icon_toggle.checked);
+      store.set(MV_TRAY_LSID, tray_icon_toggle.checked);
     }
 
     // ensure tray icon is reflected
     let initTray = () => {
-      let value = tray_icon_toggle.checked;
-      ipcRenderer.send("hide_tray_icon", !value);
+      ipcRenderer.send("show_tray_icon", tray_icon_toggle.checked);
     }
     initTray();
 
