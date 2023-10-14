@@ -7,9 +7,9 @@ const os = require("os");
 const log = require("electron-log");
 log.transports.remote.client = {
   name: "Mechvibes",
-  hostname: os.hostname(),
-  username: os.userInfo().username,
-  platform: os.platform()
+  hostname: os.hostname(), // Lunas-Macbook-Pro.local
+  username: os.userInfo().username, // lunaalfien
+  platform: os.platform() // darwin
 };
 log.transports.remote.level = "info";
 log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
