@@ -3,12 +3,29 @@ const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 
+const os = require("os");
+const log = require("electron-log");
+log.transports.remote.client = {
+  name: "Mechvibes",
+  hostname: os.hostname(),
+  username: os.userInfo().username,
+  platform: os.platform()
+};
+log.transports.remote.level = "info";
+log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
+
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
+
+// const user_dir = app.getPath("userData");
+// const custom_dir = path.join(user_dir, "/custom");
+
+// TODO: Move iohook handling here
+// const iohook = require('iohook');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -20,6 +37,8 @@ global.custom_dir = custom_dir;
 fs.ensureDirSync(custom_dir);
 
 function createWindow(show = true) {
+  console.log(app.getPath("userData"));
+  
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
@@ -63,6 +82,11 @@ function createWindow(show = true) {
     }
     return false;
   });
+
+  win.on("unresponsive", () => {
+    log.warn("Window has entered unresponsive state");
+    console.log("unresponsive");
+  })
 
   return win;
 }
@@ -198,10 +222,10 @@ if (!gotTheLock) {
       }else if(!show && tray !== null){
         tray.destroy()
         tray = null;
-      }else if(!hide && tray === null){
-        createTrayIcon();
       }
     })
+
+    log.info("App is ready and has been initialized");
 
     // prevent Electron app from interrupting macOS system shutdown
     if (process.platform == 'darwin') {
