@@ -14,6 +14,14 @@ log.transports.remote.client = {
 log.transports.remote.level = "info";
 log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
 
+log.transports.file.fileName = "mechvibes.log";
+log.transports.file.level = "info";
+log.transports.file.resolvePath = (variables) => {
+  // ~/mechvibes.log
+  // eg. /Users/lunaalfien/mechvibes.log
+  return path.join(variables.home, variables.fileName);
+}
+
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
 
@@ -37,8 +45,6 @@ global.custom_dir = custom_dir;
 fs.ensureDirSync(custom_dir);
 
 function createWindow(show = true) {
-  console.log(app.getPath("userData"));
-  
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
