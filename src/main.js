@@ -293,6 +293,13 @@ if (!gotTheLock) {
       }
     })
 
+    // allow the installer to set its size using the height of the body so that when content changes,
+    // the installer can only be as big or as small as it needs to be.
+    ipcMain.on("resize-installer", (event, size) => {
+      const diff = installer.getSize()[1] - installer.getContentSize()[1];
+      installer.setSize(300, size + diff, true);
+    })
+
     log.info("App is ready and has been initialized");
 
     // prevent Electron app from interrupting macOS system shutdown
