@@ -132,6 +132,8 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    app.setAsDefaultProtocolClient('mechvibes')
+
     win = createWindow(true);
 
     function createTrayIcon(){
@@ -269,6 +271,11 @@ app.on('activate', function () {
     win.focus();
   }
 });
+
+// ensure app gets unregistered
+app.on("before-quit", () => {
+  app.removeAsDefaultProtocolClient("mechvibes");
+})
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {
