@@ -97,6 +97,45 @@ function createWindow(show = true) {
   return win;
 }
 
+let installer = null;
+function openInstallWindow(packId){
+  // Create the browser window.
+  installer = new BrowserWindow({
+    width: 300,
+    height: 200,
+    useContentSize: false,
+    webSecurity: false,
+    // resizable: false,
+    // fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'install.js'),
+      contextIsolation: false,
+      nodeIntegration: true,
+    },
+    show: true,
+  });
+
+  // remove menu bar
+  installer.removeMenu();
+
+  // and load the index.html of the app.
+  installer.loadFile('./src/install.html');
+
+  installer.webContents.on("did-finish-load", () => {
+    installer.webContents.send("install-pack", packId);
+  })
+
+
+
+  // Emitted when the window is closed.
+  installer.on('closed', function () {
+    // Dereference the window object, usually you would store windows
+    // in an array if your app supports multi windows, this is the time
+    // when you should delete the corresponding element.
+    installer = null;
+  });
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
   // Someone tried to run a second instance, we should focus our window.
@@ -108,6 +147,18 @@ app.on('second-instance', () => {
     win.focus();
   }
 });
+
+const protocolCommands = {
+  "install": (packId) => {
+    if(installer === null){
+      console.log("Submitting request to install...");
+      console.log(packId);
+      openInstallWindow(packId);
+    }else{
+      installer.focus();
+    }
+  }
+}
 
 if (!gotTheLock) {
   app.quit();
