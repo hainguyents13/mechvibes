@@ -71,6 +71,9 @@ const gotTheLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
   // Someone tried to run a second instance, we should focus our window.
   if (win) {
+    if (process.platform === 'darwin') {
+      app.dock.show();
+    }
     win.show();
     win.focus();
   }
@@ -82,6 +85,9 @@ if (!gotTheLock) {
   app.on('second-instance', () => {
     // Someone tried to run a second instance, we should focus our window.
     if (win) {
+      if (process.platform === 'darwin') {
+        app.dock.show();
+      }
       if (win.isMinimized()) {
         win.restore();
       }
@@ -117,7 +123,11 @@ if (!gotTheLock) {
           label: 'Mechvibes',
           click: function () {
             // show app on click
+            if (process.platform === 'darwin') {
+              app.dock.show();
+            }
             win.show();
+            win.focus();
           },
         },
         {
@@ -168,13 +178,16 @@ if (!gotTheLock) {
         
         // right click on tray icon, show the app
         tray.on("right-click", () => {
+          app.dock.show();
           win.show();
+          win.focus();
         })
       }else{
         tray.setContextMenu(contextMenu);
         // double click on tray icon, show the app
         tray.on("double-click", () => {
           win.show();
+          win.focus();
         })
       }
     }
@@ -214,6 +227,9 @@ app.on('activate', function () {
     createWindow();
   }else{
     // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
+    if (process.platform === 'darwin') {
+      app.dock.show();
+    }
     if (win.isMinimized()) {
       win.restore();
     }
