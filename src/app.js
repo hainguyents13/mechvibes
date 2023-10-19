@@ -7,6 +7,7 @@ const Store = require('electron-store');
 const store = new Store();
 const { Howl } = require('howler');
 const { shell, remote, ipcRenderer } = require('electron');
+const fs = require('fs');
 const glob = require('glob');
 // TODO: move iohook and audio playback to main.js so that if the configurator dies the audio doesn't.
 const iohook = require("iohook");
@@ -52,52 +53,54 @@ async function loadPacks(status_display_elem, app_body) {
     const config_file = `${folder.replace(/\/$/, '')}/config.json`;
 
     // get pack info and defines data
-    const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+    if(fs.existsSync(config_file)){
+      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
 
-    // pack sound pack data
-    const pack_data = {
-      pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
-      group: is_custom ? 'Custom' : 'Default',
-      abs_path: folder,
-      key_define_type,
-      name,
-      includes_numpad,
-    };
-
-    // init sound data
-    if (key_define_type == 'single') {
-      // define sound path
-      const sound_path = `${folder}${sound}`;
-      const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
-      Object.assign(pack_data, { sound: sound_data });
-      all_sound_files[pack_data.pack_id] = false;
-      // event when sound loaded
-      sound_data.once('load', function () {
-        all_sound_files[pack_data.pack_id] = true;
-        checkIfAllSoundLoaded(status_display_elem, app_body);
-      });
-    } else {
-      const sound_data = {};
-      Object.keys(defines).map((kc) => {
-        if (defines[kc]) {
-          // define sound path
-          const sound_path = `${folder}${defines[kc]}`;
-          sound_data[kc] = new Howl({ src: [sound_path] });
-          all_sound_files[`${pack_data.pack_id}-${kc}`] = false;
-          // event when sound_data loaded
-          sound_data[kc].once('load', function () {
-            all_sound_files[`${pack_data.pack_id}-${kc}`] = true;
-            checkIfAllSoundLoaded(status_display_elem, app_body);
-          });
+      // pack sound pack data
+      const pack_data = {
+        pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
+        group: is_custom ? 'Custom' : 'Default',
+        abs_path: folder,
+        key_define_type,
+        name,
+        includes_numpad,
+      };
+  
+      // init sound data
+      if (key_define_type == 'single') {
+        // define sound path
+        const sound_path = `${folder}${sound}`;
+        const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
+        Object.assign(pack_data, { sound: sound_data });
+        all_sound_files[pack_data.pack_id] = false;
+        // event when sound loaded
+        sound_data.once('load', function () {
+          all_sound_files[pack_data.pack_id] = true;
+          checkIfAllSoundLoaded(status_display_elem, app_body);
+        });
+      } else {
+        const sound_data = {};
+        Object.keys(defines).map((kc) => {
+          if (defines[kc]) {
+            // define sound path
+            const sound_path = `${folder}${defines[kc]}`;
+            sound_data[kc] = new Howl({ src: [sound_path] });
+            all_sound_files[`${pack_data.pack_id}-${kc}`] = false;
+            // event when sound_data loaded
+            sound_data[kc].once('load', function () {
+              all_sound_files[`${pack_data.pack_id}-${kc}`] = true;
+              checkIfAllSoundLoaded(status_display_elem, app_body);
+            });
+          }
+        });
+        if (Object.keys(sound_data).length) {
+          Object.assign(pack_data, { sound: keycodesRemap(sound_data) });
         }
-      });
-      if (Object.keys(sound_data).length) {
-        Object.assign(pack_data, { sound: keycodesRemap(sound_data) });
       }
+  
+      // push pack data to pack list
+      packs.push(pack_data);
     }
-
-    // push pack data to pack list
-    packs.push(pack_data);
   });
 
   // end load
@@ -129,13 +132,20 @@ function keycodesRemap(defines) {
 }
 
 // ==================================================
-// get pack by id,
+// get pack by id or random,
 // if id is null,
 // get saved pack
-function getPack(pack_id = null) {
+function getPack(pack_id = null, is_random = false) {
   if (!pack_id) {
     if (store.get(MV_PACK_LSID)) {
       pack_id = store.get(MV_PACK_LSID);
+      if (is_random) {
+        const randomId = Math.floor(Math.random() * packs.length);
+        if (packs[randomId].pack_id === current_pack.pack_id) {
+          getPack(null, true);
+        }
+        return packs[randomId];
+      }
       if (!getPack(pack_id)) {
         return packs[0];
       }
@@ -206,6 +216,7 @@ function packsToOptions(packs, pack_list) {
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
     const pack_list = document.getElementById('pack-list');
+    const random_button = document.getElementById('random-button');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
@@ -318,6 +329,13 @@ function packsToOptions(packs, pack_list) {
       if (current_pack) {
         playSound(sound_id, store.get(MV_VOL_LSID));
       }
+    });
+
+    // on random button click
+    // set random sound
+    random_button.addEventListener('click', (e) => {
+      e.preventDefault();
+      current_pack = getPack(null, true);
     });
   });
 })(window, document);
