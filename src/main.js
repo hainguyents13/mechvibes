@@ -126,6 +126,15 @@ if (!gotTheLock) {
     }
   });
 
+  app.on("open-url", (event, url) => {
+    const command = decodeURI(url.slice("mechvibes://".length)).split(" ");
+    if(protocolCommands[command[0]]){
+      const args = command;
+      protocolCommands[args[0]](args[1], args[2], args[3], args[4]);
+    }
+    console.log(command);
+  })
+
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
