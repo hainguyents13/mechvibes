@@ -142,6 +142,8 @@ table {
 
   display: grid!important;
   place-content: center;
+
+  pointer-events: none;
 }
 
 .checkbox::before{
