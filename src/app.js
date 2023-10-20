@@ -347,7 +347,7 @@ function packsToOptions(packs, pack_list) {
     if (store.get(MV_VOL_LSID)) {
       volume.value = store.get(MV_VOL_LSID);
     }else{
-      // TODO:
+      // TODO: set default
     }
     volume_value.innerHTML = volume.value;
     volume.oninput = function (e) {
