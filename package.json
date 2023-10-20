@@ -84,6 +84,7 @@
     }
   },
   "dependencies": {
+    "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
     "glob": "^7.1.6",

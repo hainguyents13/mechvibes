@@ -3,12 +3,37 @@ const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 
+const os = require("os");
+const log = require("electron-log");
+log.transports.remote.client = {
+  name: "Mechvibes",
+  hostname: os.hostname(), // Lunas-Macbook-Pro.local
+  username: os.userInfo().username, // lunaalfien
+  platform: os.platform() // darwin
+};
+log.transports.remote.level = "info";
+log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
+
+log.transports.file.fileName = "mechvibes.log";
+log.transports.file.level = "info";
+log.transports.file.resolvePath = (variables) => {
+  // ~/mechvibes.log
+  // eg. /Users/lunaalfien/mechvibes.log
+  return path.join(variables.home, variables.fileName);
+}
+
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
+
+// const user_dir = app.getPath("userData");
+// const custom_dir = path.join(user_dir, "/custom");
+
+// TODO: Move iohook handling here
+// const iohook = require('iohook');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -64,6 +89,11 @@ function createWindow(show = true) {
     return false;
   });
 
+  win.on("unresponsive", () => {
+    log.warn("Window has entered unresponsive state");
+    console.log("unresponsive");
+  })
+
   return win;
 }
 
@@ -102,6 +132,8 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    app.setAsDefaultProtocolClient('mechvibes')
+
     win = createWindow(true);
 
     function createTrayIcon(){
@@ -203,6 +235,8 @@ if (!gotTheLock) {
       }
     })
 
+    log.info("App is ready and has been initialized");
+
     // prevent Electron app from interrupting macOS system shutdown
     if (process.platform == 'darwin') {
       const { powerMonitor } = require('electron');
@@ -239,6 +273,11 @@ app.on('activate', function () {
     win.focus();
   }
 });
+
+// ensure app gets unregistered
+app.on("before-quit", () => {
+  app.removeAsDefaultProtocolClient("mechvibes");
+})
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {
