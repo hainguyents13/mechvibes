@@ -171,7 +171,7 @@ if (!gotTheLock) {
       }else{
         // when we reach this code, we're hitting open-url on win or linux
         // Note, this doesn't occur on macos, we have to use open-url below.
-        log.info(JSON.stringify([commandLine, commandLine.pop]));
+        log.info(JSON.stringify({cmd: commandLine, pop: commandLine.pop()}));
       }
       if (win.isMinimized()) {
         win.restore();
@@ -196,7 +196,6 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
-    log.info(process.execPath);
     app.setAsDefaultProtocolClient('mechvibes');
 
     win = createWindow(true);
