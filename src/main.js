@@ -198,7 +198,7 @@ if (!gotTheLock) {
       }else if(!show && tray !== null){
         tray.destroy()
         tray = null;
-      }else if(!hide && tray === null){
+      }else if(!show && tray === null){
         createTrayIcon();
       }
     })
