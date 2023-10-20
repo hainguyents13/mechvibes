@@ -47,7 +47,7 @@ function loadPack(packId = null){
         const audio = new Howl(sound_data);
         audio.once('load', function () {
           packs[packId].sound = audio;
-          resolve(true);
+          resolve();
         });
       }else{
         let loaded_sounds = {};
@@ -59,8 +59,8 @@ function loadPack(packId = null){
             }
           });
           if(!unloaded_exists){
-            console.log("done");
             packs[packId].sound = loaded_sounds;
+            resolve();
           }
         }
         Object.keys(pack.sound_data).map((kc) => {
@@ -113,10 +113,7 @@ window.unloadPack = unloadPack;
 
 // ==================================================
 // load all pack
-async function loadPacks(status_display_elem, app_body) {
-  // init
-  status_display_elem.innerHTML = 'Loading...';
-
+async function loadPacks() {
   // get all audio folders
   const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*/');
   const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*/');
@@ -292,6 +289,9 @@ function packsToOptions(packs, pack_list) {
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
 
+    // init
+    app_logo.innerHTML = 'Loading...';
+
     // set app version
     version.innerHTML = APP_VERSION;
 
@@ -321,7 +321,10 @@ function packsToOptions(packs, pack_list) {
 
     // get last selected pack
     current_pack = getSavedPack();
-    loadPack();
+    loadPack().then(() => {
+      app_logo.innerHTML = 'Mechvibes';
+      app_body.classList.remove('loading');
+    });
 
     // handle tray hiding
     console.log(store.get(MV_TRAY_LSID));
