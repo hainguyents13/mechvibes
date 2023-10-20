@@ -396,7 +396,7 @@ function packsToOptions(packs, pack_list) {
       // get loaded audio object
       // if object valid, pack volume and play sound
       if (current_pack) {
-        playSound(sound_id, store.get(MV_VOL_LSID));
+        playSound(sound_id, volume.value);
       }
     });
 
