@@ -139,10 +139,12 @@ function getPack(pack_id = null, is_random = false) {
     if (store.get(MV_PACK_LSID)) {
       pack_id = store.get(MV_PACK_LSID);
       if (is_random) {
+        const pack_list = document.getElementById('pack-list');
         const randomId = Math.floor(Math.random() * packs.length);
         if (packs[randomId].pack_id === current_pack.pack_id) {
           getPack(null, true);
         }
+        pack_list.selectedIndex = randomId;
         return packs[randomId];
       }
       if (!getPack(pack_id)) {
@@ -333,6 +335,7 @@ function packsToOptions(packs, pack_list) {
     // on random button click
     // set random sound
     random_button.addEventListener('click', (e) => {
+      console.log("clicked random");
       e.preventDefault();
       current_pack = getPack(null, true);
     });
