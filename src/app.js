@@ -9,8 +9,7 @@ const { Howl } = require('howler');
 const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
-// TODO: move iohook and audio playback to main.js so that if the configurator dies the audio doesn't.
-const iohook = require("iohook");
+const iohook = require('iohook');
 const path = require('path');
 const { platform } = process;
 const remapper = require('./utils/remapper');
