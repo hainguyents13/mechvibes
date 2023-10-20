@@ -196,7 +196,8 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
-    app.setAsDefaultProtocolClient('mechvibes')
+    log.info(process.execPath);
+    app.setAsDefaultProtocolClient('mechvibes');
 
     win = createWindow(true);
 
