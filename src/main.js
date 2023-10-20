@@ -171,7 +171,7 @@ if (!gotTheLock) {
       }else{
         // when we reach this code, we're hitting open-url on win or linux
         // Note, this doesn't occur on macos, we have to use open-url below.
-        console.log(commandLine.pop());
+        log.info(JSON.stringify([commandLine, commandLine.pop]));
       }
       if (win.isMinimized()) {
         win.restore();
