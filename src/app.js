@@ -29,12 +29,92 @@ let is_muted = store.get('mechvibes-muted') || false;
 const packs = [];
 const all_sound_files = {};
 
+function loadPack(packId = null){
+  if(packId === null){
+    Object.keys(packs).map((pid) => {
+      const _pack = packs[pid];
+      if(_pack.id == current_pack.id){
+        packId = pid;
+      }
+    })
+  }
+  return new Promise((resolve, reject) => {
+    if(packs[packId] !== undefined){
+      unloadAllPacks(); // unload all loaded packs before attempting to load a new pack.
+      const pack = packs[packId];
+      if(pack.key_define_type == 'single'){
+        const sound_data = packs[packId].sound_data;
+        
+        const audio = new Howl(sound_data);
+        audio.once('load', function () {
+          packs[packId].sound = audio;
+          resolve();
+        });
+      }else{
+        let loaded_sounds = {};
+        let check = () => {
+          let unloaded_exists = false;
+          Object.keys(loaded_sounds).map((key) => {
+            if (typeof loaded_sounds[key] !== 'object') {
+              unloaded_exists = true;
+            }
+          });
+          if(!unloaded_exists){
+            packs[packId].sound = loaded_sounds;
+            resolve();
+          }
+        }
+        Object.keys(pack.sound_data).map((kc) => {
+          const audio = new Howl(pack.sound_data[kc]);
+          loaded_sounds[kc] = false;
+          audio.once('load', function(){
+            loaded_sounds[kc] = audio;
+            check();
+          })
+        })
+      }
+    }else{
+      reject("That packID doesn't exist");
+    }
+  })
+}
+
+function unloadPack(packId){
+  if(packs[packId] !== undefined){
+    if(packs[packId].sound !== undefined){
+      if(packs[packId].key_define_type == 'single'){
+        packs[packId].sound.unload();
+        delete packs[packId].sound;
+      }else{
+        Object.keys(packs[packId].sound).map((kc) => {
+          packs[packId].sound[kc].unload();
+        })
+        delete packs[packId].sound;
+      }
+      return [true];
+    }else{
+      return [false, "pack is unloaded already"];
+    }
+  }else{
+    return [false, "pack doesn't exist"];
+  }
+}
+
+function unloadAllPacks(){
+  Object.keys(packs).map((packId) => {
+    if(packs[packId].sound !== undefined){
+      unloadPack(packId);
+    }
+  })
+}
+
+window.packs = packs;
+window.loadPack = loadPack;
+window.unloadPack = unloadPack;
+
 // ==================================================
 // load all pack
-async function loadPacks(status_display_elem, app_body) {
-  // init
-  status_display_elem.innerHTML = 'Loading...';
-
+async function loadPacks() {
   // get all audio folders
   const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*/');
   const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*/');
@@ -70,31 +150,19 @@ async function loadPacks(status_display_elem, app_body) {
       if (key_define_type == 'single') {
         // define sound path
         const sound_path = `${folder}${sound}`;
-        const sound_data = new Howl({ src: [sound_path], sprite: keycodesRemap(defines) });
-        Object.assign(pack_data, { sound: sound_data });
-        all_sound_files[pack_data.pack_id] = false;
-        // event when sound loaded
-        sound_data.once('load', function () {
-          all_sound_files[pack_data.pack_id] = true;
-          checkIfAllSoundLoaded(status_display_elem, app_body);
-        });
+        const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
+        Object.assign(pack_data, { sound_data: sound_data });
       } else {
         const sound_data = {};
         Object.keys(defines).map((kc) => {
           if (defines[kc]) {
             // define sound path
             const sound_path = `${folder}${defines[kc]}`;
-            sound_data[kc] = new Howl({ src: [sound_path] });
-            all_sound_files[`${pack_data.pack_id}-${kc}`] = false;
-            // event when sound_data loaded
-            sound_data[kc].once('load', function () {
-              all_sound_files[`${pack_data.pack_id}-${kc}`] = true;
-              checkIfAllSoundLoaded(status_display_elem, app_body);
-            });
+            sound_data[kc] = { src: [sound_path] };
           }
         });
         if (Object.keys(sound_data).length) {
-          Object.assign(pack_data, { sound: keycodesRemap(sound_data) });
+          Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
         }
       }
   
@@ -108,19 +176,6 @@ async function loadPacks(status_display_elem, app_body) {
 }
 
 // ==================================================
-// check if all packs loaded
-function checkIfAllSoundLoaded(status_display_elem, app_body) {
-  Object.keys(all_sound_files).map((key) => {
-    if (!all_sound_files[key]) {
-      return false;
-    }
-  });
-  status_display_elem.innerHTML = 'Mechvibes';
-  app_body.classList.remove('loading');
-  return true;
-}
-
-// ==================================================
 // remap keycodes from standard to os based keycodes
 function keycodesRemap(defines) {
   const sprite = remapper('standard', platform, defines);
@@ -131,30 +186,44 @@ function keycodesRemap(defines) {
   return sprite;
 }
 
-// ==================================================
-// get pack by id or random,
-// if id is null,
-// get saved pack
-function getPack(pack_id = null, is_random = false) {
-  if (!pack_id) {
-    if (store.get(MV_PACK_LSID)) {
-      pack_id = store.get(MV_PACK_LSID);
-      if (is_random) {
-        const randomId = Math.floor(Math.random() * packs.length);
-        if (packs[randomId].pack_id === current_pack.pack_id) {
-          getPack(null, true);
-        }
-        return packs[randomId];
-      }
-      if (!getPack(pack_id)) {
-        return packs[0];
-      }
-    } else {
-      return packs[0];
-    }
-  }
-  store.set(MV_PACK_LSID, pack_id);
+function getPack(pack_id){
   return packs.find((pack) => pack.pack_id == pack_id);
+}
+
+function getSavedPack() {
+  if (store.get(MV_PACK_LSID)) {
+    const pack_id = store.get(MV_PACK_LSID);
+    const pack = getPack(pack_id);
+    if (!pack) {
+      return packs[0];
+    }else{
+      return pack;
+    }
+  } else {
+    return packs[0];
+  }
+}
+
+// set pack by its index in the packs array
+function setPack(pack_id){
+  let index = 0;
+  Object.keys(packs).map((packId) => {
+    if(packs[packId].pack_id == pack_id){
+      index = packId;
+    }
+  })
+  loadPack(index);
+  current_pack = packs[index];
+  store.set(MV_PACK_LSID, current_pack.pack_id);
+}
+
+window.store = store;
+
+// set pack by its string id
+function setPackByIndex(index){
+  loadPack(index);
+  current_pack = packs[index];
+  store.set(MV_PACK_LSID, current_pack.pack_id);
 }
 
 // ==================================================
@@ -185,7 +254,7 @@ function packsToOptions(packs, pack_list) {
       const is_selected = selected_pack_id == pack.pack_id;
       if (is_selected) {
         // pack current pack to saved pack
-        current_pack = pack;
+        setPack(pack.pack_id);
       }
       // add pack to pack list
       const opt = document.createElement('option');
@@ -201,8 +270,7 @@ function packsToOptions(packs, pack_list) {
   // update saved list id
   pack_list.addEventListener('change', (e) => {
     const selected_id = e.target.options[e.target.selectedIndex].value;
-    store.set(MV_PACK_LSID, selected_id);
-    current_pack = getPack();
+    setPack(selected_id);
   });
 }
 
@@ -221,6 +289,9 @@ function packsToOptions(packs, pack_list) {
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
+
+    // init
+    app_logo.innerHTML = 'Loading...';
 
     // set app version
     version.innerHTML = APP_VERSION;
@@ -250,18 +321,17 @@ function packsToOptions(packs, pack_list) {
     });
 
     // get last selected pack
-    current_pack = getPack();
+    current_pack = getSavedPack();
+    loadPack().then(() => {
+      app_logo.innerHTML = 'Mechvibes';
+      app_body.classList.remove('loading');
+    });
 
     // handle tray hiding
     console.log(store.get(MV_TRAY_LSID));
     if (store.get(MV_TRAY_LSID) !== undefined){
       tray_icon_toggle.checked = store.get(MV_TRAY_LSID);
     }
-    // tray_icon_toggle.onclick = function(e) { 
-    //   e.preventDefault();
-    //   e.stopPropagation();
-    //   tray_icon_toggle_group.click();
-    // }
     tray_icon_toggle_group.onclick = function(e) {
       e.preventDefault();
       e.stopPropagation();
@@ -280,6 +350,8 @@ function packsToOptions(packs, pack_list) {
     // display volume value
     if (store.get(MV_VOL_LSID)) {
       volume.value = store.get(MV_VOL_LSID);
+    }else{
+      // TODO: set default
     }
     volume_value.innerHTML = volume.value;
     volume.oninput = function (e) {
@@ -310,6 +382,7 @@ function packsToOptions(packs, pack_list) {
     // key pressed, pack current key and play sound
     iohook.on('keydown', ({ keycode }) => {
       // if hold down a key, not repeat the sound
+      // On macOS this doesn't seem to be an issue?
       if (current_key_down != null && current_key_down == keycode) {
         return;
       }
@@ -327,7 +400,7 @@ function packsToOptions(packs, pack_list) {
       // get loaded audio object
       // if object valid, pack volume and play sound
       if (current_pack) {
-        playSound(sound_id, store.get(MV_VOL_LSID));
+        playSound(sound_id, volume.value);
       }
     });
 
@@ -335,7 +408,16 @@ function packsToOptions(packs, pack_list) {
     // set random sound
     random_button.addEventListener('click', (e) => {
       e.preventDefault();
-      current_pack = getPack(null, true);
+      let getRandomPackId = () => {
+        let randomId = Math.floor(Math.random() * packs.length);
+        if (packs[randomId].pack_id === current_pack.pack_id) {
+          return getRandomPackId();
+        }
+        return randomId;
+      }
+      const packId = getRandomPackId();
+      pack_list.selectedIndex = packId;
+      setPackByIndex(packId);
     });
   });
 })(window, document);
@@ -343,6 +425,10 @@ function packsToOptions(packs, pack_list) {
 // ==================================================
 // universal play function
 function playSound(sound_id, volume) {
+  if(current_pack.sound === undefined){
+    // sound for this pack hasn't been loaded
+    return;
+  }
   const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
   const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
   if (!sound) {
