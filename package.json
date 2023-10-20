@@ -93,7 +93,7 @@
   "devDependencies": {
     "app-builder-lib": "^22.2.0",
     "electron": "^6.1.5",
-    "electron-builder": "^21.2.0",
+    "electron-builder": "^24.6.4",
     "electron-compile": "^6.4.4",
     "electron-packager": "^14.1.1"
   }
