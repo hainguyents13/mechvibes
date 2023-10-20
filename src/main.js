@@ -163,11 +163,15 @@ const protocolCommands = {
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
     // Someone tried to run a second instance, we should focus our window.
     if (win) {
       if (process.platform === 'darwin') {
         app.dock.show();
+      }else{
+        // when we reach this code, we're hitting open-url on win or linux
+        // Note, this doesn't occur on macos, we have to use open-url below.
+        console.log(commandLine.pop());
       }
       if (win.isMinimized()) {
         win.restore();
