@@ -2,6 +2,8 @@
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
+const Store = require("electron-store");
+const store = new Store();
 
 const os = require("os");
 const log = require("electron-log");
@@ -28,6 +30,7 @@ const ListenHandler = require('./utils/listen_handler');
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
+const current_pack_store_id = 'mechvibes-pack';
 
 // const user_dir = app.getPath("userData");
 // const custom_dir = path.join(user_dir, "/custom");
@@ -41,6 +44,7 @@ var win;
 var tray = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
+global.current_pack_store_id = current_pack_store_id;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
