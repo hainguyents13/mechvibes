@@ -1,5 +1,5 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const Store = require("electron-store");
@@ -7,14 +7,25 @@ const store = new Store();
 
 const os = require("os");
 const log = require("electron-log");
+// Remote logging
+// **************************************************************************
+// If remote logging is enabled a consent prompt will be shown every
+// time the app is opened, before remote logging is actually enabled!
+// See the app.on("ready", ...) handler.
+// **************************************************************************
+// Set remote_logging_toggle to true to enable remote logging.
+// Set remote_logging_toggle to false to disable remote logging.
+remote_logging_toggle = true;
+// see below for examples of the personal data which is collected by remote logging
 log.transports.remote.client = {
   name: "Mechvibes",
   hostname: os.hostname(), // Lunas-Macbook-Pro.local
   username: os.userInfo().username, // lunaalfien
   platform: os.platform() // darwin
 };
-log.transports.remote.level = "info";
+// the url the logs will be sent to.
 log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
+// end remote logging
 
 log.transports.file.fileName = "mechvibes.log";
 log.transports.file.level = "info";
@@ -201,6 +212,28 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    // if remote logging has been requested by dev
+    if(remote_logging_toggle){
+      // show consent dialog
+      dialog.showMessageBox(null, {
+        message: "Help us improve mechvibes by allowing us to collect usage logs.",
+        type: "info",
+        buttons: [
+          "Ok",
+          "No",
+        ],
+        title: "Mechvibes",
+      }).then((response) => {
+        const remote_consent = response.response;
+        console.log(remote_consent);
+        // user clicked "Ok"
+        if(remote_consent === 0){
+          // enable remote logging
+          log.transports.remote.level = "info";
+        }
+      })
+    }
+
     app.setAsDefaultProtocolClient('mechvibes');
 
     win = createWindow(true);
