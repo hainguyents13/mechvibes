@@ -32,8 +32,9 @@ function resizeWindow(){
 		ipcRenderer.send("resize-installer", document.scrollingElement.scrollHeight);
 	},5)
 }
-
+let lock = false;
 ipcRenderer.on("install-pack", (event, packId) => {
+	lock = true;
 	const logo = document.getElementById("logo");
 	const packageNameSection = document.getElementById("package-section");
 	const packageNameHolder = document.getElementById("package-name");
@@ -47,6 +48,7 @@ ipcRenderer.on("install-pack", (event, packId) => {
 		if(response.ok){
 			return response.json();
 		}else{
+			lock = false;
 			if(errorTranslation[error.status]){
 				logo.innerText = `Error (${errorTranslation[error.status]})`;
 			}else{
@@ -66,6 +68,7 @@ ipcRenderer.on("install-pack", (event, packId) => {
 	}).catch((r) => {
 		// json parse error
 		// NOTE: in theory this shouldn't happen.
+		lock = false;
 		logo.innerText = `Error (PARSE)`;
 	})
 
@@ -108,6 +111,7 @@ ipcRenderer.on("install-pack", (event, packId) => {
 			}
 
 			if(error !== null){
+				lock = false;
 				if(errorTranslation[error.status]){
 					progStatus.innerText = `Failed to download ${error.file} (${errorTranslation[error.status]})`;
 				}else{
