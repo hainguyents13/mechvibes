@@ -3,6 +3,28 @@ const { shell, remote, ipcRenderer } = require('electron');
 const BASE_URL = "https://mechvibes.lunarwebsite.ca/sound-packs";
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 
+const errorTranslation = {
+	400: "INVREQ",
+	401: "UNAUTH",
+	402: "PAYMENT",
+	403: "FORBID",
+	404: "NOTFOUND",
+	405: "BADMETH",
+	418: "TEAPOT",
+	429: "TOOFAST",
+	451: "DMCA",
+	500: "SERVERR",
+	502: "SERVBAD",
+	503: "SERVUNAV",
+	504: "SERVSLOW",
+	521: "SERVOFF",
+	522: "SERVSLOW",
+	523: "SERVOFF",
+	524: "SERVSLOW",
+	525: "SERVSSL",
+	526: "SERVSSL"
+}
+
 function resizeWindow(){
 	// ensure a render tick has occured before we resize,
 	// so that we know we're resizing to the right size.
@@ -20,14 +42,31 @@ ipcRenderer.on("install-pack", (event, packId) => {
 	let installation;
 	const PACK_URL = `${BASE_URL}/${packId}/dist`;
 	
-	fetch(`${PACK_URL}/install.json`).then((response) => response.json())
-	.then((data) => {
-		installation = data;
-		logo.innerText = "Sound Pack";
-		packageNameHolder.innerText = data.name;
-		packageNameSection.style.display = "block";
-		askPrompt.style.display = "block";
-		resizeWindow();
+	fetch(`${PACK_URL}/install.json`).then((response) => {
+		console.log(response);
+		if(response.ok){
+			return response.json();
+		}else{
+			if(errorTranslation[error.status]){
+				logo.innerText = `Error (${errorTranslation[error.status]})`;
+			}else{
+				logo.innerText = `Error (UNKNOWN)`;
+			}
+			return false;
+		}
+	}).then((data) => {
+		if(data !== false){
+			installation = data;
+			logo.innerText = "Sound Pack";
+			packageNameHolder.innerText = data.name;
+			packageNameSection.style.display = "block";
+			askPrompt.style.display = "block";
+			resizeWindow();
+		}
+	}).catch((r) => {
+		// json parse error
+		// NOTE: in theory this shouldn't happen.
+		logo.innerText = `Error (PARSE)`;
 	})
 
 	const yesBtn = document.getElementById("answer-yes");
@@ -47,11 +86,18 @@ ipcRenderer.on("install-pack", (event, packId) => {
 			progSection.style.display = "block";
 			resizeWindow();
 			let progress = 0;
+			let error = null;
 			for (const i in installation.files) {
 				const file = installation.files[i];
 				progStatus.innerText = `Downloading ${file}...`;
-				// console.log(`${PACK_URL}/${file}`);
 				const request = await fetch(`${PACK_URL}/${file}`);
+				if(!request.ok){
+					error = {
+						status:request.status,
+						file:file
+					};
+					break;
+				}
 				const blob = await request.blob();
 				const arrayBuffer = await blob.arrayBuffer();
 				const buffer = Buffer.from(arrayBuffer);
@@ -61,8 +107,16 @@ ipcRenderer.on("install-pack", (event, packId) => {
 				progBar.style.width = `${progress}%`;
 			}
 
+			if(error !== null){
+				if(errorTranslation[error.status]){
+					progStatus.innerText = `Failed to download ${error.file} (${errorTranslation[error.status]})`;
+				}else{
+					progStatus.innerText = `Failed to download ${error.file} (UNKNOWN)`;
+				}
+			}else{
 			progStatus.innerText = "Installing...";
-			ipcRenderer.send("installed", packId);
+				ipcRenderer.send("installed", installation.folder);
+			}
 		},50)
 	}
 	noBtn.onclick = () => {
