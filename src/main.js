@@ -160,6 +160,7 @@ const protocolCommands = {
       openInstallWindow(packId);
     }else{
       installer.focus();
+      installer.webContents.send("install-pack", packId);
     }
   }
 }

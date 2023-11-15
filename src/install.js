@@ -114,7 +114,7 @@ ipcRenderer.on("install-pack", (event, packId) => {
 					progStatus.innerText = `Failed to download ${error.file} (UNKNOWN)`;
 				}
 			}else{
-			progStatus.innerText = "Installing...";
+				progStatus.innerText = "Installing...";
 				ipcRenderer.send("installed", installation.folder);
 			}
 		},50)
