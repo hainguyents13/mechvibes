@@ -108,10 +108,6 @@ function unloadAllPacks(){
   })
 }
 
-window.packs = packs;
-window.loadPack = loadPack;
-window.unloadPack = unloadPack;
-
 // ==================================================
 // load all pack
 async function loadPacks() {
@@ -216,8 +212,6 @@ function setPack(pack_id){
   current_pack = packs[index];
   store.set(MV_PACK_LSID, current_pack.pack_id);
 }
-
-window.store = store;
 
 // set pack by its string id
 function setPackByIndex(index){
