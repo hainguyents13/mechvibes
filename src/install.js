@@ -1,6 +1,6 @@
 const fs = require('fs');
 const { shell, remote, ipcRenderer } = require('electron');
-const BASE_URL = "https://mechvibes.lunarwebsite.ca/sound-packs";
+const BASE_URL = "https://mechvibes.com/sound-packs";
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 
 const errorTranslation = {
