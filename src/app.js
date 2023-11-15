@@ -15,7 +15,7 @@ const path = require('path');
 const { platform } = process;
 const remapper = require('./utils/remapper');
 
-const MV_PACK_LSID = 'mechvibes-pack';
+const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
 const MV_TRAY_LSID = 'mechvibes-hidden';
 
