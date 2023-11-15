@@ -305,6 +305,12 @@ if (!gotTheLock) {
       const diff = installer.getSize()[1] - installer.getContentSize()[1];
       installer.setSize(300, size + diff, true);
     })
+    ipcMain.on("installed", (event, packFolder) => {
+      store.set(current_pack_store_id, "custom-" + packFolder);
+      win.reload();
+      installer.close();
+      installer = null;
+    })
 
     log.info("App is ready and has been initialized");
 
