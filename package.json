@@ -50,6 +50,7 @@
       "icon": "src/assets/icon.png"
     },
     "mac": {
+      "category": "public.app-category.entertainment",
       "target": [
         {
           "target": "dmg",
