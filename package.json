@@ -1,7 +1,7 @@
 {
   "name": "mechvibes",
   "productName": "Mechvibes",
-  "version": "v2.3.1",
+  "version": "v2.3.2",
   "description": "Play mechanical keyboard sounds as you type.",
   "repository": "https://github.com/hainguyents13/mechvibes",
   "main": "src/main.js",
@@ -35,7 +35,8 @@
   "build": {
     "nsis": {
       "oneClick": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "./build/installer.nsh"
     },
     "win": {
       "target": [
@@ -49,6 +50,7 @@
       "icon": "src/assets/icon.png"
     },
     "mac": {
+      "category": "public.app-category.entertainment",
       "target": [
         {
           "target": "dmg",
@@ -84,6 +86,7 @@
     }
   },
   "dependencies": {
+    "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
     "glob": "^7.1.6",
@@ -93,7 +96,7 @@
   "devDependencies": {
     "app-builder-lib": "^22.2.0",
     "electron": "^6.1.5",
-    "electron-builder": "^21.2.0",
+    "electron-builder": "^23.6.0",
     "electron-compile": "^6.4.4",
     "electron-packager": "^14.1.1"
   }

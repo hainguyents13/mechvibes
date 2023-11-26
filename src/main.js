@@ -2,13 +2,53 @@
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
+const Store = require("electron-store");
+const store = new Store();
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
+const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
+const current_pack_store_id = 'mechvibes-pack';
+
+const os = require("os");
+const log = require("electron-log");
+if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
+  // Remote logging
+  // **************************************************************************
+  // Remote logging is opt-in only. To opt-in, create...
+  // on Windows: %appData%/Mechvibes/remote-logging-opt-in.txt
+  // on macOS: /Users/lunaalfien/Library/Application Support/Mechvibes/remote-logging-opt-in.txt
+  // on linux: tbd
+  // **************************************************************************
+  // see below for examples of the personal data which is collected by remote logging
+  log.transports.remote.client = {
+    name: "Mechvibes",
+    hostname: os.hostname(), // Lunas-Macbook-Pro.local
+    username: os.userInfo().username, // lunaalfien
+    platform: os.platform() // darwin
+  };
+  // the url the logs will be sent to.
+  log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
+  log.transports.remote.level = "info";
+  // end remote logging
+
+}
+log.transports.file.fileName = "mechvibes.log";
+log.transports.file.level = "info";
+log.transports.file.resolvePath = (variables) => {
+  // ~/mechvibes.log
+  // eg. /Users/lunaalfien/mechvibes.log
+  return path.join(variables.home, variables.fileName);
+}
+// const custom_dir = path.join(user_dir, "/custom");
+
+// TODO: Move iohook handling here
+// ... maybe not? I couldn't find a reliable sound player which can be run from main.js
+// const iohook = require('iohook');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -16,6 +56,7 @@ var win;
 var tray = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
+global.current_pack_store_id = current_pack_store_id;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
@@ -64,7 +105,54 @@ function createWindow(show = true) {
     return false;
   });
 
+  win.on("unresponsive", () => {
+    log.warn("Window has entered unresponsive state");
+    console.log("unresponsive");
+  })
+
   return win;
+}
+
+let installer = null;
+function openInstallWindow(packId){
+  // Create the browser window.
+  installer = new BrowserWindow({
+    width: 300,
+    height: 200,
+    useContentSize: false,
+    webSecurity: false,
+    // resizable: false,
+    // fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'install.js'),
+      contextIsolation: false,
+      nodeIntegration: true,
+    },
+    show: false,
+    parent: win,
+  });
+
+  // remove menu bar
+  installer.removeMenu();
+
+  // and load the index.html of the app.
+  installer.loadFile('./src/install.html');
+
+  installer.webContents.on("did-finish-load", () => {
+    installer.webContents.send("install-pack", packId);
+  })
+
+  installer.on("ready-to-show", () => {
+    installer.show();
+  })
+
+  // Emitted when the window is closed.
+  installer.on('closed', function () {
+    // Dereference the window object, usually you would store windows
+    // in an array if your app supports multi windows, this is the time
+    // when you should delete the corresponding element.
+    installer = null;
+  });
 }
 
 const gotTheLock = app.requestSingleInstanceLock();
@@ -79,14 +167,38 @@ app.on('second-instance', () => {
   }
 });
 
+const protocolCommands = {
+  install(packId){
+    if(installer === null){
+      console.log("Submitting request to install...");
+      console.log(packId);
+      openInstallWindow(packId);
+    }else{
+      installer.focus();
+      installer.webContents.send("install-pack", packId);
+    }
+  }
+}
+function callProtocolCommand(command, ...args){
+  protocolCommands[command](...args);
+}
+
 if (!gotTheLock) {
   app.quit();
 } else {
-  app.on('second-instance', () => {
+  app.on('second-instance', (event, commandLine, workingDirectory) => {
     // Someone tried to run a second instance, we should focus our window.
     if (win) {
       if (process.platform === 'darwin') {
         app.dock.show();
+      }else{
+        // when we reach this code, we're hitting open-url on win or linux
+        // Note, this doesn't occur on macos, we have to use open-url below.
+        const url = commandLine.pop();
+        const command = decodeURI(url.slice("mechvibes://".length)).split(" ");
+        if(protocolCommands[command[0]]){
+          callProtocolCommand(...command);
+        }
       }
       if (win.isMinimized()) {
         win.restore();
@@ -96,12 +208,21 @@ if (!gotTheLock) {
     }
   });
 
+  app.on("open-url", (event, url) => {
+    const command = decodeURI(url.slice("mechvibes://".length)).split(" ");
+    if(protocolCommands[command[0]]){
+      callProtocolCommand(...command);
+    }
+  })
+
   // This method will be called when Electron has finished
   // initialization and is ready to create browser windows.
   // Some APIs can only be used after this event occurs.
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    app.setAsDefaultProtocolClient('mechvibes');
+
     win = createWindow(true);
 
     function createTrayIcon(){
@@ -203,6 +324,21 @@ if (!gotTheLock) {
       }
     })
 
+    // allow the installer to set its size using the height of the body so that when content changes,
+    // the installer can only be as big or as small as it needs to be.
+    ipcMain.on("resize-installer", (event, size) => {
+      const diff = installer.getSize()[1] - installer.getContentSize()[1];
+      installer.setSize(300, size + diff, true);
+    })
+    ipcMain.on("installed", (event, packFolder) => {
+      store.set(current_pack_store_id, "custom-" + packFolder);
+      win.reload();
+      installer.close();
+      installer = null;
+    })
+
+    log.info("App is ready and has been initialized");
+
     // prevent Electron app from interrupting macOS system shutdown
     if (process.platform == 'darwin') {
       const { powerMonitor } = require('electron');
@@ -239,6 +375,11 @@ app.on('activate', function () {
     win.focus();
   }
 });
+
+// ensure app gets unregistered
+app.on("before-quit", () => {
+  app.removeAsDefaultProtocolClient("mechvibes");
+})
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {
