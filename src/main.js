@@ -1,5 +1,5 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Tray, Menu, shell, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const fs = require('fs-extra');
 const Store = require("electron-store");
