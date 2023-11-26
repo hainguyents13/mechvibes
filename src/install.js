@@ -45,31 +45,29 @@ ipcRenderer.on("install-pack", (event, packId) => {
 	
 	fetch(`${PACK_URL}/install.json`).then((response) => {
 		console.log(response);
+		console.log(response.ok);
 		if(response.ok){
-			return response.json();
+			response.json().then((data) => {
+				installation = data;
+				logo.innerText = "Sound Pack";
+				packageNameHolder.innerText = data.name;
+				packageNameSection.style.display = "block";
+				askPrompt.style.display = "block";
+				resizeWindow();
+			}).catch((r) => {
+				// json parse error
+				// NOTE: in theory this shouldn't happen.
+				lock = false;
+				logo.innerText = `Error (PARSE)`;
+			});
 		}else{
 			lock = false;
-			if(errorTranslation[error.status]){
-				logo.innerText = `Error (${errorTranslation[error.status]})`;
+			if(errorTranslation[response.status]){
+				logo.innerText = `Error (${errorTranslation[response.status]})`;
 			}else{
 				logo.innerText = `Error (UNKNOWN)`;
 			}
-			return false;
 		}
-	}).then((data) => {
-		if(data !== false){
-			installation = data;
-			logo.innerText = "Sound Pack";
-			packageNameHolder.innerText = data.name;
-			packageNameSection.style.display = "block";
-			askPrompt.style.display = "block";
-			resizeWindow();
-		}
-	}).catch((r) => {
-		// json parse error
-		// NOTE: in theory this shouldn't happen.
-		lock = false;
-		logo.innerText = `Error (PARSE)`;
 	})
 
 	const yesBtn = document.getElementById("answer-yes");
