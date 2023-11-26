@@ -146,8 +146,6 @@ function openInstallWindow(packId){
     installer.show();
   })
 
-  // installer.focus();
-
   // Emitted when the window is closed.
   installer.on('closed', function () {
     // Dereference the window object, usually you would store windows
