@@ -141,7 +141,7 @@ function openInstallWindow(packId){
     installer.webContents.send("install-pack", packId);
   })
 
-
+  installer.focus();
 
   // Emitted when the window is closed.
   installer.on('closed', function () {
