@@ -5,48 +5,49 @@ const fs = require('fs-extra');
 const Store = require("electron-store");
 const store = new Store();
 
-const os = require("os");
-const log = require("electron-log");
-// Remote logging
-// **************************************************************************
-// If remote logging is enabled a consent prompt will be shown every
-// time the app is opened, before remote logging is actually enabled!
-// See the app.on("ready", ...) handler.
-// **************************************************************************
-// Set remote_logging_toggle to true to enable remote logging.
-// Set remote_logging_toggle to false to disable remote logging.
-remote_logging_toggle = true;
-// see below for examples of the personal data which is collected by remote logging
-log.transports.remote.client = {
-  name: "Mechvibes",
-  hostname: os.hostname(), // Lunas-Macbook-Pro.local
-  username: os.userInfo().username, // lunaalfien
-  platform: os.platform() // darwin
-};
-// the url the logs will be sent to.
-log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
-// end remote logging
-
-log.transports.file.fileName = "mechvibes.log";
-log.transports.file.level = "info";
-log.transports.file.resolvePath = (variables) => {
-  // ~/mechvibes.log
-  // eg. /Users/lunaalfien/mechvibes.log
-  return path.join(variables.home, variables.fileName);
-}
-
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
+const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
 
-// const user_dir = app.getPath("userData");
+if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
+  const os = require("os");
+  const log = require("electron-log");
+  // Remote logging
+  // **************************************************************************
+  // Remote logging is opt-in only. To opt-in, create...
+  // on Windows: %appData%/Mechvibes/remote-logging-opt-in.txt
+  // on macOS: /Users/lunaalfien/Library/Application Support/Mechvibes/remote-logging-opt-in.txt
+  // on linux: tbd
+  // **************************************************************************
+  // see below for examples of the personal data which is collected by remote logging
+  log.transports.remote.client = {
+    name: "Mechvibes",
+    hostname: os.hostname(), // Lunas-Macbook-Pro.local
+    username: os.userInfo().username, // lunaalfien
+    platform: os.platform() // darwin
+  };
+  // the url the logs will be sent to.
+  log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
+  log.transports.remote.level = "info";
+  // end remote logging
+
+  log.transports.file.fileName = "mechvibes.log";
+  log.transports.file.level = "info";
+  log.transports.file.resolvePath = (variables) => {
+    // ~/mechvibes.log
+    // eg. /Users/lunaalfien/mechvibes.log
+    return path.join(variables.home, variables.fileName);
+  }
+}
 // const custom_dir = path.join(user_dir, "/custom");
 
 // TODO: Move iohook handling here
+// ... maybe not? I couldn't find a reliable sound player which can be run from main.js
 // const iohook = require('iohook');
 
 // Keep a global reference of the window object, if you don't, the window will
@@ -212,28 +213,6 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
-    // if remote logging has been requested by dev
-    if(remote_logging_toggle){
-      // show consent dialog
-      dialog.showMessageBox(null, {
-        message: "Help us improve mechvibes by allowing us to collect usage logs.",
-        type: "info",
-        buttons: [
-          "Ok",
-          "No",
-        ],
-        title: "Mechvibes",
-      }).then((response) => {
-        const remote_consent = response.response;
-        console.log(remote_consent);
-        // user clicked "Ok"
-        if(remote_consent === 0){
-          // enable remote logging
-          log.transports.remote.level = "info";
-        }
-      })
-    }
-
     app.setAsDefaultProtocolClient('mechvibes');
 
     win = createWindow(true);
