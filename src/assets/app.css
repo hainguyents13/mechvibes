@@ -176,3 +176,40 @@ table {
 .checkbox:focus {
   outline: none;
 }
+
+.button {
+  align-items: center;
+  background-color: #fff;
+  border: 1px solid #e6e6e6;
+  border-radius: 3px;
+  color: #ff6666;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 800;
+  height: 36px;
+  justify-content: center;
+  letter-spacing: .5px;
+  outline: none;
+  padding: 0 15px;
+  text-transform: uppercase;
+}
+
+.button-secondary{
+  color: #1a1a1a;
+}
+
+.progress{
+  height:8px;
+  overflow:hidden;
+  background-color: #e6e6e6;
+  border-radius:2em;
+}
+
+.progress-bar{
+  float:left;
+  width:0%;
+  height:100%;
+  background-color: #ff6666;
+  transition: width 0.6s ease;
+}

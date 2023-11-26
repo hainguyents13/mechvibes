@@ -9,12 +9,13 @@ const { Howl } = require('howler');
 const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
-const iohook = require('iohook');
+// TODO: move iohook and audio playback to main.js so that if the configurator dies the audio doesn't.
+const iohook = require("iohook");
 const path = require('path');
 const { platform } = process;
 const remapper = require('./utils/remapper');
 
-const MV_PACK_LSID = 'mechvibes-pack';
+const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
 const MV_TRAY_LSID = 'mechvibes-hidden';
 
@@ -106,10 +107,6 @@ function unloadAllPacks(){
     }
   })
 }
-
-window.packs = packs;
-window.loadPack = loadPack;
-window.unloadPack = unloadPack;
 
 // ==================================================
 // load all pack
@@ -215,8 +212,6 @@ function setPack(pack_id){
   current_pack = packs[index];
   store.set(MV_PACK_LSID, current_pack.pack_id);
 }
-
-window.store = store;
 
 // set pack by its string id
 function setPackByIndex(index){

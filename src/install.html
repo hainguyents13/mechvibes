@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mechvibes</title>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+    <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./assets/milligram.min.css" />
+    <link rel="stylesheet" href="./assets/app.css" />
+	<style>
+		html{
+			overflow:hidden;
+		}
+		td{
+			margin:0;
+			padding:0;
+			display:block;
+		}
+		.button{
+			display:flex;
+			width:100%;
+		}
+		.hide{
+			display:none;
+		}
+	</style>
+  </head>
+
+  <body style="padding: 2rem">
+    <div id="app-logo" style="margin-bottom:25px;">
+      <div id="logo" style="font-size:1.5em;">Loading...</div>
+    </div>
+
+    <div id="app-body" class="loading">
+      <table style="display: table">
+        <tbody>
+			<tr id="package-section" class="hide">
+				<td>
+					<p style="text-align: center;font-size:1.5em;">
+						<span id="package-name">invalid-package-do-not-continue</span>
+					</p>
+				</td>
+			</tr>
+			<tr id="ask" class="hide">
+				<td>
+					<button id="answer-yes" class="button">Install</button>
+					<button id="answer-no" class="button button-secondary" style="margin:0;">Cancel</button>
+				</td>
+			</tr>
+			<tr id="prog" class="hide">
+				<td>
+					<small id="status-text">Downloading...</small>
+					<div class="progress">
+						<div id="prog-bar" class="progress-bar"></div>
+					</div>
+				</td>
+			</tr>
+        </tbody>
+      </table>
+    </div>
+  </body>
+</html>
