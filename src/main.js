@@ -128,7 +128,8 @@ function openInstallWindow(packId){
       contextIsolation: false,
       nodeIntegration: true,
     },
-    show: true,
+    show: false,
+    parent: win,
   });
 
   // remove menu bar
@@ -141,7 +142,11 @@ function openInstallWindow(packId){
     installer.webContents.send("install-pack", packId);
   })
 
-  installer.focus();
+  installer.on("ready-to-show", () => {
+    installer.show();
+  })
+
+  // installer.focus();
 
   // Emitted when the window is closed.
   installer.on('closed', function () {
