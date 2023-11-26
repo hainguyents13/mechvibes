@@ -176,6 +176,9 @@ const protocolCommands = {
     }
   }
 }
+function callProtocolCommand(command, ...args){
+  protocolCommands[command](...args);
+}
 
 if (!gotTheLock) {
   app.quit();
@@ -188,7 +191,11 @@ if (!gotTheLock) {
       }else{
         // when we reach this code, we're hitting open-url on win or linux
         // Note, this doesn't occur on macos, we have to use open-url below.
-        log.info(JSON.stringify({cmd: commandLine, pop: commandLine.pop()}));
+        const url = commandLine.pop();
+        const command = decodeURI(url.slice("mechvibes://".length)).split(" ");
+        if(protocolCommands[command[0]]){
+          callProtocolCommand(...command);
+        }
       }
       if (win.isMinimized()) {
         win.restore();
@@ -201,10 +208,8 @@ if (!gotTheLock) {
   app.on("open-url", (event, url) => {
     const command = decodeURI(url.slice("mechvibes://".length)).split(" ");
     if(protocolCommands[command[0]]){
-      const args = command;
-      protocolCommands[args[0]](args[1], args[2], args[3], args[4]);
+      callProtocolCommand(...command);
     }
-    console.log(command);
   })
 
   // This method will be called when Electron has finished
