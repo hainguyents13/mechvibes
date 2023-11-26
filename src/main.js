@@ -168,7 +168,7 @@ app.on('second-instance', () => {
 });
 
 const protocolCommands = {
-  "install": (packId) => {
+  install(packId){
     if(installer === null){
       console.log("Submitting request to install...");
       console.log(packId);
