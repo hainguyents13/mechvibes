@@ -14,9 +14,9 @@ const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
 
+const os = require("os");
+const log = require("electron-log");
 if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
-  const os = require("os");
-  const log = require("electron-log");
   // Remote logging
   // **************************************************************************
   // Remote logging is opt-in only. To opt-in, create...
@@ -36,13 +36,13 @@ if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
   log.transports.remote.level = "info";
   // end remote logging
 
-  log.transports.file.fileName = "mechvibes.log";
-  log.transports.file.level = "info";
-  log.transports.file.resolvePath = (variables) => {
-    // ~/mechvibes.log
-    // eg. /Users/lunaalfien/mechvibes.log
-    return path.join(variables.home, variables.fileName);
-  }
+}
+log.transports.file.fileName = "mechvibes.log";
+log.transports.file.level = "info";
+log.transports.file.resolvePath = (variables) => {
+  // ~/mechvibes.log
+  // eg. /Users/lunaalfien/mechvibes.log
+  return path.join(variables.home, variables.fileName);
 }
 // const custom_dir = path.join(user_dir, "/custom");
 
