@@ -67,6 +67,9 @@ body {
   background: #ffe0e0;
 }
 .key-pressed {
+  background-color: #ff505080 !important;
+}
+.key-error {
   color: #000;
   background: #f5b6b6 !important;
 }

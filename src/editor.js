@@ -2,7 +2,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { shell } = require('electron');
+const glob = require('glob');
+const { shell, remote } = require('electron');
 
 const remapper = require('./utils/remapper');
 const layouts = require('./libs/layouts');
@@ -12,18 +13,19 @@ const $ = require('./assets/jquery');
 const layout = layouts[process.platform];
 const { sizes } = layouts;
 const os_keycode = keycodes[process.platform];
-const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
+const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 
 let selected_keycode = null;
 let current_edit_mode = 'visual';
 let current_key_define_mode = 'single';
+let current_working_dir = null;
 
 let pack_data = {
   id: `custom-sound-pack-${Date.now()}`,
   name: 'Untitled',
   key_define_type: 'single',
   includes_numpad: false,
-  sound: 'sound.ogg',
+  sound: '',
   defines: JSON.parse(JSON.stringify(os_keycode)),
 };
 Object.keys(pack_data.defines).map(kc => {
@@ -156,6 +158,11 @@ Object.keys(pack_data.defines).map(kc => {
       genResults();
     });
 
+    $("#working-dir").on("change", (e) => {
+      current_working_dir = $(e.target).val();
+      _checkWorkingDir();
+    })
+
     $('#pack-name').on('change', e => {
       pack_data.name = $(e.target).val() || 'Untitled';
       genResults();
@@ -213,14 +220,42 @@ Object.keys(pack_data.defines).map(kc => {
     });
   });
 
+  function _checkWorkingDir() {
+    if(current_working_dir !== null){
+      if(fs.existsSync(current_working_dir)){
+        _checkIfHasSound();
+      }else{
+        current_working_dir = null;
+      }
+    }
+  }
+
   function _checkIfHasSound() {
     Object.keys(pack_data.defines).map(kc => {
+      $(`.key[data-keycode=${kc}]`).removeClass('key-has-sound');
+      $(`#manual-key-${kc}`).removeClass('key-has-sound');
+      $(`.key[data-keycode=${kc}]`).removeClass('key-error');
+      $(`#manual-key-${kc}`).removeClass('key-error');
+      
       if (pack_data.defines[kc] != null) {
-        $(`.key[data-keycode=${kc}]`).addClass('key-has-sound');
-        $(`#manual-key-${kc}`).addClass('key-has-sound');
-      } else {
-        $(`.key[data-keycode=${kc}]`).removeClass('key-has-sound');
-        $(`#manual-key-${kc}`).removeClass('key-has-sound');
+        if (pack_data.defines[kc] != '' && pack_data.defines[kc] != [0, 0]) {
+          if(
+            (
+              typeof pack_data.defines[kc] == "string" && 
+              current_working_dir !== null && 
+              fs.existsSync(path.join(current_working_dir, pack_data.defines[kc]))
+            ) || typeof pack_data.defines[kc] == "object"
+          ){
+            $(`.key[data-keycode=${kc}]`).addClass('key-has-sound');
+            $(`#manual-key-${kc}`).addClass('key-has-sound');
+          }else{
+            console.log(typeof pack_data.defines[kc]);
+            $(`.key[data-keycode=${kc}]`).addClass('key-error');
+            $(`#manual-key-${kc}`).addClass('key-error');
+          }
+        }else{
+          // console.log(path.join(current_working_dir, pack_data.defines[kc]));
+        }
       }
     });
     genResults();
@@ -260,13 +295,36 @@ Object.keys(pack_data.defines).map(kc => {
 
   // ======================================
   // new pack
-  $('#create').on('click', () => {
-    Object.assign(pack_data, {
+  $('#create').on('click', async() => {
+    let dir = null;
+    while(dir === null){
+      const selection = remote.dialog.showOpenDialogSync({properties:['openDirectory']});
+      if(selection === undefined){
+        dir = false;
+      }
+      const folder = selection[0];
+      if(fs.existsSync(folder)){
+        console.log(path.join(folder, "*"));
+        const files = await glob.sync(path.join(folder, "*"));
+        if(files.length == 0){
+          dir = folder;
+        }
+      }
+    }
+    if(dir === false){
+      return;
+    }
+
+    current_working_dir = dir;
+    $("#working-dir").val(dir);
+
+    pack_data = {
       id: `custom-sound-pack-${Date.now()}`,
       key_define_type: 'single',
       name: 'Untitled',
-      sound: 'sound.ogg',
-    });
+      sound: '',
+      defines: JSON.parse(JSON.stringify(os_keycode)),
+    };
     Object.keys(pack_data.defines).map(kc => {
       pack_data.defines[kc] = null;
     });
@@ -288,8 +346,6 @@ Object.keys(pack_data.defines).map(kc => {
     $('#key-define-mode').val(key_define_type);
     $(`#key-define-mode option[value=${key_define_type}]`).attr('selected', 'selected');
     current_key_define_mode = key_define_type;
-
-    console.log(key_define_type);
 
     for (let kc in pack_data.defines) {
       if (pack_data.defines[kc] && $(`.sound-file[data-keycode="${kc}"]`) && pack_data.defines[kc] != '' && pack_data.defines[kc] != [0, 0]) {
@@ -318,14 +374,46 @@ Object.keys(pack_data.defines).map(kc => {
     }
   }
 
+  $("#select-workdir").on("click", e => {
+    const dialog = remote.dialog;
+    dialog.showOpenDialog({properties: ['openDirectory']}).then((e) => {
+      const folder = e.filePaths[0];
+      if(fs.existsSync(folder)){
+        current_working_dir = folder;
+        $("#working-dir").val(folder);
+        // $("#status-text").text("Set working directory");
+        const configPath = path.join(folder, "config.json");
+        if(fs.existsSync(configPath)){
+          const buffer = fs.readFileSync(configPath);
+          const imported_data = JSON.parse(buffer.toString());
+          importPack(imported_data);
+          _checkIfHasSound();
+          genResults();
+          // $("#status-text").text("Opened pack!");
+        }
+      }
+    });
+  })
+
+  $("#save-pack").on("click", e => {
+    const json = JSON.stringify(pack_data, null, 2);
+    fs.writeFileSync(path.join(current_working_dir, "config.json"), json);
+    // $("#status-text").text("Saved!");
+  })
+
   // ======================================
   // inport
   $('#import').on('click', e => {
     $('#import-input').click();
   });
   $('#import-input').on('change', e => {
-    const buffer = fs.readFileSync(e.target.files[0].path);
+    const configPath = e.target.files[0].path;
+    const packPath = path.dirname(configPath);
+    current_working_dir = packPath;
+    $("#working-dir").val(current_working_dir);
+    const buffer = fs.readFileSync(configPath);
     const imported_data = JSON.parse(buffer.toString());
+    console.log(imported_data);
     importPack(imported_data);
     _checkIfHasSound();
     genResults();

@@ -17,11 +17,15 @@
           <h1 style="margin: 0; font-family: Lato, sans-serif">Editor</h1>
           <div class="sub-header">Create, edit, share your sound pack! <a href="https://mechvibes.com/say-hi-to-mechvibes-editor/" target="_blank" class="open-in-browser">How to?</a></div>
         </div>
+        <div id="status-text"></div>
         <div style="width: 70%; text-align: right">
           <button id="create">New</button>
-          <button id="import">Import</button>
-          <input id="import-input" type="file" accept=".json" style="display: none" />
-          <button id="export">Export</button>
+          <button id="select-workdir">Open</button>
+          <button id="save-pack">Save</button>
+          <button id="edit-current">Edit Active Pack</button>
+          <!-- <button id="import">Import</button> -->
+          <!-- <input id="import-input" type="file" accept=".json" style="display: none" /> -->
+          <!-- <button id="export">Export</button> -->
         </div>
       </div>
 
@@ -44,6 +48,10 @@
               <option value="single">Single file (Determine time start and length)</option>
               <option value="multi">Multiple files (Use one sound file for one key)</option>
             </select>
+          </div>
+          <div class="col" style="padding: 0 10px">
+            <label>Working directory</label>
+            <input type="text" id="working-dir" class="custom-input" placeholder="Path to sound files..." />
           </div>
           <div class="col" style="padding-left: 10px">
             <label>Sound file</label>
