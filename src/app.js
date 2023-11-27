@@ -65,6 +65,16 @@ function loadPack(packId = null){
           }
         }
         Object.keys(pack.sound_data).map((kc) => {
+          let missing = false;
+          Object.keys(pack.sound_data[kc].src).map((_src) => {
+            if(!fs.existsSync(_src)){
+              missing = true;
+            }
+          })
+          if(missing){
+            reject(5);
+            return;
+          }
           const audio = new Howl(pack.sound_data[kc]);
           loaded_sounds[kc] = false;
           audio.once('load', function(){
@@ -146,6 +156,9 @@ async function loadPacks() {
       if (key_define_type == 'single') {
         // define sound path
         const sound_path = `${folder}${sound}`;
+        if(!fs.existsSync(sound_path)){
+          return;
+        }
         const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
         Object.assign(pack_data, { sound_data: sound_data });
       } else {
@@ -154,6 +167,9 @@ async function loadPacks() {
           if (defines[kc]) {
             // define sound path
             const sound_path = `${folder}${defines[kc]}`;
+            if(!fs.existsSync(sound_path)){
+              return;
+            }
             sound_data[kc] = { src: [sound_path] };
           }
         });
@@ -319,6 +335,8 @@ function packsToOptions(packs, pack_list) {
     loadPack().then(() => {
       app_logo.innerHTML = 'Mechvibes';
       app_body.classList.remove('loading');
+    }).catch(() => {
+      app_logo.innerHTML = 'Failed';
     });
 
     // handle tray hiding
