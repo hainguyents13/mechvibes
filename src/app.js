@@ -72,7 +72,7 @@ function loadPack(packId = null){
             }
           })
           if(missing){
-            reject(5);
+            // reject(5);
             return;
           }
           const audio = new Howl(pack.sound_data[kc]);
