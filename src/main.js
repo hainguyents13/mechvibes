@@ -324,6 +324,10 @@ if (!gotTheLock) {
       }
     })
 
+    ipcMain.on("log", (event, message) => {
+      log.info(message);
+    })
+
     // allow the installer to set its size using the height of the body so that when content changes,
     // the installer can only be as big or as small as it needs to be.
     ipcMain.on("resize-installer", (event, size) => {
