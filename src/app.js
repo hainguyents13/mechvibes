@@ -29,6 +29,10 @@ let is_muted = store.get('mechvibes-muted') || false;
 const packs = [];
 const all_sound_files = {};
 
+function log(message){
+  ipcRenderer.send("log", message);
+}
+
 function loadPack(packId = null){
   if(packId === null){
     Object.keys(packs).map((pid) => {
@@ -38,6 +42,21 @@ function loadPack(packId = null){
       }
     })
   }
+
+  const app_logo = document.getElementById('logo');
+  const app_body = document.getElementById('app-body');
+
+  log(`Loading ${packId}`)
+  _loadPack(packId).then(() => {
+    log("loaded");
+    app_logo.innerHTML = 'Mechvibes';
+    app_body.classList.remove('loading');  
+  }).catch(() => {
+    app_logo.innerHTML = 'Failed';
+  });
+}
+
+function _loadPack(packId){
   return new Promise((resolve, reject) => {
     if(packs[packId] !== undefined){
       unloadAllPacks(); // unload all loaded packs before attempting to load a new pack.
@@ -66,15 +85,25 @@ function loadPack(packId = null){
         }
         Object.keys(pack.sound_data).map((kc) => {
           let missing = false;
-          Object.keys(pack.sound_data[kc].src).map((_src) => {
-            if(!fs.existsSync(_src)){
-              missing = true;
-            }
-          })
+          if(pack.sound_data[kc] !== undefined){
+            Object.keys(pack.sound_data[kc].src).map((i) => {
+              const path = pack.sound_data[kc].src[i];
+              console.log(path);
+              if(!fs.existsSync(path)){
+                missing = true;
+                log(`loader ${kc} missing, ${path}`);
+              }
+            })
+          }else{
+            log(`loader ${kc} undefined`);
+            missing = true;
+          }
           if(missing){
             // reject(5);
+            check();
             return;
           }
+          log(`loader ${kc} true`);
           const audio = new Howl(pack.sound_data[kc]);
           loaded_sounds[kc] = false;
           audio.once('load', function(){
@@ -332,12 +361,7 @@ function packsToOptions(packs, pack_list) {
 
     // get last selected pack
     current_pack = getSavedPack();
-    loadPack().then(() => {
-      app_logo.innerHTML = 'Mechvibes';
-      app_body.classList.remove('loading');
-    }).catch(() => {
-      app_logo.innerHTML = 'Failed';
-    });
+    loadPack()
 
     // handle tray hiding
     console.log(store.get(MV_TRAY_LSID));
