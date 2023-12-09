@@ -7,6 +7,10 @@ a:hover {
   text-decoration: underline;
 }
 
+* {
+  user-select: none;
+}
+
 #app-logo {
   display: flex;
   justify-content: center;
