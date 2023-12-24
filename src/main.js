@@ -48,7 +48,7 @@ log.transports.file.resolvePath = (variables) => {
 
 // TODO: Move iohook handling here
 // ... maybe not? I couldn't find a reliable sound player which can be run from main.js
-// const iohook = require('iohook');
+const iohook = require('iohook');
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
@@ -224,6 +224,15 @@ if (!gotTheLock) {
     app.setAsDefaultProtocolClient('mechvibes');
 
     win = createWindow(true);
+
+    iohook.start();
+    // key pressed, pack current key and play sound
+    iohook.on('keydown', ({ keycode }) => {
+      const date = new Date();
+      const time = `${date.getSeconds()}.${date.getMilliseconds()}`;
+      log.info(`main, ${keycode}`);
+      win.webContents.send("keydown", keycode, time);
+    });
 
     function createTrayIcon(){
       // prevent dupe tray icons
