@@ -91,11 +91,9 @@ function _loadPack(packId){
               console.log(path);
               if(!fs.existsSync(path)){
                 missing = true;
-                log(`loader ${kc} missing, ${path}`);
               }
             })
           }else{
-            log(`loader ${kc} undefined`);
             missing = true;
           }
           if(missing){
@@ -103,7 +101,6 @@ function _loadPack(packId){
             check();
             return;
           }
-          log(`loader ${kc} true`);
           const audio = new Howl(pack.sound_data[kc]);
           loaded_sounds[kc] = false;
           audio.once('load', function(){
