@@ -67,7 +67,8 @@ function createWindow(show = true) {
     height: 600,
     webSecurity: false,
     // resizable: false,
-    // fullscreenable: false,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'app.js'),
       contextIsolation: false,
