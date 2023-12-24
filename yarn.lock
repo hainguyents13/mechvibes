@@ -1543,7 +1543,7 @@ hosted-git-info@^4.0.2, hosted-git-info@^4.1.0:
   dependencies:
     lru-cache "^6.0.0"
 
-howler@^2.1.2:
+howler@^2.2.4:
   version "2.2.4"
   resolved "https://registry.npmjs.org/howler/-/howler-2.2.4.tgz"
   integrity sha512-iARIBPgcQrwtEr+tALF+rapJ8qSc+Set2GJQl7xT1MQzWaVkFebdJhR3alVlSiUf5U7nAANKuj3aWpwerocD5w==

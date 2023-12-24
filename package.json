@@ -90,7 +90,7 @@
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
     "glob": "^7.1.6",
-    "howler": "^2.1.2",
+    "howler": "^2.2.4",
     "iohook": "^0.6.2"
   },
   "devDependencies": {
