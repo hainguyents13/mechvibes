@@ -91,11 +91,9 @@ function _loadPack(packId){
               console.log(path);
               if(!fs.existsSync(path)){
                 missing = true;
-                log(`loader ${kc} missing, ${path}`);
               }
             })
           }else{
-            log(`loader ${kc} undefined`);
             missing = true;
           }
           if(missing){
@@ -103,7 +101,6 @@ function _loadPack(packId){
             check();
             return;
           }
-          log(`loader ${kc} true`);
           const audio = new Howl(pack.sound_data[kc]);
           loaded_sounds[kc] = false;
           audio.once('load', function(){
@@ -409,19 +406,31 @@ function packsToOptions(packs, pack_list) {
       }
     });
 
+    // store pressed state of multiple keys
+    let pressed_keys = {};
+
     // if key released, clear current key
-    iohook.on('keyup', () => {
-      current_key_down = null;
-      app_logo.classList.remove('pressed');
+    iohook.on('keyup', ({ keycode }) => {
+      // current_key_down = null;
+      let holding = false;
+      pressed_keys[`${keycode}`] = false;
+      for (const key in pressed_keys) {
+        if(pressed_keys[key]){
+          holding = true;
+        }
+      }
+      if(!holding){
+        app_logo.classList.remove('pressed');
+      }
     });
 
     // key pressed, pack current key and play sound
     iohook.on('keydown', ({ keycode }) => {
-      // if hold down a key, not repeat the sound
-      // On macOS this doesn't seem to be an issue?
-      if (current_key_down != null && current_key_down == keycode) {
+      // if hold down a key, don't repeat the sound
+      if(pressed_keys[`${keycode}`] !== undefined && pressed_keys[`${keycode}`]){
         return;
       }
+      pressed_keys[`${keycode}`] = true;
 
       // display current pressed key
       // app_logo.innerHTML = keycode;
