@@ -16,26 +16,31 @@ const current_pack_store_id = 'mechvibes-pack';
 
 const os = require("os");
 const log = require("electron-log");
-if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
-  // Remote logging
-  // **************************************************************************
-  // Remote logging is opt-in only. To opt-in, create...
-  // on Windows: %appData%/Mechvibes/remote-logging-opt-in.txt
-  // on macOS: /Users/lunaalfien/Library/Application Support/Mechvibes/remote-logging-opt-in.txt
-  // on linux: tbd
-  // **************************************************************************
-  // see below for examples of the personal data which is collected by remote logging
-  log.transports.remote.client = {
-    name: "Mechvibes",
-    hostname: os.hostname(), // Lunas-Macbook-Pro.local
-    username: os.userInfo().username, // lunaalfien
-    platform: os.platform() // darwin
-  };
-  // the url the logs will be sent to.
-  log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
-  log.transports.remote.level = "info";
-  // end remote logging
 
+// Remote debugging defaults
+let debug = {
+  enabled: false, // the user must enable remote debugging via the debug options window
+  identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
+  remoteUrl: "https://www.lunarwebsite.ca/mechvibes/ipc/", // TODO: make this a mechvibes.com url
+  level: "debug",
+}
+
+// set client data for the logger (Note, this won't be sent unless logging gets turned on)
+// We set this now, incase the issue being debugged doesn't require an app restart, as
+// logging is turned on immediately when the user enables it.
+log.transports.remote.client = {
+  name: "Mechvibes",
+  hostname: os.hostname(), // Lunas-Macbook-Pro.local
+  username: os.userInfo().username, // lunaalfien
+  platform: os.platform() // darwin
+};
+// parse debugging options
+const debugConfigFile = path.join(user_dir, "/remote-debug.json");
+if(fs.existsSync(debugConfigFile)){
+  const json = require(debugConfigFile);
+  console.log(json);
+  // log.transports.remote.url = debug.remoteUrl;
+  // log.transports.remote.level = debug.level;
 }
 log.transports.file.fileName = "mechvibes.log";
 log.transports.file.level = "info";
@@ -57,6 +62,7 @@ var tray = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
 global.current_pack_store_id = current_pack_store_id;
+global.debug_config_path = debugConfigFile;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
@@ -152,6 +158,58 @@ function openInstallWindow(packId){
     // in an array if your app supports multi windows, this is the time
     // when you should delete the corresponding element.
     installer = null;
+  });
+}
+
+let debugWindow = null;
+function createDebugWindow(){
+  // Create the browser window.
+  debugWindow = new BrowserWindow({
+    width: 350,
+    height: 500,
+    useContentSize: false,
+    webSecurity: false,
+    // resizable: false,
+    // fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'debug.js'),
+      contextIsolation: false,
+      nodeIntegration: true,
+    },
+    show: false,
+    parent: win,
+  });
+
+  // remove menu bar
+  debugWindow.removeMenu();
+
+  // and load the index.html of the app.
+  debugWindow.loadFile('./src/debug.html');
+
+  debugWindow.webContents.on("did-finish-load", () => {
+    const options = {...debug, path: debugConfigFile};
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("fetch-debug-options", () => {
+    const options = {...debug, path: debugConfigFile};
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("set-debug-options", (event, json) => {
+    console.log(json);
+  })
+
+  debugWindow.on("ready-to-show", () => {
+    debugWindow.show();
+  })
+
+  // Emitted when the window is closed.
+  debugWindow.on('closed', function () {
+    // Dereference the window object, usually you would store windows
+    // in an array if your app supports multi windows, this is the time
+    // when you should delete the corresponding element.
+    debugWindow = null;
   });
 }
 
@@ -326,6 +384,10 @@ if (!gotTheLock) {
 
     ipcMain.on("log", (event, message) => {
       log.info(message);
+    })
+
+    ipcMain.on("open-debug-options", (event) => {
+      createDebugWindow();
     })
 
     // allow the installer to set its size using the height of the body so that when content changes,

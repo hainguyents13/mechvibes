@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>Mechvibes</title>
+    <meta http-equiv="Content-Security-Policy" content="script-src 'self' 'unsafe-inline';" />
+    <link rel="shortcut icon" type="image/png" href="./assets/icon.png" />
+    <link rel="stylesheet" href="./assets/milligram.min.css" />
+    <link rel="stylesheet" href="./assets/app.css" />
+  </head>
+
+  <body style="padding: 2rem">
+    <div id="app-logo">
+      <div id="logo">Mechvibes</div>
+    </div>
+
+    <div id="app-body">
+      <table style="display: table">
+        <tbody>
+          <tr class="checkbox-group" id="remote_toggle_group">
+            <td style="width: 75%">Enable Remote Debugging</td>
+            <td style="width: 25%">
+              <div style="display:grid;grid-template-columns: 1em auto;font-size: 2rem;justify-content:right;">
+                <input type="checkbox" class="checkbox mb-0" id="remote_toggle"/>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="divider"></div>
+	  <div id="remote_options">
+
+	  </div>
+      <div style="color: #666; font-size: 12px; text-align: center">
+        <div id="update-available" class="hidden">
+          New version of Mechvibes is available (<span id="new-version">-</span>)
+          <div style="margin-top: 5px">
+            <a href="https://mechvibes.com" class="open-in-browser">Check it out</a>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+  <!-- <script src="./debug.js"></script> -->
+</html>
