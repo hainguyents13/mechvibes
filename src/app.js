@@ -56,6 +56,8 @@ function loadPack(packId = null){
   });
 }
 
+let KeepAlive = null;
+
 function _loadPack(packId){
   return new Promise((resolve, reject) => {
     if(packs[packId] !== undefined){
@@ -405,27 +407,16 @@ function packsToOptions(packs, pack_list) {
         iohook.start();
       }
     });
-
+    
     // store pressed state of multiple keys
     let pressed_keys = {};
 
-    // if key released, clear current key
-    iohook.on('keyup', ({ keycode }) => {
-      // current_key_down = null;
-      let holding = false;
-      pressed_keys[`${keycode}`] = false;
-      for (const key in pressed_keys) {
-        if(pressed_keys[key]){
-          holding = true;
-        }
-      }
-      if(!holding){
-        app_logo.classList.remove('pressed');
-      }
-    });
+    ipcRenderer.on("keydown", function(_event, keycode, _time){
+      const date = new Date();
+      const time = `${date.getSeconds()}.${date.getMilliseconds()}`;
+      log(`msg, ${keycode}`);
+      log(`diff, ${(Number(time) - Number(_time))}`);
 
-    // key pressed, pack current key and play sound
-    iohook.on('keydown', ({ keycode }) => {
       // if hold down a key, don't repeat the sound
       if(pressed_keys[`${keycode}`] !== undefined && pressed_keys[`${keycode}`]){
         return;
@@ -446,6 +437,22 @@ function packsToOptions(packs, pack_list) {
       // if object valid, pack volume and play sound
       if (current_pack) {
         playSound(sound_id, volume.value);
+      }
+    })
+
+
+    // if key released, clear current key
+    iohook.on('keyup', ({ keycode }) => {
+      // current_key_down = null;
+      let holding = false;
+      pressed_keys[`${keycode}`] = false;
+      for (const key in pressed_keys) {
+        if(pressed_keys[key]){
+          holding = true;
+        }
+      }
+      if(!holding){
+        app_logo.classList.remove('pressed');
       }
     });
 
