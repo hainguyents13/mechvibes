@@ -13,6 +13,7 @@ const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
+const start_minimized = store.get('mechvibes-start-minimized') || false;
 
 const os = require("os");
 const log = require("electron-log");
@@ -60,11 +61,11 @@ global.current_pack_store_id = current_pack_store_id;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
-function createWindow(show = true) {
+function createWindow(show = false) {
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
-    height: 600,
+    height: 650,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
@@ -109,6 +110,13 @@ function createWindow(show = true) {
     log.warn("Window has entered unresponsive state");
     console.log("unresponsive");
   })
+
+  // condition for start_minimized
+  if (start_minimized) {
+    win.close();
+  } else {
+    win.show();
+  }
 
   return win;
 }
@@ -223,7 +231,7 @@ if (!gotTheLock) {
   app.on('ready', () => {
     app.setAsDefaultProtocolClient('mechvibes');
 
-    win = createWindow(true);
+    win = createWindow();
 
     function createTrayIcon(){
       // prevent dupe tray icons
@@ -311,6 +319,11 @@ if (!gotTheLock) {
           win.focus();
         })
       }
+
+      // show start minimized button
+      win.webContents.executeJavaScript(`
+      document.getElementById('start_minimized_toggle_group').style.display = "";
+      `);
     }
 
     ipcMain.on("show_tray_icon", (event, show) => {
@@ -319,8 +332,11 @@ if (!gotTheLock) {
       }else if(!show && tray !== null){
         tray.destroy()
         tray = null;
-      }else if(!show && tray === null){
-        createTrayIcon();
+
+        // hide start minimized option
+        win.webContents.executeJavaScript(`
+        document.getElementById('start_minimized_toggle_group').style.display = "none";
+        `);
       }
     })
 
@@ -366,7 +382,7 @@ app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (win === null){
-    createWindow();
+    createWindow(true);
   }else{
     // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
     if (process.platform === 'darwin') {
