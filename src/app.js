@@ -18,7 +18,6 @@ const remapper = require('./utils/remapper');
 const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
 const MV_TRAY_LSID = 'mechvibes-hidden';
-const MV_MIN_LSID = 'mechvibes-start-minimized';
 
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, 'audio');
@@ -326,8 +325,6 @@ function packsToOptions(packs, pack_list) {
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
-    const start_minimized_toggle = document.getElementById("start_minimized_toggle");
-    const start_minimized_toggle_group = document.getElementById("start_minimized_toggle_group");
 
     // init
     app_logo.innerHTML = 'Loading...';
@@ -375,13 +372,6 @@ function packsToOptions(packs, pack_list) {
       tray_icon_toggle.checked = !tray_icon_toggle.checked;
       ipcRenderer.send("show_tray_icon", tray_icon_toggle.checked);
       store.set(MV_TRAY_LSID, tray_icon_toggle.checked);
-
-      // turn off minimized if tray is also off
-      if(tray_icon_toggle.checked == false){
-        start_minimized_toggle.checked = false;
-        ipcRenderer.send("start_minimized", start_minimized_toggle.checked);
-        store.set(MV_MIN_LSID, start_minimized_toggle.checked);
-      }
     }
 
     // ensure tray icon is reflected
@@ -389,20 +379,6 @@ function packsToOptions(packs, pack_list) {
       ipcRenderer.send("show_tray_icon", tray_icon_toggle.checked);
     }
     initTray();
-
-    // handle start minimized
-    console.log(store.get(MV_MIN_LSID));
-    if (store.get(MV_MIN_LSID) !== undefined){
-      start_minimized_toggle.checked = store.get(MV_MIN_LSID);
-    }
-    start_minimized_toggle_group.onclick = function(e) {
-      e.preventDefault();
-      e.stopPropagation();
-      // toggle checkbox
-      start_minimized_toggle.checked = !start_minimized_toggle.checked;
-      ipcRenderer.send("start_minimized", start_minimized_toggle.checked);
-      store.set(MV_MIN_LSID, start_minimized_toggle.checked);
-    }
 
     // display volume value
     if (store.get(MV_VOL_LSID)) {

@@ -7,13 +7,15 @@ const store = new Store();
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
+const StartMinimizedHandler = require('./utils/start_minimized_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
-const start_minimized = store.get('mechvibes-start-minimized') || false;
+
+let start_minimized = store.get('mechvibes-start-minimized') || false;
 
 const os = require("os");
 const log = require("electron-log");
@@ -65,7 +67,7 @@ function createWindow(show = false) {
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
-    height: 650,
+    height: 600,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
@@ -245,6 +247,7 @@ if (!gotTheLock) {
 
       const startup_handler = new StartupHandler(app);
       const listen_handler = new ListenHandler(app);
+      const start_minimized_handler = new StartMinimizedHandler(app);
 
       // context menu when hover on tray icon
       const contextMenu = Menu.buildFromTemplate([
@@ -289,6 +292,14 @@ if (!gotTheLock) {
           },
         },
         {
+          label: 'Start Minimized',
+          type: 'checkbox',
+          checked: start_minimized_handler.is_enabled,
+          click: function () {
+            start_minimized_handler.toggle();
+          },
+        },
+        {
           label: 'Quit',
           click: function () {
             // quit
@@ -319,11 +330,6 @@ if (!gotTheLock) {
           win.focus();
         })
       }
-
-      // show start minimized button
-      win.webContents.executeJavaScript(`
-      document.getElementById('start_minimized_toggle_group').style.display = "";
-      `);
     }
 
     ipcMain.on("show_tray_icon", (event, show) => {
@@ -332,11 +338,8 @@ if (!gotTheLock) {
       }else if(!show && tray !== null){
         tray.destroy()
         tray = null;
-
-        // hide start minimized option
-        win.webContents.executeJavaScript(`
-        document.getElementById('start_minimized_toggle_group').style.display = "none";
-        `);
+      }else if(!show && tray === null){
+        createTrayIcon();
       }
     })
 
