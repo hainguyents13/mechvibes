@@ -22,7 +22,7 @@ let debug = {
   enabled: false, // the user must enable remote debugging via the debug options window
   identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
   remoteUrl: "https://www.lunarwebsite.ca/mechvibes/ipc/", // TODO: make this a mechvibes.com url
-  level: "debug",
+  level: "error",
 }
 
 // set client data for the logger (Note, this won't be sent unless logging gets turned on)
