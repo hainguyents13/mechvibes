@@ -382,8 +382,8 @@ if (!gotTheLock) {
       }
     })
 
-    ipcMain.on("log", (event, message) => {
-      log.info(message);
+    ipcMain.on("electron-log", (event, message, level) => {
+      log[level](message);
     })
 
     ipcMain.on("open-debug-options", (event) => {

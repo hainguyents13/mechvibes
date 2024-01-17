@@ -29,8 +29,28 @@ let is_muted = store.get('mechvibes-muted') || false;
 const packs = [];
 const all_sound_files = {};
 
-function log(message){
-  ipcRenderer.send("log", message);
+const log = {
+  silly(message){
+    raise_log_message("silly", message);
+  },
+  debug(message){
+    raise_log_message("debug", message);
+  },
+  verbose(message){
+    raise_log_message("verbose", message);
+  },
+  info(message){
+    raise_log_message("info", message);
+  },
+  warn(message){
+    raise_log_message("warn", message);
+  },
+  error(message){
+    raise_log_message("error", message);
+  }
+}
+function raise_log_message(level, message){
+  ipcRenderer.send("electron-log", message, level);
 }
 
 function loadPack(packId = null){
@@ -46,9 +66,9 @@ function loadPack(packId = null){
   const app_logo = document.getElementById('logo');
   const app_body = document.getElementById('app-body');
 
-  log(`Loading ${packId}`)
+  log.info(`Loading ${packId}`)
   _loadPack(packId).then(() => {
-    log("loaded");
+    log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
     app_body.classList.remove('loading');  
   }).catch(() => {
