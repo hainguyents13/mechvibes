@@ -7,12 +7,15 @@ const store = new Store();
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
+const StartMinimizedHandler = require('./utils/start_minimized_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
+
+let start_minimized = store.get('mechvibes-start-minimized') || false;
 
 const os = require("os");
 const log = require("electron-log");
@@ -60,7 +63,7 @@ global.current_pack_store_id = current_pack_store_id;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
-function createWindow(show = true) {
+function createWindow(show = false) {
   // Create the browser window.
   win = new BrowserWindow({
     width: 400,
@@ -109,6 +112,13 @@ function createWindow(show = true) {
     log.warn("Window has entered unresponsive state");
     console.log("unresponsive");
   })
+
+  // condition for start_minimized
+  if (start_minimized) {
+    win.close();
+  } else {
+    win.show();
+  }
 
   return win;
 }
@@ -223,7 +233,7 @@ if (!gotTheLock) {
   app.on('ready', () => {
     app.setAsDefaultProtocolClient('mechvibes');
 
-    win = createWindow(true);
+    win = createWindow();
 
     function createTrayIcon(){
       // prevent dupe tray icons
@@ -237,6 +247,7 @@ if (!gotTheLock) {
 
       const startup_handler = new StartupHandler(app);
       const listen_handler = new ListenHandler(app);
+      const start_minimized_handler = new StartMinimizedHandler(app);
 
       // context menu when hover on tray icon
       const contextMenu = Menu.buildFromTemplate([
@@ -278,6 +289,14 @@ if (!gotTheLock) {
           checked: startup_handler.is_enabled,
           click: function () {
             startup_handler.toggle();
+          },
+        },
+        {
+          label: 'Start Minimized',
+          type: 'checkbox',
+          checked: start_minimized_handler.is_enabled,
+          click: function () {
+            start_minimized_handler.toggle();
           },
         },
         {
@@ -366,7 +385,7 @@ app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
   if (win === null){
-    createWindow();
+    createWindow(true);
   }else{
     // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
     if (process.platform === 'darwin') {
