@@ -26,6 +26,14 @@ function onReady(){
 function refresh(){
 	const enable_toggle = document.getElementById("remote_toggle");
 	enable_toggle.checked = debug.enabled;
+	const remote_options_group = document.getElementById("remote_options");
+	if(debug.enabled){
+		remote_options_group.style.display = "block";
+	}else{
+		remote_options_group.style.display = "none";
+	}
+	const debug_code = document.getElementById("debug_code");
+	debug_code.value = "Example";
 }
 
 function getDebugOptions(){
