@@ -213,3 +213,15 @@ table {
   background-color: #ff6666;
   transition: width 0.6s ease;
 }
+
+#remote_options{
+  display:none;
+}
+
+.input-group{
+  line-height:1;
+}
+
+.input-group *{
+  margin-bottom:5px;
+}
