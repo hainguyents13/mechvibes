@@ -49,6 +49,18 @@ log.transports.file.resolvePath = (variables) => {
   // eg. /Users/lunaalfien/mechvibes.log
   return path.join(variables.home, variables.fileName);
 }
+console.log(log.transports.console.format);
+console.log(log.transports.file.format);
+log.variables.sender = "main";
+log.transports.console.format = "%c{h}:{i}:{s}.{ms}{scope}%c › {text}"
+// log.transports.console.format = "%c{h}:{i}:{s}.{ms}%c {sender} › {text}"
+log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]({sender}) {text}"
+
+// console formatting is broken for now in electron-log, so this is a workaround to achieve a similar result to what I'm expecting.
+// log.hooks.push((message, transport) => {
+//   message.variables.scope = ` ${message.variables.sender}`;
+//   return message;
+// })
 // const custom_dir = path.join(user_dir, "/custom");
 
 // TODO: Move iohook handling here
@@ -69,6 +81,7 @@ fs.ensureDirSync(custom_dir);
 function createWindow(show = true) {
   // Create the browser window.
   win = new BrowserWindow({
+    name: "app", // used by logger to differentiate messages sent by different windows.
     width: 400,
     height: 600,
     webSecurity: false,
@@ -228,8 +241,7 @@ app.on('second-instance', () => {
 const protocolCommands = {
   install(packId){
     if(installer === null){
-      console.log("Submitting request to install...");
-      console.log(packId);
+      log.debug(`Processing request to install ${packId}...`);
       openInstallWindow(packId);
     }else{
       installer.focus();
@@ -279,8 +291,10 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    log.silly("Ready event has fired.");
     app.setAsDefaultProtocolClient('mechvibes');
 
+    log.silly("Creating main window for the first time...");
     win = createWindow(true);
 
     function createTrayIcon(){
@@ -383,7 +397,14 @@ if (!gotTheLock) {
     })
 
     ipcMain.on("electron-log", (event, message, level) => {
+      const window_options = event.sender.browserWindowOptions;
+      if(window_options.name !== undefined && typeof window_options.name == "string"){
+        log.variables.sender = window_options.name
+      }else{
+        log.variables.sender = "u/w"; // unknown window
+      }
       log[level](message);
+      log.variables.sender = "main"; // reset sender
     })
 
     ipcMain.on("open-debug-options", (event) => {
@@ -394,15 +415,18 @@ if (!gotTheLock) {
     // the installer can only be as big or as small as it needs to be.
     ipcMain.on("resize-installer", (event, size) => {
       const diff = installer.getSize()[1] - installer.getContentSize()[1];
+      log.silly(`Installer requested ${size}, offset is ${diff}, so size is ${(size + diff)}`);
       installer.setSize(300, size + diff, true);
     })
     ipcMain.on("installed", (event, packFolder) => {
+      log.silly(`Installed ${packFolder}`);
       store.set(current_pack_store_id, "custom-" + packFolder);
       win.reload();
       installer.close();
       installer = null;
     })
 
+    log.debug(`Platform: ${process.platform}`);
     log.info("App is ready and has been initialized");
 
     // prevent Electron app from interrupting macOS system shutdown
@@ -421,16 +445,18 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.on('window-all-closed', function () {
   // On macOS it is common for applications and their menu bar
   // to stay active until the user quits explicitly with Cmd + Q
+  log.silly("All windows were closed.");
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
+  log.silly("App has been activated")
   if (win === null){
     createWindow();
   }else{
-    // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
+    // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason.
     if (process.platform === 'darwin') {
       app.dock.show();
     }
@@ -444,11 +470,13 @@ app.on('activate', function () {
 
 // ensure app gets unregistered
 app.on("before-quit", () => {
+  log.silly("Shutting down...");
   app.removeAsDefaultProtocolClient("mechvibes");
 })
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {
+  log.silly("Goodbye.");
   app.quit();
 });
 
