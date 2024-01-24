@@ -22,7 +22,7 @@ let debug = {
   enabled: false, // the user must enable remote debugging via the debug options window
   identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
   remoteUrl: "https://www.lunarwebsite.ca/mechvibes/ipc/", // TODO: make this a mechvibes.com url
-  level: "error",
+  level: false, // a level must be chosen by debugger
 }
 
 // fix so we can detect transport type from within transport hook (see log.hooks.push(...))
@@ -54,10 +54,9 @@ log.transports.file.resolvePath = (variables) => {
   // eg. /Users/lunaalfien/mechvibes.log
   return path.join(variables.home, variables.fileName);
 }
-console.log(log.transports.console.format);
-console.log(log.transports.file.format);
 log.variables.sender = "main";
-// log.transports.console.format = "%c{h}:{i}:{s}.{ms}{scope}%c › {text}"
+// console.log(log.transports.console.format); // uncomment to see default formats in console
+// console.log(log.transports.file.format); // uncomment to see default formats in console
 log.transports.console.format = "%c{h}:{i}:{s}.{ms}%c {sender} › {text}"
 log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]({sender}) {text}"
 
