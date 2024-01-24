@@ -25,6 +25,11 @@ let debug = {
   level: "error",
 }
 
+// fix so we can detect transport type from within transport hook (see log.hooks.push(...))
+for (const transportName in log.transports) {
+  log.transports[transportName].transportName = transportName;
+}
+
 // set client data for the logger (Note, this won't be sent unless logging gets turned on)
 // We set this now, incase the issue being debugged doesn't require an app restart, as
 // logging is turned on immediately when the user enables it.
@@ -52,15 +57,18 @@ log.transports.file.resolvePath = (variables) => {
 console.log(log.transports.console.format);
 console.log(log.transports.file.format);
 log.variables.sender = "main";
-log.transports.console.format = "%c{h}:{i}:{s}.{ms}{scope}%c › {text}"
-// log.transports.console.format = "%c{h}:{i}:{s}.{ms}%c {sender} › {text}"
+// log.transports.console.format = "%c{h}:{i}:{s}.{ms}{scope}%c › {text}"
+log.transports.console.format = "%c{h}:{i}:{s}.{ms}%c {sender} › {text}"
 log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]({sender}) {text}"
 
-// console formatting is broken for now in electron-log, so this is a workaround to achieve a similar result to what I'm expecting.
-// log.hooks.push((message, transport) => {
-//   message.variables.scope = ` ${message.variables.sender}`;
-//   return message;
-// })
+const LogTransportMap = { error: 'red', warn: 'yellow', info: 'cyan', debug: 'magenta', silly: 'green', default: 'unset' };
+log.hooks.push((msg, {transportName}) => {
+  if (transportName === 'console') {
+    msg.data.unshift(`color: ${LogTransportMap[msg.level]}`, 'color: unset');
+  }
+  return msg;
+});
+
 // const custom_dir = path.join(user_dir, "/custom");
 
 // TODO: Move iohook handling here
