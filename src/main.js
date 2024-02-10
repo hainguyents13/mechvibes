@@ -185,6 +185,58 @@ function openInstallWindow(packId){
   });
 }
 
+let debugWindow = null;
+function createDebugWindow(){
+  // Create the browser window.
+  debugWindow = new BrowserWindow({
+    width: 350,
+    height: 500,
+    useContentSize: false,
+    webSecurity: false,
+    // resizable: false,
+    // fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'debug.js'),
+      contextIsolation: false,
+      nodeIntegration: true,
+    },
+    show: false,
+    parent: win,
+  });
+
+  // remove menu bar
+  debugWindow.removeMenu();
+
+  // and load the index.html of the app.
+  debugWindow.loadFile('./src/debug.html');
+
+  debugWindow.webContents.on("did-finish-load", () => {
+    const options = {...debug, path: debugConfigFile};
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("fetch-debug-options", () => {
+    const options = {...debug, path: debugConfigFile};
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("set-debug-options", (event, json) => {
+    console.log(json);
+  })
+
+  debugWindow.on("ready-to-show", () => {
+    debugWindow.show();
+  })
+
+  // Emitted when the window is closed.
+  debugWindow.on('closed', function () {
+    // Dereference the window object, usually you would store windows
+    // in an array if your app supports multi windows, this is the time
+    // when you should delete the corresponding element.
+    debugWindow = null;
+  });
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
   // Someone tried to run a second instance, we should focus our window.
@@ -364,6 +416,10 @@ if (!gotTheLock) {
       }
       log[level](message);
       log.variables.sender = "main"; // reset sender
+    })
+
+    ipcMain.on("open-debug-options", (event) => {
+      createDebugWindow();
     })
 
     // allow the installer to set its size using the height of the body so that when content changes,
