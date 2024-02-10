@@ -63,7 +63,11 @@ log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]({sender})
 const LogTransportMap = { error: 'red', warn: 'yellow', info: 'cyan', debug: 'magenta', silly: 'green', default: 'unset' };
 log.hooks.push((msg, {transportName}) => {
   if (transportName === 'console') {
-    msg.data.unshift(`color: ${LogTransportMap[msg.level]}`, 'color: unset');
+    // apply color, only to console transport
+    return {
+      ...msg,
+      data: [`color: ${LogTransportMap[msg.level]}`, 'color: unset', ...msg.data]
+    };
   }
   return msg;
 });
