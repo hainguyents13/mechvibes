@@ -23,6 +23,51 @@ let debug = {
   identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
   remoteUrl: "https://beta.mechvibes.com/debug/ipc/",
   level: false, // a level must be chosen by debugger
+  enable() {
+    this.enabled = true;
+    if(this.identifier === undefined){
+      // TODO: fetch identifier from ipc server
+      fetch(debug.remoteUrl, {
+        method: "POST",
+        body: {
+          type: "identify",
+          data: "client",
+          userInfo: {
+            hostname: os.hostname(), // Lunas-Macbook-Pro.local
+            username: os.userInfo().username, // lunaalfien
+            platform: os.platform(), // darwin
+            version: app.getVersion() // v2.3.5
+          }
+        },
+        headers: {
+          "Content-Type": "application/json"
+        }
+      }).then((response) => {
+        return response.json();
+      }).then((json) => {
+        this.identifier = json.identifier;
+      }).catch((e) => {
+        log.error(e);
+      });
+    }
+    // TODO: fetch debug options from ipc server
+    log.transports.remote.level = this.level;
+  },
+  disable() {
+    this.enabled = false;
+    this.identifier = undefined; // clear identifier, for user privacy
+    // send a request to the ipc server to remove the user's information immediately.
+    fetch(debug.remoteUrl, {method: "DELETE"}).then(() => {
+
+    }).catch((e) => {
+      // NOTE: if the ipc server fails to process the delete request, user logs might not be removed,
+      // depending on ipc server implementation. For this reason, users should only use the official ipc server,
+      // which is bound by the debug data retention policy.
+      // https://beta.mechvibes.com/blog/debug-data-retention-policy/
+      log.error(e);
+    });
+    log.transports.remote.level = false;
+  }
 }
 
 // fix so we can detect transport type from within transport hook (see log.hooks.push(...))
