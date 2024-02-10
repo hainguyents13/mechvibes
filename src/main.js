@@ -75,15 +75,16 @@ for (const transportName in log.transports) {
   log.transports[transportName].transportName = transportName;
 }
 
-// set client data for the logger (Note, this won't be sent unless logging gets turned on)
-// We set this now, incase the issue being debugged doesn't require an app restart, as
-// logging is turned on immediately when the user enables it.
-log.transports.remote.client = {
-  name: "Mechvibes",
-  hostname: os.hostname(), // Lunas-Macbook-Pro.local
-  username: os.userInfo().username, // lunaalfien
-  platform: os.platform() // darwin
-};
+// We set the URL now, so that we don't need to set it later.
+// electron-log won't send the logs to the server until the level is set though.
+log.transports.remote.url = debug.remoteUrl;
+// NOTE: The IPC server requires an identifier to be set here, otherwise logs will be rejected with a 403 error.
+log.transports.remote.client = {name: "Mechvibes"};
+log.transports.remote.onError = (e) => {
+  // TODO: decide if a log should be deferred or if we should disable logging to the remote server.
+  console.log(e);
+}
+
 // parse debugging options
 const debugConfigFile = path.join(user_dir, "/remote-debug.json");
 if(fs.existsSync(debugConfigFile)){
