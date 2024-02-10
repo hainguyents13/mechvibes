@@ -45,7 +45,7 @@ a:hover {
   margin-bottom: 2rem;
 }
 
-#update-available {
+.alert {
   padding: 8px 5px;
   border: 1px solid #ffb8b8;
   background: #fff2f2;

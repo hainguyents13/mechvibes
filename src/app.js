@@ -336,6 +336,7 @@ function packsToOptions(packs, pack_list) {
   window.addEventListener('DOMContentLoaded', async () => {
     const version = document.getElementById('app-version');
     const update_available = document.getElementById('update-available');
+    const debug_in_use = document.getElementById('remote-in-use');
     const new_version = document.getElementById('new-version');
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
@@ -416,6 +417,15 @@ function packsToOptions(packs, pack_list) {
     if (!is_muted) {
       iohook.start();
     }
+
+    // warn about debugging
+    ipcRenderer.on("debug-in-use", (_event, enabled) => {
+      if(enabled){
+        debug_in_use.classList.remove("hidden");
+      }else{
+        debug_in_use.classList.add("hidden");
+      }
+    });
 
     // listen to key press
     ipcRenderer.on('muted', function (_event, _is_muted) {

@@ -116,6 +116,12 @@ function createWindow(show = true) {
   // win.openDevTools();
   // win.webContents.openDevTools();
 
+  win.webContents.on("did-finish-load", () => {
+    if(debug.enabled){
+      win.webContents.send("debug-in-use", true);
+    }
+  })
+
   // Emitted when the window is closed.
   win.on('closed', function () {
     // Dereference the window object, usually you would store windows
