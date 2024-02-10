@@ -1,10 +1,13 @@
 // Modules to control application life and create native browser window
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
+const os = require("os");
 const fs = require('fs-extra');
+const log = require("electron-log");
 const Store = require("electron-store");
 const store = new Store();
 const iohook = require('iohook');
+const fetch = require("./utils/fetch");
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
@@ -14,9 +17,6 @@ const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
-
-const os = require("os");
-const log = require("electron-log");
 
 // Remote debugging defaults
 let debug = {
