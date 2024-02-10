@@ -341,7 +341,6 @@ function packsToOptions(packs, pack_list) {
     const app_body = document.getElementById('app-body');
     const pack_list = document.getElementById('pack-list');
     const random_button = document.getElementById('random-button');
-    const debug_button = document.getElementById('open-debug-options');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
@@ -485,11 +484,6 @@ function packsToOptions(packs, pack_list) {
       pack_list.selectedIndex = packId;
       setPackByIndex(packId);
     });
-
-    debug_button.addEventListener('click', (e) => {
-      e.preventDefault();
-      ipcRenderer.send("open-debug-options");
-    })
   });
 })(window, document);
 
