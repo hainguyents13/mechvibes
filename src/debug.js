@@ -12,12 +12,18 @@ function onReady(){
 	}
 
 	const enable_toggle_group = document.getElementById("remote_toggle_group");
+	const debug_code = document.getElementById("debug_code");
 
 	enable_toggle_group.addEventListener("click", (e) => {
 		debug.enabled = !debug.enabled;
 		setDebugOptions(debug);
 		refresh();
 	})
+
+	debug_code.addEventListener("focus", (e) => {
+		debug_code.select();
+	});
+	refresh();
 }
 
 function refresh(){
@@ -30,7 +36,7 @@ function refresh(){
 		remote_options_group.style.display = "none";
 	}
 	const debug_code = document.getElementById("debug_code");
-	debug_code.value = "Example";
+	debug_code.value = debug.identifier;
 }
 
 function getDebugOptions(){
