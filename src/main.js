@@ -90,7 +90,7 @@ const debugConfigFile = path.join(user_dir, "/remote-debug.json");
 if(fs.existsSync(debugConfigFile)){
   const json = require(debugConfigFile);
   console.log(json);
-  // log.transports.remote.url = debug.remoteUrl;
+  // TODO: fetch debug options from ipc server
   // log.transports.remote.level = debug.level;
 }
 log.transports.file.fileName = "mechvibes.log";
