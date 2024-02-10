@@ -21,7 +21,7 @@ const log = require("electron-log");
 let debug = {
   enabled: false, // the user must enable remote debugging via the debug options window
   identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
-  remoteUrl: "https://www.lunarwebsite.ca/mechvibes/ipc/", // TODO: make this a mechvibes.com url
+  remoteUrl: "https://beta.mechvibes.com/debug/ipc/",
   level: false, // a level must be chosen by debugger
 }
 
