@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const Store = require("electron-store");
 const store = new Store();
+const iohook = require('iohook');
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
@@ -148,6 +149,7 @@ function createWindow(show = true) {
       preload: path.join(__dirname, 'app.js'),
       contextIsolation: false,
       nodeIntegration: true,
+      enableRemoteModule: true,
     },
     show,
   });
@@ -359,6 +361,21 @@ if (!gotTheLock) {
 
     log.silly("Creating main window for the first time...");
     win = createWindow(true);
+    
+    const startup_handler = new StartupHandler(app);
+    const listen_handler = new ListenHandler(app);
+
+    if(!listen_handler.is_muted){
+      iohook.start();
+    }
+
+    iohook.on('keydown', (event) => {
+      win.webContents.send("keydown", event);
+    });
+
+    iohook.on('keyup', (event) => {
+      win.webContents.send("keyup", event);
+    });
 
     function createTrayIcon(){
       // prevent dupe tray icons
@@ -370,8 +387,6 @@ if (!gotTheLock) {
       // tray icon tooltip
       tray.setToolTip('Mechvibes');
 
-      const startup_handler = new StartupHandler(app);
-      const listen_handler = new ListenHandler(app);
 
       // context menu when hover on tray icon
       const contextMenu = Menu.buildFromTemplate([
@@ -404,7 +419,11 @@ if (!gotTheLock) {
           checked: listen_handler.is_muted,
           click: function () {
             listen_handler.toggle();
-            win.webContents.send('muted', listen_handler.is_muted);
+            if(!listen_handler.is_muted){
+              iohook.start();
+            }else{
+              iohook.stop();
+            }
           },
         },
         {

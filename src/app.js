@@ -9,8 +9,6 @@ const { Howl } = require('howler');
 const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
-// TODO: move iohook and audio playback to main.js so that if the configurator dies the audio doesn't.
-const iohook = require("iohook");
 const path = require('path');
 const { platform } = process;
 const remapper = require('./utils/remapper');
@@ -25,7 +23,6 @@ const APP_VERSION = remote.getGlobal('app_version');
 
 let current_pack = null;
 let current_key_down = null;
-let is_muted = store.get('mechvibes-muted') || false;
 const packs = [];
 const all_sound_files = {};
 
@@ -414,10 +411,6 @@ function packsToOptions(packs, pack_list) {
       store.set(MV_VOL_LSID, this.value);
     };
 
-    if (!is_muted) {
-      iohook.start();
-    }
-
     // warn about debugging
     ipcRenderer.on("debug-in-use", (_event, enabled) => {
       if(enabled){
@@ -427,21 +420,11 @@ function packsToOptions(packs, pack_list) {
       }
     });
 
-    // listen to key press
-    ipcRenderer.on('muted', function (_event, _is_muted) {
-      is_muted = _is_muted;
-      if (is_muted) {
-        iohook.stop();
-      } else {
-        iohook.start();
-      }
-    });
-
     // store pressed state of multiple keys
     let pressed_keys = {};
 
     // if key released, clear current key
-    iohook.on('keyup', ({ keycode }) => {
+    ipcRenderer.on('keyup', (_, { keycode }) => {
       // current_key_down = null;
       let holding = false;
       pressed_keys[`${keycode}`] = false;
@@ -456,7 +439,7 @@ function packsToOptions(packs, pack_list) {
     });
 
     // key pressed, pack current key and play sound
-    iohook.on('keydown', ({ keycode }) => {
+    ipcRenderer.on('keydown', (_, { keycode }) => {
       // if hold down a key, don't repeat the sound
       if(pressed_keys[`${keycode}`] !== undefined && pressed_keys[`${keycode}`]){
         return;
