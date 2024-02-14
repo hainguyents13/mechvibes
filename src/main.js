@@ -410,7 +410,11 @@ if (!gotTheLock) {
         {
           label: 'Custom Folder',
           click: function () {
-            shell.openItem(custom_dir);
+            shell.openPath(custom_dir).then((err) => {
+              if(err){
+                log.error(err);
+              }
+            });
           },
         },
         {
