@@ -3,11 +3,11 @@ const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
 const os = require("os");
 const fs = require('fs-extra');
+// NOTE: Do not update electron-log, as we have a custom transport override which may not be compatible with newer versions.
 const log = require("electron-log");
 const Store = require("electron-store");
 const store = new Store();
 const iohook = require('iohook');
-const fetch = require("./utils/fetch");
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
@@ -19,71 +19,91 @@ const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
 
 // Remote debugging defaults
+const IpcServer = require("./utils/ipc");
 let debug = {
   enabled: false, // the user must enable remote debugging via the debug options window
   identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
   remoteUrl: "https://beta.mechvibes.com/debug/ipc/",
-  level: false, // a level must be chosen by debugger
-  enable() {
+  async enable() {
     this.enabled = true;
+    const userInfo = {
+      hostname: os.hostname(), // Lunas-Macbook-Pro.local
+      username: os.userInfo().username, // lunaalfien
+      platform: os.platform(), // darwin
+      version: app.getVersion() // v2.3.5
+    };
+
     if(this.identifier === undefined){
-      // TODO: fetch identifier from ipc server
-      fetch(debug.remoteUrl, {
-        method: "POST",
-        body: {
-          type: "identify",
-          data: "client",
-          userInfo: {
-            hostname: os.hostname(), // Lunas-Macbook-Pro.local
-            username: os.userInfo().username, // lunaalfien
-            platform: os.platform(), // darwin
-            version: app.getVersion() // v2.3.5
-          }
-        },
-        headers: {
-          "Content-Type": "application/json"
-        }
-      }).then((response) => {
-        return response.json();
-      }).then((json) => {
+      const json = await IpcServer.identify(userInfo);
+      if(json.success){
         this.identifier = json.identifier;
-      }).catch((e) => {
-        log.error(e);
-      });
+        fs.writeJsonSync(debugConfigFile, {enabled: true, identifier: json.identifier});
+        log.transports.remote.client.identifier = this.identifier;
+        // TODO: set the level based on what the debugger wants
+        // We're going to set the level to silly for now, because we don't have a way to live-update the level,
+        // when the debugger changes the level, so we'll just set it to the most verbose level.
+        // But this should absolutely be changed, and soon because it is an unnecessary load on the server.
+        log.transports.remote.level = "silly";
+        // NOTE: Remote debugging will include a websocket connection in the future, but it wasn't implemented
+        // yet due to weird issues with the version of electron we use, and the version of node it uses,
+        // causing an SSL error saying that the certificate was expired when it wasn't.
+        // TODO: Check if the electron update fixed the above mentioned issue.
+        const options = {
+          enabled: debug.enabled,
+          level: log.transports.remote.level,
+          identifier: debug.identifier
+        };
+        if(debugWindow !== null){
+          debugWindow.webContents.send("debug-update", options);
+        }
+      }else{
+        this.enabled = false;
+        console.log(json);
+      }
+    }else{
+      // TODO: set the level based on what the debugger wants
+      console.log("enabling early");
+      log.transports.remote.client.identifier = this.identifier;
+      log.transports.remote.level = "silly";
+      const json = await IpcServer.validate(this.identifier, userInfo);
+      if(!json.success){
+        console.log("Failed validation");
+        log.transports.remote.level = false;
+        this.enabled = false;
+        this.identifier = undefined;
+        fs.unlinkSync(debugConfigFile);
+      }
     }
-    // TODO: fetch debug options from ipc server
-    log.transports.remote.level = this.level;
+    if(win !== null){
+      win.webContents.send("debug-in-use", true);
+    }
   },
   disable() {
     this.enabled = false;
     this.identifier = undefined; // clear identifier, for user privacy
-    // send a request to the ipc server to remove the user's information immediately.
-    fetch(debug.remoteUrl, {method: "DELETE"}).then(() => {
-
-    }).catch((e) => {
-      // NOTE: if the ipc server fails to process the delete request, user logs might not be removed,
-      // depending on ipc server implementation. For this reason, users should only use the official ipc server,
-      // which is bound by the debug data retention policy.
-      // https://beta.mechvibes.com/blog/debug-data-retention-policy/
-      log.error(e);
-    });
     log.transports.remote.level = false;
+    log.transports.remote.client.identifier = undefined;
+    // send a request to the ipc server to remove the user's information immediately.
+    // NOTE: if the ipc server fails to process the delete request, user logs might not be removed,
+    // depending on ipc server implementation. For this reason, users should only use the official ipc server,
+    // which is bound by the debug data retention policy.
+    // https://beta.mechvibes.com/blog/debug-data-retention-policy/
+    // transport.clear();
+
+    if(win !== null){
+      win.webContents.send("debug-in-use", false);
+    }
   }
 }
+IpcServer.setRemoteUrl(debug.remoteUrl);
+
+// Override the default remote logger, to use our own implementation.
+// TODO: you know what, just move everything inside this tbh.
+log.transports.remote = require("./libs/electron-log/transports/remote")(log, debug.remoteUrl);
 
 // fix so we can detect transport type from within transport hook (see log.hooks.push(...))
 for (const transportName in log.transports) {
   log.transports[transportName].transportName = transportName;
-}
-
-// We set the URL now, so that we don't need to set it later.
-// electron-log won't send the logs to the server until the level is set though.
-log.transports.remote.url = debug.remoteUrl;
-// NOTE: The IPC server requires an identifier to be set here, otherwise logs will be rejected with a 403 error.
-log.transports.remote.client = {name: "Mechvibes"};
-log.transports.remote.onError = (e) => {
-  // TODO: decide if a log should be deferred or if we should disable logging to the remote server.
-  console.log(e);
 }
 
 // parse debugging options
@@ -91,7 +111,15 @@ const debugConfigFile = path.join(user_dir, "/remote-debug.json");
 if(fs.existsSync(debugConfigFile)){
   const json = require(debugConfigFile);
   console.log(json);
-  // TODO: fetch debug options from ipc server
+  if(json.identifier){
+    debug.identifier = json.identifier;
+    if(json.enabled){
+      debug.enable();
+      console.log("enabled?");
+    }
+  }else{
+    fs.unlinkSync(debugConfigFile);
+  }
   // log.transports.remote.level = debug.level;
 }
 log.transports.file.fileName = "mechvibes.log";
@@ -121,13 +149,9 @@ log.hooks.push((msg, {transportName}) => {
 
 // const custom_dir = path.join(user_dir, "/custom");
 
-// TODO: Move iohook handling here
-// ... maybe not? I couldn't find a reliable sound player which can be run from main.js
-// const iohook = require('iohook');
-
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
-var win;
+var win = null;
 var tray = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
@@ -265,7 +289,11 @@ function createDebugWindow(){
   debugWindow.loadFile('./src/debug.html');
 
   debugWindow.webContents.on("did-finish-load", () => {
-    const options = {...debug, path: debugConfigFile};
+    const options = {
+      enabled: debug.enabled,
+      level: log.transports.remote.level,
+      identifier: debug.identifier
+    };
     debugWindow.webContents.send("debug-options", options);
   })
 
@@ -275,7 +303,11 @@ function createDebugWindow(){
   })
 
   ipcMain.on("set-debug-options", (event, json) => {
-    console.log(json);
+    if(json.enabled && !debug.enabled){
+      debug.enable();
+    }else if(!json.enabled && debug.enabled){
+      debug.disable();
+    }
   })
 
   debugWindow.on("ready-to-show", () => {
@@ -387,7 +419,6 @@ if (!gotTheLock) {
       // tray icon tooltip
       tray.setToolTip('Mechvibes');
 
-
       // context menu when hover on tray icon
       const contextMenu = Menu.buildFromTemplate([
         {
@@ -411,6 +442,16 @@ if (!gotTheLock) {
           label: 'Custom Folder',
           click: function () {
             shell.openPath(custom_dir).then((err) => {
+              if(err){
+                log.error(err);
+              }
+            });
+          },
+        },
+        {
+          label: 'AppData',
+          click: function () {
+            shell.openPath(user_dir).then((err) => {
               if(err){
                 log.error(err);
               }

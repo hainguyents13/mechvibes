@@ -56,8 +56,9 @@ ipcRenderer.once("debug-options", (event, json) => {
 	onReady();
 })
 
-ipcRenderer.on("debug-update", (event, type, message) => {
-
+ipcRenderer.on("debug-update", (event, json) => {
+	debug = json;
+	refresh();
 })
 
 // $("#remote_toggle_group").on("click", () => {
