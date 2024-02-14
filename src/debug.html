@@ -37,10 +37,12 @@
           <input type="text" readonly id="debug_code" placeholder="You don't have a debug code yet."/>
           <div style="opacity:0.7;font-size:0.8em;line-height:1;">Give this code to a developer upon request for live assistance.</div>
         </div>
-        <div class="input-group">
+        <!-- We'll add this to the frontend when we switch to sockets, since
+          there's no easy way of telling what level the debugger might be using. -->
+        <!-- <div class="input-group">
           <div>Logging Level</div>
           <input type="text" readonly id="logging_level" placeholder="error"/>
-        </div>
+        </div> -->
       </div>
       <div style="color: #666; font-size: 12px; text-align: center">
         <div id="update-available" class="hidden">

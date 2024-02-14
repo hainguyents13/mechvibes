@@ -16,6 +16,9 @@ function onReady(){
 
 	enable_toggle_group.addEventListener("click", (e) => {
 		debug.enabled = !debug.enabled;
+		if(!debug.enabled){
+			debug.identifier = undefined;
+		}
 		setDebugOptions(debug);
 		refresh();
 	})
@@ -28,15 +31,21 @@ function onReady(){
 
 function refresh(){
 	const enable_toggle = document.getElementById("remote_toggle");
-	enable_toggle.checked = debug.enabled;
 	const remote_options_group = document.getElementById("remote_options");
+	const debug_code = document.getElementById("debug_code");
+
+	enable_toggle.checked = debug.enabled;
 	if(debug.enabled){
 		remote_options_group.style.display = "block";
+		if(debug.identifier !== undefined){
+			debug_code.value = debug.identifier;
+		}else{
+			debug_code.value = "";
+		}
 	}else{
 		remote_options_group.style.display = "none";
+		debug_code.value = "";
 	}
-	const debug_code = document.getElementById("debug_code");
-	debug_code.value = debug.identifier;
 }
 
 function getDebugOptions(){
