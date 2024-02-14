@@ -449,16 +449,6 @@ if (!gotTheLock) {
           },
         },
         {
-          label: 'AppData',
-          click: function () {
-            shell.openPath(user_dir).then((err) => {
-              if(err){
-                log.error(err);
-              }
-            });
-          },
-        },
-        {
           label: 'Mute',
           type: 'checkbox',
           checked: listen_handler.is_muted,
