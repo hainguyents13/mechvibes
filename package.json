@@ -85,6 +85,7 @@
     }
   },
   "dependencies": {
+    "easy-volume": "^1.1.0",
     "electron-fetch": "^1.9.1",
     "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",

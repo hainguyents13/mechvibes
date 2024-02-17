@@ -15,6 +15,14 @@
     </div>
 
     <div id="app-body" class="loading">
+      <div style="position: relative;text-align: center;font-size: 12px;">
+        <div id="mechvibes-muted" class="hidden alert" style="position:absolute;top:-36px;left:0;right:0;">
+          Mechvibes is currently muted.
+        </div>
+        <div id="system-muted" class="hidden alert" style="position:absolute;top:-36px;left:0;right:0;">
+          Your system sounds are currently muted.
+        </div>
+      </div>
       <table style="display: table">
         <tbody>
           <tr>
@@ -59,16 +67,15 @@
           <a href="#" id="open-debug-options">Advanced</a>
         </p>
         <p id="app-version" style="color: #999">-</p>
-        <div id="update-available" class="hidden alert">
-          New version of Mechvibes is available (<span id="new-version">-</span>)
-          <div style="margin-top: 5px">
-            <a href="https://mechvibes.com" class="open-in-browser">Check it out</a>
+        <div style="position: relative;">
+          <div id="update-available" class="hidden alert">
+            New version of Mechvibes is available (<span id="new-version">-</span>)
+            <div style="margin-top: 5px">
+              <a href="https://mechvibes.com/download/" class="open-in-browser">Check it out</a>
+            </div>
           </div>
-        </div>
-        <div id="remote-in-use" class="hidden alert">
-          Remote Debugging is currently enabled.
-          <div style="margin-top: 5px">
-            Go to Advanced to disable it.
+          <div id="remote-in-use" class="hidden alert" style="position: absolute;top:-66px;left:0;right:0;padding:0;">
+            <a href="#" id="quick-disable-remote">Click here</a> to disable remote debugging.
           </div>
         </div>
       </div>
