@@ -87,6 +87,7 @@ let debug = {
     this.identifier = undefined; // clear identifier, for user privacy
     log.transports.remote.level = false;
     log.transports.remote.client.identifier = undefined;
+    fs.unlinkSync(debugConfigFile);
     // send a request to the ipc server to remove the user's information immediately.
     // NOTE: if the ipc server fails to process the delete request, user logs might not be removed,
     // depending on ipc server implementation. For this reason, users should only use the official ipc server,
