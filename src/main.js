@@ -313,14 +313,6 @@ function createDebugWindow(){
     debugWindow.webContents.send("debug-options", options);
   })
 
-  ipcMain.on("set-debug-options", (event, json) => {
-    if(json.enabled && !debug.enabled){
-      debug.enable();
-    }else if(!json.enabled && debug.enabled){
-      debug.disable();
-    }
-  })
-
   debugWindow.on("ready-to-show", () => {
     debugWindow.show();
   })
@@ -547,6 +539,14 @@ if (!gotTheLock) {
 
     ipcMain.on("open-debug-options", (event) => {
       createDebugWindow();
+    })
+
+    ipcMain.on("set-debug-options", (event, json) => {
+      if(json.enabled && !debug.enabled){
+        debug.enable();
+      }else if(!json.enabled && debug.enabled){
+        debug.disable();
+      }
     })
 
     // allow the installer to set its size using the height of the body so that when content changes,
