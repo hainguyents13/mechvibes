@@ -444,14 +444,29 @@ if (!gotTheLock) {
           },
         },
         {
-          label: 'Custom Folder',
-          click: function () {
-            shell.openPath(custom_dir).then((err) => {
-              if(err){
-                log.error(err);
-              }
-            });
-          },
+          label: 'Folders',
+          submenu: [
+            {
+              label: 'Custom Soundpacks',
+              click: function () {
+                shell.openPath(custom_dir).then((err) => {
+                  if(err){
+                    log.error(err);
+                  }
+                });
+              },
+            },
+            {
+              label: 'Application Data',
+              click: function () {
+                shell.openPath(user_dir).then((err) => {
+                  if(err){
+                    log.error(err);
+                  }
+                });
+              },
+            },
+          ],
         },
         {
           label: 'Mute',
@@ -467,6 +482,9 @@ if (!gotTheLock) {
           },
         },
         {
+          label: 'Extras',
+          submenu: [
+            {
               label: 'Enable at Startup',
               type: 'checkbox',
               checked: startup_handler.is_enabled,
@@ -481,6 +499,8 @@ if (!gotTheLock) {
               click: function () {
                 start_minimized.toggle();
               },
+            },
+          ],
         },
         {
           label: 'Quit',
