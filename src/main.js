@@ -11,6 +11,7 @@ const iohook = require('iohook');
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
+const StartMinimizedHandler = require('./utils/start_minimized_handler');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
@@ -160,7 +161,7 @@ global.debug_config_path = debugConfigFile;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
-function createWindow(show = true) {
+function createWindow(show = false) {
   // Create the browser window.
   win = new BrowserWindow({
     name: "app", // used by logger to differentiate messages sent by different windows.
@@ -217,6 +218,13 @@ function createWindow(show = true) {
     log.warn("Window has entered unresponsive state");
     console.log("unresponsive");
   })
+
+  // condition for start_minimized
+  if (start_minimized) {
+    win.close();
+  } else {
+    win.show();
+  }
 
   return win;
 }
@@ -470,6 +478,14 @@ if (!gotTheLock) {
           },
         },
         {
+          label: 'Start Minimized',
+          type: 'checkbox',
+          checked: start_minimized_handler.is_enabled,
+          click: function () {
+            start_minimized_handler.toggle();
+          },
+        },
+        {
           label: 'Quit',
           click: function () {
             // quit
@@ -571,7 +587,7 @@ app.on('activate', function () {
   // dock icon is clicked and there are no other windows open.
   log.silly("App has been activated")
   if (win === null){
-    createWindow();
+    createWindow(true);
   }else{
     // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason.
     if (process.platform === 'darwin') {
