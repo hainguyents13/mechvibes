@@ -1,5 +1,6 @@
 // Modules to control application life and create native browser window
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
+const { getVolume, getMute } = require('easy-volume');
 const path = require('path');
 const os = require("os");
 const fs = require('fs-extra');
@@ -197,6 +198,8 @@ function createWindow(show = false) {
     if(debug.enabled){
       win.webContents.send("debug-in-use", true);
     }
+    win.webContents.send("ava-toggle", active_volume.is_enabled);
+    win.webContents.send("mechvibes-mute-status", mute.is_enabled);
   })
 
   // Emitted when the window is closed.
@@ -403,9 +406,46 @@ if (!gotTheLock) {
       iohook.start();
     }
 
-    if(!listen_handler.is_muted){
-      iohook.start();
-    }
+    let volume = -1; // set to an out-of-bound value to force an update on first run
+    let system_mute = false;
+    let system_volume_error = false;
+    let sys_check_interval = setInterval(() => {
+      if(!mute.is_enabled){
+        getVolume().then((v) => {
+          if(v !== volume){
+            volume = v;
+            win.webContents.send("system-volume-update", volume);
+          }
+        }).catch((err) => {
+          clearInterval(sys_check_interval);
+          if(err == "" && !system_volume_error){
+            // this condition appears to only be hit when using ctrl+c to kill the app during development.
+            system_volume_error = true;
+            OnBeforeQuit();
+            app.exit(1);
+          }
+          log.error(`Volume Error: ${err}`);
+        });
+
+        getMute().then((m) => {
+          if(m !== system_mute){
+            system_mute = m;
+            win.webContents.send("system-mute-status", system_mute);
+          }
+        }).catch((err) => {
+          clearInterval(sys_check_interval);
+          if(err == "" && !system_volume_error){
+            // this condition appears to only be hit when using ctrl+c to kill the app during development.
+            system_volume_error = true;
+            OnBeforeQuit();
+            app.exit(1);
+          }
+          log.error(`Mute Error: ${err}`);
+        });
+      }
+    }, 3000);
+    // NOTE: we could go lower than 3 seconds, but the problem is, the system volume check is slow, 
+    // so it's not a good idea to spam the system with requests.
 
     iohook.on('keydown', (event) => {
       win.webContents.send("keydown", event);
@@ -480,6 +520,7 @@ if (!gotTheLock) {
             }else{
               iohook.stop();
             }
+            win.webContents.send("mechvibes-mute-status", mute.is_enabled);
           },
         },
         {
@@ -499,6 +540,15 @@ if (!gotTheLock) {
               checked: start_minimized.is_enabled,
               click: function () {
                 start_minimized.toggle();
+              },
+            },
+            {
+              label: 'Active Volume Adjustment',
+              type: 'checkbox',
+              checked: active_volume.is_enabled,
+              click: function () {
+                active_volume.toggle();
+                win.webContents.send("ava-toggle", active_volume.is_enabled);
               },
             },
           ],
@@ -628,10 +678,11 @@ app.on('activate', function () {
 });
 
 // ensure app gets unregistered
-app.on("before-quit", () => {
+function OnBeforeQuit(){
   log.silly("Shutting down...");
   app.removeAsDefaultProtocolClient("mechvibes");
-})
+}
+app.on("before-quit", OnBeforeQuit);
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {

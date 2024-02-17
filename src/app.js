@@ -21,6 +21,8 @@ const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, 'audio');
 const APP_VERSION = remote.getGlobal('app_version');
 
+let active_volume = true;
+let system_volume = 50; // a default just incase the algorithm needs to run before the volume is set
 let current_pack = null;
 let current_key_down = null;
 const packs = [];
@@ -335,6 +337,8 @@ function packsToOptions(packs, pack_list) {
     const update_available = document.getElementById('update-available');
     const debug_in_use = document.getElementById('remote-in-use');
     const quick_disable_remote = document.getElementById('quick-disable-remote');
+    const mechvibes_muted = document.getElementById('mechvibes-muted');
+    const system_muted = document.getElementById('system-muted');
     const new_version = document.getElementById('new-version');
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
@@ -400,16 +404,31 @@ function packsToOptions(packs, pack_list) {
     }
     initTray();
 
-    // display volume value
+    // volume
+    let displayVolume = () => {
+      let primary = document.createElement('span');
+      primary.innerText = `${volume.value}`;
+      volume_value.innerHTML = `${primary.outerHTML}`;
+      if(active_volume){
+        let adjusted = document.createElement('span');
+        adjusted.innerText = `(${Math.min(Math.round(volume.value * (100 / system_volume)), 100)})`;
+        adjusted.style.marginLeft = '1em';
+        adjusted.style.fontSize = '12px';
+        adjusted.style.fontWeight = 'normal';
+        adjusted.style.opacity = '0.5';
+
+        volume_value.appendChild(adjusted);
+      }
+    }
     if (store.get(MV_VOL_LSID)) {
       volume.value = store.get(MV_VOL_LSID);
     }else{
-      // TODO: set default
+      volume.value = 50;
     }
-    volume_value.innerHTML = volume.value;
+    displayVolume();
     volume.oninput = function (e) {
-      volume_value.innerHTML = this.value;
       store.set(MV_VOL_LSID, this.value);
+      displayVolume();
     };
 
     // warn about debugging
@@ -419,6 +438,34 @@ function packsToOptions(packs, pack_list) {
       }else{
         debug_in_use.classList.add("hidden");
       }
+    });
+
+    ipcRenderer.on("system-volume-update", (_event, vol) => {
+      system_volume = vol;
+      displayVolume();
+    });
+
+    // warn about muted system
+    ipcRenderer.on("system-mute-status", (_event, enabled) => {
+      if(enabled){
+        system_muted.classList.remove("hidden");
+      }else{
+        system_muted.classList.add("hidden");
+      }
+    });
+
+    // warn about muted mechvibes
+    ipcRenderer.on("mechvibes-mute-status", (_event, enabled) => {
+      if(enabled){
+        mechvibes_muted.classList.remove("hidden");
+      }else{
+        mechvibes_muted.classList.add("hidden");
+      }
+    });
+
+    ipcRenderer.on("ava-toggle", (_event, enabled) => {
+      active_volume = enabled;
+      displayVolume();
     });
 
     // store pressed state of multiple keys
@@ -504,7 +551,22 @@ function playSound(sound_id, volume) {
   if (!sound) {
     return;
   }
-  sound.volume(Number(volume / 100));
+
+  if(active_volume){
+    // dynamic volume adjustment
+    log.silly(`Volume: ${volume}`);
+    log.silly(`System Volume: ${system_volume}`);
+  
+    const adjustedVolume = Math.min(volume * (100 / system_volume), 100);
+  
+    log.silly(`Adjusted Volume: ${adjustedVolume}`);
+    log.silly(`Result Volume: ${adjustedVolume / 100}`);
+
+    sound.volume(Number(adjustedVolume / 100));
+  }else{
+    sound.volume(Number(volume / 100));
+  }
+
   if (play_type == 'single') {
     sound.play(sound_id);
   } else {
