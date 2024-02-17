@@ -9,8 +9,6 @@ const { Howl } = require('howler');
 const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
-// TODO: move iohook and audio playback to main.js so that if the configurator dies the audio doesn't.
-const iohook = require("iohook");
 const path = require('path');
 const { platform } = process;
 const remapper = require('./utils/remapper');
@@ -25,12 +23,31 @@ const APP_VERSION = remote.getGlobal('app_version');
 
 let current_pack = null;
 let current_key_down = null;
-let is_muted = store.get('mechvibes-muted') || false;
 const packs = [];
 const all_sound_files = {};
 
-function log(message){
-  ipcRenderer.send("log", message);
+const log = {
+  silly(message){
+    raise_log_message("silly", message);
+  },
+  debug(message){
+    raise_log_message("debug", message);
+  },
+  verbose(message){
+    raise_log_message("verbose", message);
+  },
+  info(message){
+    raise_log_message("info", message);
+  },
+  warn(message){
+    raise_log_message("warn", message);
+  },
+  error(message){
+    raise_log_message("error", message);
+  }
+}
+function raise_log_message(level, message){
+  ipcRenderer.send("electron-log", message, level);
 }
 
 function loadPack(packId = null){
@@ -46,9 +63,9 @@ function loadPack(packId = null){
   const app_logo = document.getElementById('logo');
   const app_body = document.getElementById('app-body');
 
-  log(`Loading ${packId}`)
+  log.info(`Loading ${packId}`)
   _loadPack(packId).then(() => {
-    log("loaded");
+    log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
     app_body.classList.remove('loading');  
   }).catch(() => {
@@ -316,11 +333,13 @@ function packsToOptions(packs, pack_list) {
   window.addEventListener('DOMContentLoaded', async () => {
     const version = document.getElementById('app-version');
     const update_available = document.getElementById('update-available');
+    const debug_in_use = document.getElementById('remote-in-use');
     const new_version = document.getElementById('new-version');
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
     const pack_list = document.getElementById('pack-list');
     const random_button = document.getElementById('random-button');
+    const debug_button = document.getElementById('open-debug-options');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
@@ -392,17 +411,12 @@ function packsToOptions(packs, pack_list) {
       store.set(MV_VOL_LSID, this.value);
     };
 
-    if (!is_muted) {
-      iohook.start();
-    }
-
-    // listen to key press
-    ipcRenderer.on('muted', function (_event, _is_muted) {
-      is_muted = _is_muted;
-      if (is_muted) {
-        iohook.stop();
-      } else {
-        iohook.start();
+    // warn about debugging
+    ipcRenderer.on("debug-in-use", (_event, enabled) => {
+      if(enabled){
+        debug_in_use.classList.remove("hidden");
+      }else{
+        debug_in_use.classList.add("hidden");
       }
     });
 
@@ -410,7 +424,7 @@ function packsToOptions(packs, pack_list) {
     let pressed_keys = {};
 
     // if key released, clear current key
-    iohook.on('keyup', ({ keycode }) => {
+    ipcRenderer.on('keyup', (_, { keycode }) => {
       // current_key_down = null;
       let holding = false;
       pressed_keys[`${keycode}`] = false;
@@ -425,7 +439,7 @@ function packsToOptions(packs, pack_list) {
     });
 
     // key pressed, pack current key and play sound
-    iohook.on('keydown', ({ keycode }) => {
+    ipcRenderer.on('keydown', (_, { keycode }) => {
       // if hold down a key, don't repeat the sound
       if(pressed_keys[`${keycode}`] !== undefined && pressed_keys[`${keycode}`]){
         return;
@@ -464,6 +478,11 @@ function packsToOptions(packs, pack_list) {
       pack_list.selectedIndex = packId;
       setPackByIndex(packId);
     });
+
+    debug_button.addEventListener('click', (e) => {
+      e.preventDefault();
+      ipcRenderer.send("open-debug-options");
+    })
   });
 })(window, document);
 

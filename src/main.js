@@ -1,9 +1,13 @@
 // Modules to control application life and create native browser window
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
 const path = require('path');
+const os = require("os");
 const fs = require('fs-extra');
+// NOTE: Do not update electron-log, as we have a custom transport override which may not be compatible with newer versions.
+const log = require("electron-log");
 const Store = require("electron-store");
 const store = new Store();
+const iohook = require('iohook');
 
 const StartupHandler = require('./utils/startup_handler');
 const ListenHandler = require('./utils/listen_handler');
@@ -15,30 +19,109 @@ const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
 
-let start_minimized = store.get('mechvibes-start-minimized') || false;
+// Remote debugging defaults
+const IpcServer = require("./utils/ipc");
+let debug = {
+  enabled: false, // the user must enable remote debugging via the debug options window
+  identifier: undefined, // the ipc server should be configured to provide unique identifiers for live debugging sessions
+  remoteUrl: "https://beta.mechvibes.com/debug/ipc/",
+  async enable() {
+    this.enabled = true;
+    const userInfo = {
+      hostname: os.hostname(), // Lunas-Macbook-Pro.local
+      username: os.userInfo().username, // lunaalfien
+      platform: os.platform(), // darwin
+      version: app.getVersion() // v2.3.5
+    };
 
-const os = require("os");
-const log = require("electron-log");
-if(fs.existsSync(path.join(user_dir, "/remote-logging-opt-in.txt"))){
-  // Remote logging
-  // **************************************************************************
-  // Remote logging is opt-in only. To opt-in, create...
-  // on Windows: %appData%/Mechvibes/remote-logging-opt-in.txt
-  // on macOS: /Users/lunaalfien/Library/Application Support/Mechvibes/remote-logging-opt-in.txt
-  // on linux: tbd
-  // **************************************************************************
-  // see below for examples of the personal data which is collected by remote logging
-  log.transports.remote.client = {
-    name: "Mechvibes",
-    hostname: os.hostname(), // Lunas-Macbook-Pro.local
-    username: os.userInfo().username, // lunaalfien
-    platform: os.platform() // darwin
-  };
-  // the url the logs will be sent to.
-  log.transports.remote.url = "https://www.lunarwebsite.ca/mechvibes/ipc/";
-  log.transports.remote.level = "info";
-  // end remote logging
+    if(this.identifier === undefined){
+      const json = await IpcServer.identify(userInfo);
+      if(json.success){
+        this.identifier = json.identifier;
+        fs.writeJsonSync(debugConfigFile, {enabled: true, identifier: json.identifier});
+        log.transports.remote.client.identifier = this.identifier;
+        // TODO: set the level based on what the debugger wants
+        // We're going to set the level to silly for now, because we don't have a way to live-update the level,
+        // when the debugger changes the level, so we'll just set it to the most verbose level.
+        // But this should absolutely be changed, and soon because it is an unnecessary load on the server.
+        log.transports.remote.level = "silly";
+        // NOTE: Remote debugging will include a websocket connection in the future, but it wasn't implemented
+        // yet due to weird issues with the version of electron we use, and the version of node it uses,
+        // causing an SSL error saying that the certificate was expired when it wasn't.
+        // TODO: Check if the electron update fixed the above mentioned issue.
+        const options = {
+          enabled: debug.enabled,
+          level: log.transports.remote.level,
+          identifier: debug.identifier
+        };
+        if(debugWindow !== null){
+          debugWindow.webContents.send("debug-update", options);
+        }
+      }else{
+        this.enabled = false;
+        console.log(json);
+      }
+    }else{
+      // TODO: set the level based on what the debugger wants
+      console.log("enabling early");
+      log.transports.remote.client.identifier = this.identifier;
+      log.transports.remote.level = "silly";
+      const json = await IpcServer.validate(this.identifier, userInfo);
+      if(!json.success){
+        console.log("Failed validation");
+        log.transports.remote.level = false;
+        this.enabled = false;
+        this.identifier = undefined;
+        fs.unlinkSync(debugConfigFile);
+      }
+    }
+    if(win !== null){
+      win.webContents.send("debug-in-use", true);
+    }
+  },
+  disable() {
+    this.enabled = false;
+    this.identifier = undefined; // clear identifier, for user privacy
+    log.transports.remote.level = false;
+    log.transports.remote.client.identifier = undefined;
+    // send a request to the ipc server to remove the user's information immediately.
+    // NOTE: if the ipc server fails to process the delete request, user logs might not be removed,
+    // depending on ipc server implementation. For this reason, users should only use the official ipc server,
+    // which is bound by the debug data retention policy.
+    // https://beta.mechvibes.com/blog/debug-data-retention-policy/
+    // transport.clear();
 
+    if(win !== null){
+      win.webContents.send("debug-in-use", false);
+    }
+  }
+}
+IpcServer.setRemoteUrl(debug.remoteUrl);
+
+// Override the default remote logger, to use our own implementation.
+// TODO: you know what, just move everything inside this tbh.
+log.transports.remote = require("./libs/electron-log/transports/remote")(log, debug.remoteUrl);
+
+// fix so we can detect transport type from within transport hook (see log.hooks.push(...))
+for (const transportName in log.transports) {
+  log.transports[transportName].transportName = transportName;
+}
+
+// parse debugging options
+const debugConfigFile = path.join(user_dir, "/remote-debug.json");
+if(fs.existsSync(debugConfigFile)){
+  const json = require(debugConfigFile);
+  console.log(json);
+  if(json.identifier){
+    debug.identifier = json.identifier;
+    if(json.enabled){
+      debug.enable();
+      console.log("enabled?");
+    }
+  }else{
+    fs.unlinkSync(debugConfigFile);
+  }
+  // log.transports.remote.level = debug.level;
 }
 log.transports.file.fileName = "mechvibes.log";
 log.transports.file.level = "info";
@@ -47,25 +130,41 @@ log.transports.file.resolvePath = (variables) => {
   // eg. /Users/lunaalfien/mechvibes.log
   return path.join(variables.home, variables.fileName);
 }
-// const custom_dir = path.join(user_dir, "/custom");
+log.variables.sender = "main";
+// console.log(log.transports.console.format); // uncomment to see default formats in console
+// console.log(log.transports.file.format); // uncomment to see default formats in console
+log.transports.console.format = "%c{h}:{i}:{s}.{ms}%c {sender} › {text}"
+log.transports.file.format = "[{y}-{m}-{d} {h}:{i}:{s}.{ms}] [{level}]({sender}) {text}"
 
-// TODO: Move iohook handling here
-// ... maybe not? I couldn't find a reliable sound player which can be run from main.js
-// const iohook = require('iohook');
+const LogTransportMap = { error: 'red', warn: 'yellow', info: 'cyan', debug: 'magenta', silly: 'green', default: 'unset' };
+log.hooks.push((msg, {transportName}) => {
+  if (transportName === 'console') {
+    // apply color, only to console transport
+    return {
+      ...msg,
+      data: [`color: ${LogTransportMap[msg.level]}`, 'color: unset', ...msg.data]
+    };
+  }
+  return msg;
+});
+
+// const custom_dir = path.join(user_dir, "/custom");
 
 // Keep a global reference of the window object, if you don't, the window will
 // be closed automatically when the JavaScript object is garbage collected.
-var win;
+var win = null;
 var tray = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
 global.current_pack_store_id = current_pack_store_id;
+global.debug_config_path = debugConfigFile;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
 
 function createWindow(show = false) {
   // Create the browser window.
   win = new BrowserWindow({
+    name: "app", // used by logger to differentiate messages sent by different windows.
     width: 400,
     height: 600,
     webSecurity: false,
@@ -75,6 +174,7 @@ function createWindow(show = false) {
       preload: path.join(__dirname, 'app.js'),
       contextIsolation: false,
       nodeIntegration: true,
+      enableRemoteModule: true,
     },
     show,
   });
@@ -88,6 +188,12 @@ function createWindow(show = false) {
   // Open the DevTools.
   // win.openDevTools();
   // win.webContents.openDevTools();
+
+  win.webContents.on("did-finish-load", () => {
+    if(debug.enabled){
+      win.webContents.send("debug-in-use", true);
+    }
+  })
 
   // Emitted when the window is closed.
   win.on('closed', function () {
@@ -165,6 +271,66 @@ function openInstallWindow(packId){
   });
 }
 
+let debugWindow = null;
+function createDebugWindow(){
+  // Create the browser window.
+  debugWindow = new BrowserWindow({
+    width: 350,
+    height: 500,
+    useContentSize: false,
+    webSecurity: false,
+    // resizable: false,
+    // fullscreenable: false,
+    webPreferences: {
+      preload: path.join(__dirname, 'debug.js'),
+      contextIsolation: false,
+      nodeIntegration: true,
+    },
+    show: false,
+    parent: win,
+  });
+
+  // remove menu bar
+  debugWindow.removeMenu();
+
+  // and load the index.html of the app.
+  debugWindow.loadFile('./src/debug.html');
+
+  debugWindow.webContents.on("did-finish-load", () => {
+    const options = {
+      enabled: debug.enabled,
+      level: log.transports.remote.level,
+      identifier: debug.identifier
+    };
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("fetch-debug-options", () => {
+    const options = {...debug, path: debugConfigFile};
+    debugWindow.webContents.send("debug-options", options);
+  })
+
+  ipcMain.on("set-debug-options", (event, json) => {
+    if(json.enabled && !debug.enabled){
+      debug.enable();
+    }else if(!json.enabled && debug.enabled){
+      debug.disable();
+    }
+  })
+
+  debugWindow.on("ready-to-show", () => {
+    debugWindow.show();
+  })
+
+  // Emitted when the window is closed.
+  debugWindow.on('closed', function () {
+    // Dereference the window object, usually you would store windows
+    // in an array if your app supports multi windows, this is the time
+    // when you should delete the corresponding element.
+    debugWindow = null;
+  });
+}
+
 const gotTheLock = app.requestSingleInstanceLock();
 app.on('second-instance', () => {
   // Someone tried to run a second instance, we should focus our window.
@@ -180,8 +346,7 @@ app.on('second-instance', () => {
 const protocolCommands = {
   install(packId){
     if(installer === null){
-      console.log("Submitting request to install...");
-      console.log(packId);
+      log.debug(`Processing request to install ${packId}...`);
       openInstallWindow(packId);
     }else{
       installer.focus();
@@ -231,9 +396,26 @@ if (!gotTheLock) {
   // Don't show the window and create a tray instead
   // create and get window instance
   app.on('ready', () => {
+    log.silly("Ready event has fired.");
     app.setAsDefaultProtocolClient('mechvibes');
 
-    win = createWindow();
+    log.silly("Creating main window for the first time...");
+    win = createWindow(true);
+    
+    const startup_handler = new StartupHandler(app);
+    const listen_handler = new ListenHandler(app);
+
+    if(!listen_handler.is_muted){
+      iohook.start();
+    }
+
+    iohook.on('keydown', (event) => {
+      win.webContents.send("keydown", event);
+    });
+
+    iohook.on('keyup', (event) => {
+      win.webContents.send("keyup", event);
+    });
 
     function createTrayIcon(){
       // prevent dupe tray icons
@@ -244,10 +426,6 @@ if (!gotTheLock) {
 
       // tray icon tooltip
       tray.setToolTip('Mechvibes');
-
-      const startup_handler = new StartupHandler(app);
-      const listen_handler = new ListenHandler(app);
-      const start_minimized_handler = new StartMinimizedHandler(app);
 
       // context menu when hover on tray icon
       const contextMenu = Menu.buildFromTemplate([
@@ -271,7 +449,11 @@ if (!gotTheLock) {
         {
           label: 'Custom Folder',
           click: function () {
-            shell.openItem(custom_dir);
+            shell.openPath(custom_dir).then((err) => {
+              if(err){
+                log.error(err);
+              }
+            });
           },
         },
         {
@@ -280,7 +462,11 @@ if (!gotTheLock) {
           checked: listen_handler.is_muted,
           click: function () {
             listen_handler.toggle();
-            win.webContents.send('muted', listen_handler.is_muted);
+            if(!listen_handler.is_muted){
+              iohook.start();
+            }else{
+              iohook.stop();
+            }
           },
         },
         {
@@ -343,23 +529,37 @@ if (!gotTheLock) {
       }
     })
 
-    ipcMain.on("log", (event, message) => {
-      log.info(message);
+    ipcMain.on("electron-log", (event, message, level) => {
+      const window_options = event.sender.browserWindowOptions;
+      if(window_options.name !== undefined && typeof window_options.name == "string"){
+        log.variables.sender = window_options.name
+      }else{
+        log.variables.sender = "u/w"; // unknown window
+      }
+      log[level](message);
+      log.variables.sender = "main"; // reset sender
+    })
+
+    ipcMain.on("open-debug-options", (event) => {
+      createDebugWindow();
     })
 
     // allow the installer to set its size using the height of the body so that when content changes,
     // the installer can only be as big or as small as it needs to be.
     ipcMain.on("resize-installer", (event, size) => {
       const diff = installer.getSize()[1] - installer.getContentSize()[1];
+      log.silly(`Installer requested ${size}, offset is ${diff}, so size is ${(size + diff)}`);
       installer.setSize(300, size + diff, true);
     })
     ipcMain.on("installed", (event, packFolder) => {
+      log.silly(`Installed ${packFolder}`);
       store.set(current_pack_store_id, "custom-" + packFolder);
       win.reload();
       installer.close();
       installer = null;
     })
 
+    log.debug(`Platform: ${process.platform}`);
     log.info("App is ready and has been initialized");
 
     // prevent Electron app from interrupting macOS system shutdown
@@ -378,16 +578,18 @@ app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 app.on('window-all-closed', function () {
   // On macOS it is common for applications and their menu bar
   // to stay active until the user quits explicitly with Cmd + Q
+  log.silly("All windows were closed.");
   if (process.platform !== 'darwin') app.quit();
 });
 
 app.on('activate', function () {
   // On macOS it's common to re-create a window in the app when the
   // dock icon is clicked and there are no other windows open.
+  log.silly("App has been activated")
   if (win === null){
     createWindow(true);
   }else{
-    // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason
+    // on macOS clicking the app icon in the launcher or in finder, triggers activate instead of second-instance for some reason.
     if (process.platform === 'darwin') {
       app.dock.show();
     }
@@ -401,11 +603,13 @@ app.on('activate', function () {
 
 // ensure app gets unregistered
 app.on("before-quit", () => {
+  log.silly("Shutting down...");
   app.removeAsDefaultProtocolClient("mechvibes");
 })
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {
+  log.silly("Goodbye.");
   app.quit();
 });
 

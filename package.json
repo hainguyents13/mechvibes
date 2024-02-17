@@ -20,8 +20,7 @@
   "license": "MIT",
   "iohook": {
     "targets": [
-      "node-64",
-      "electron-73"
+      "electron-87"
     ],
     "platforms": [
       "win32",
@@ -86,18 +85,16 @@
     }
   },
   "dependencies": {
+    "electron-fetch": "^1.9.1",
     "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
     "glob": "^7.1.6",
     "howler": "^2.1.2",
-    "iohook": "^0.6.2"
+    "iohook": "^0.9.3"
   },
   "devDependencies": {
-    "app-builder-lib": "^22.2.0",
-    "electron": "^6.1.5",
-    "electron-builder": "^23.6.0",
-    "electron-compile": "^6.4.4",
-    "electron-packager": "^14.1.1"
+    "electron": "^12.2.3",
+    "electron-builder": "^23.6.0"
   }
 }

@@ -45,7 +45,7 @@ a:hover {
   margin-bottom: 2rem;
 }
 
-#update-available {
+.alert {
   padding: 8px 5px;
   border: 1px solid #ffb8b8;
   background: #fff2f2;
@@ -212,4 +212,16 @@ table {
   height:100%;
   background-color: #ff6666;
   transition: width 0.6s ease;
+}
+
+#remote_options{
+  display:none;
+}
+
+.input-group{
+  line-height:1;
+}
+
+.input-group *{
+  margin-bottom:5px;
 }

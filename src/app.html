@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="./assets/app.css" />
   </head>
 
-  <body style="padding: 2rem">
+  <body style="padding: 2rem; padding-bottom: 0;">
     <div id="app-logo">
       <div id="logo">Loading...</div>
     </div>
@@ -52,15 +52,23 @@
         <p>
           <a href="https://mechvibes.com" class="open-in-browser">Home page</a>
           &nbsp;&nbsp;|&nbsp;&nbsp;
-          <a href="https://mechvibes.com/#qna" class="open-in-browser">FAQs</a>
-          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <!-- <a href="https://mechvibes.com/#qna" class="open-in-browser">FAQs</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp; -->
           <a href="https://buymeacoff.ee/hainguyents13" class="open-in-browser">Buy me a coffee</a>
+          &nbsp;&nbsp;|&nbsp;&nbsp;
+          <a href="#" id="open-debug-options">Advanced</a>
         </p>
         <p id="app-version" style="color: #999">-</p>
-        <div id="update-available" class="hidden">
+        <div id="update-available" class="hidden alert">
           New version of Mechvibes is available (<span id="new-version">-</span>)
           <div style="margin-top: 5px">
             <a href="https://mechvibes.com" class="open-in-browser">Check it out</a>
+          </div>
+        </div>
+        <div id="remote-in-use" class="hidden alert">
+          Remote Debugging is currently enabled.
+          <div style="margin-top: 5px">
+            Go to Advanced to disable it.
           </div>
         </div>
       </div>
