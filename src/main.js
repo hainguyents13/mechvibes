@@ -10,14 +10,17 @@ const store = new Store();
 const iohook = require('iohook');
 
 const StartupHandler = require('./utils/startup_handler');
-const ListenHandler = require('./utils/listen_handler');
-const StartMinimizedHandler = require('./utils/start_minimized_handler');
+const StoreToggle = require('./utils/store_toggle');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(home_dir, '/mechvibes_custom');
 const current_pack_store_id = 'mechvibes-pack';
+
+const mute = new StoreToggle("mechvibes-muted", false);
+const start_minimized = new StoreToggle("mechvibes-start-minimized", false);
+const active_volume = new StoreToggle("mechvibes-active-volume", true);
 
 // Remote debugging defaults
 const IpcServer = require("./utils/ipc");
@@ -220,7 +223,7 @@ function createWindow(show = false) {
   })
 
   // condition for start_minimized
-  if (start_minimized) {
+  if (start_minimized.is_enabled) {
     win.close();
   } else {
     win.show();
@@ -403,7 +406,9 @@ if (!gotTheLock) {
     win = createWindow(true);
     
     const startup_handler = new StartupHandler(app);
-    const listen_handler = new ListenHandler(app);
+    if(!mute.is_enabled){
+      iohook.start();
+    }
 
     if(!listen_handler.is_muted){
       iohook.start();
@@ -459,10 +464,10 @@ if (!gotTheLock) {
         {
           label: 'Mute',
           type: 'checkbox',
-          checked: listen_handler.is_muted,
+          checked: mute.is_enabled,
           click: function () {
-            listen_handler.toggle();
-            if(!listen_handler.is_muted){
+            mute.toggle();
+            if(!mute.is_enabled){
               iohook.start();
             }else{
               iohook.stop();
@@ -470,20 +475,20 @@ if (!gotTheLock) {
           },
         },
         {
-          label: 'Enable at Startup',
-          type: 'checkbox',
-          checked: startup_handler.is_enabled,
-          click: function () {
-            startup_handler.toggle();
-          },
-        },
-        {
-          label: 'Start Minimized',
-          type: 'checkbox',
-          checked: start_minimized_handler.is_enabled,
-          click: function () {
-            start_minimized_handler.toggle();
-          },
+              label: 'Enable at Startup',
+              type: 'checkbox',
+              checked: startup_handler.is_enabled,
+              click: function () {
+                startup_handler.toggle();
+              },
+            },
+            {
+              label: 'Start Minimized',
+              type: 'checkbox',
+              checked: start_minimized.is_enabled,
+              click: function () {
+                start_minimized.toggle();
+              },
         },
         {
           label: 'Quit',
