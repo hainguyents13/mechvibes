@@ -334,6 +334,7 @@ function packsToOptions(packs, pack_list) {
     const version = document.getElementById('app-version');
     const update_available = document.getElementById('update-available');
     const debug_in_use = document.getElementById('remote-in-use');
+    const quick_disable_remote = document.getElementById('quick-disable-remote');
     const new_version = document.getElementById('new-version');
     const app_logo = document.getElementById('logo');
     const app_body = document.getElementById('app-body');
@@ -483,6 +484,11 @@ function packsToOptions(packs, pack_list) {
       e.preventDefault();
       ipcRenderer.send("open-debug-options");
     })
+
+    quick_disable_remote.addEventListener('click', (e) => {
+      e.preventDefault();
+      ipcRenderer.send("set-debug-options", { enabled: false });
+    });
   });
 })(window, document);
 
