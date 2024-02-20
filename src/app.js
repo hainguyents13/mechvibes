@@ -56,7 +56,7 @@ function loadPack(packId = null){
   if(packId === null){
     Object.keys(packs).map((pid) => {
       const _pack = packs[pid];
-      if(_pack.id == current_pack.id){
+      if(_pack.pack_id == current_pack.pack_id){
         packId = pid;
       }
     })
