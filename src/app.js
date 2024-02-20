@@ -248,7 +248,7 @@ function getPack(pack_id){
 }
 
 function getSavedPack() {
-  if (store.get(MV_PACK_LSID)) {
+  if (store.has(MV_PACK_LSID)) {
     const pack_id = store.get(MV_PACK_LSID);
     const pack = getPack(pack_id);
     if (!pack) {
