@@ -39,9 +39,17 @@
             </td>
           </tr>
           <tr>
-            <td style="width: 50%">Volume <span id="volume-value-display" style="font-weight: bold"></span></td>
-            <td style="width: 50%">
-              <input type="range" min="0" max="100" value="20" step="5" class="slider mb-0" id="volume" style="width: 100%" />
+            <td style="width: 50%;padding-top:0;padding-bottom: 0;">Volume <span id="volume-value-display" style="font-weight: bold"></span></td>
+          </tr>
+          <tr>
+            <td colspan="2" style="padding-top:0;padding-bottom:0;">
+              <input type="range" min="0" max="200" value="20" step="5" class="slider mb-0" id="volume" style="width: 100%" />
+              <div class="warning-levels">
+                <div class="warning-level" style="width: 50%"></div>
+                <div class="warning-level" style=""></div>
+                <div class="warning-level" style=""></div>
+                <div class="warning-level" style=""></div>
+              </div>
             </td>
           </tr>
           <tr class="checkbox-group" id="tray_icon_toggle_group">

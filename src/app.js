@@ -411,7 +411,7 @@ function packsToOptions(packs, pack_list) {
       volume_value.innerHTML = `${primary.outerHTML}`;
       if(active_volume){
         let adjusted = document.createElement('span');
-        adjusted.innerText = `(${Math.min(Math.round(volume.value * (100 / system_volume)), 100)})`;
+        adjusted.innerText = `(${Math.round(volume.value * (100 / system_volume))})`;
         adjusted.style.marginLeft = '1em';
         adjusted.style.fontSize = '12px';
         adjusted.style.fontWeight = 'normal';
@@ -557,14 +557,16 @@ function playSound(sound_id, volume) {
     log.silly(`Volume: ${volume}`);
     log.silly(`System Volume: ${system_volume}`);
   
-    const adjustedVolume = Math.min(volume * (100 / system_volume), 100);
+    const adjustedVolume = volume * (100 / system_volume);
   
     log.silly(`Adjusted Volume: ${adjustedVolume}`);
     log.silly(`Result Volume: ${adjustedVolume / 100}`);
 
-    sound.volume(Number(adjustedVolume / 100));
+    sound.volume(1);
+    Howler.masterGain.gain.setValueAtTime(Number(adjustedVolume / 100), Howler.ctx.currentTime);
   }else{
-    sound.volume(Number(volume / 100));
+    sound.volume(1);
+    Howler.masterGain.gain.setValueAtTime(Number(volume / 100), Howler.ctx.currentTime);
   }
 
   if (play_type == 'single') {

@@ -64,18 +64,17 @@ a:hover {
   height: 5px;
   background: #d8d8d8;
   outline: none;
-  opacity: 0.7;
+  /* opacity: 0.7;
   -webkit-transition: 0.2s;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s; */
   border-radius: 5px;
   margin-bottom: 12px;
 }
 
 /* Mouse-over effects */
-.slider:hover {
+/* .slider:hover {
   opacity: 1;
-  /* Fully shown on mouse-over */
-}
+} */
 
 /* The slider handle (use -webkit- (Chrome, Opera, Safari, Edge) and -moz- (Firefox) to override default look) */
 .slider::-webkit-slider-thumb {
@@ -91,18 +90,8 @@ a:hover {
   cursor: pointer;
   /* Cursor on hover */
   border-radius: 50%;
-}
-
-.slider::-moz-range-thumb {
-  width: 20px;
-  /* Set a specific slider handle width */
-  height: 20px;
-  /* Slider handle height */
-  background: #ff5050;
-  /* Green background */
-  cursor: pointer;
-  /* Cursor on hover */
-  border-radius: 50%;
+  position: relative;
+  z-index:2;
 }
 
 table tr td {
@@ -128,9 +117,9 @@ table {
   /* Not removed via appearance */
   margin: 0;
 
-  opacity: 0.7;
+  /* opacity: 0.7;
   -webkit-transition: 0.2s;
-  transition: opacity 0.2s;
+  transition: opacity 0.2s; */
 
   font: inherit;
   color: currentColor;
@@ -165,7 +154,7 @@ table {
 
 /* Mouse-over effects */
 .checkbox-group:hover .checkbox {
-  opacity: 1;
+  /* opacity: 1; */
   /* Fully shown on mouse-over */
 }
 
@@ -224,4 +213,33 @@ table {
 
 .input-group *{
   margin-bottom:5px;
+}
+
+.warning-levels{
+  position: relative;
+  top:-17px;
+  left:2px;
+
+  display: flex;
+  width: 100%;
+  height: 5px;
+  border-radius: 5px;
+  overflow: hidden;
+}
+.warning-level{
+  height:100%;
+  opacity: 0.7;
+}
+
+.warning-level:nth-child(2){
+  flex:1;
+  background-color: #ffcc33;
+}
+.warning-level:nth-child(3){
+  flex:1;
+  background-color: #ff9233;
+}
+.warning-level:nth-child(4){
+  flex:1;
+  background-color: #ff3333;
 }
