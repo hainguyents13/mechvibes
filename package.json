@@ -63,6 +63,7 @@
       "icon": "src/assets/icon.png"
     },
     "linux": {
+      "category": "Utility",
       "target": [
         {
           "target": "deb",
