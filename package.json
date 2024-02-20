@@ -7,9 +7,11 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "build:all": "electron-builder -wml",
     "build:win": "electron-builder -w",
     "build:mac": "electron-builder -m",
-    "build:linux": "electron-builder -l"
+    "build:linux": "electron-builder -l",
+    "build:clean": "node tools/clean-dist.js"
   },
   "keywords": [],
   "homepage": "https://mechvibes.com",
@@ -61,6 +63,7 @@
       "icon": "src/assets/icon.png"
     },
     "linux": {
+      "category": "Utility",
       "target": [
         {
           "target": "deb",
