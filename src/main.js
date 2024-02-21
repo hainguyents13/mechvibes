@@ -556,6 +556,9 @@ if (!gotTheLock) {
         {
           label: 'Quit',
           click: function () {
+            // stop system check interval, because it's an external program, and
+            // it doesn't know how to handle shutdowns.
+            clearInterval(sys_check_interval);
             // quit
             app.isQuiting = true;
             app.quit();
