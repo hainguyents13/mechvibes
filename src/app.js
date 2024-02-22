@@ -154,8 +154,8 @@ function unloadAllPacks(){
 // load all pack
 async function loadPacks() {
   // get all audio folders
-  const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*/');
-  const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*/');
+  const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*');
+  const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*');
   const folders = [...official_packs, ...custom_packs];
 
   // get pack data
