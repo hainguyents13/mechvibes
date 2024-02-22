@@ -264,7 +264,7 @@ async function loadPacks() {
               return;
             }
             const file = files[defines[kc]];
-            sound_data[kc] = { src: [file.src], format: file.type };
+            sound_data[kc] = { src: [file] };
           }
         });
         if (Object.keys(sound_data).length) {
