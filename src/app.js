@@ -158,6 +158,10 @@ async function loadPacks() {
   const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*');
   const folders = [...official_packs, ...custom_packs];
 
+  log.info(`Loading ${folders.length} packs`);
+  log.debug(OFFICIAL_PACKS_DIR);
+  log.debug(CUSTOM_PACKS_DIR);
+
   // get pack data
   folders.map((folder) => {
     // get folder name
