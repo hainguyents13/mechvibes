@@ -10,6 +10,8 @@ const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
 const path = require('path');
+const mime = require('mime-types');
+const Zip = require('adm-zip');
 const { platform } = process;
 const remapper = require('./utils/remapper');
 
@@ -158,19 +160,79 @@ async function loadPacks() {
 
   // get pack data
   folders.map((folder) => {
-    // define group by types
-    const is_custom = folder.indexOf('mechvibes_custom') > -1 ? true : false;
-
     // get folder name
-    const splited = folder.split('/');
-    const folder_name = splited[splited.length - 2];
+    const folder_name = path.basename(folder);
+    // define if custom pack
+    const is_custom = (folder.substring(0, CUSTOM_PACKS_DIR.length) == CUSTOM_PACKS_DIR) ? true : false;
+    const is_archive = path.extname(folder) == '.zip';
 
-    // define config file path
-    const config_file = `${folder.replace(/\/$/, '')}/config.json`;
+    if(!is_archive){
+      // define config file path
+      const config_file = `${folder.replace(/\/$/, '')}/config.json`;
 
-    // get pack info and defines data
-    if(fs.existsSync(config_file)){
-      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+      // get pack info and defines data
+      if(fs.existsSync(config_file)){
+        const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+  
+        // pack sound pack data
+        const pack_data = {
+          pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
+          group: is_custom ? 'Custom' : 'Default',
+          abs_path: folder,
+          key_define_type,
+          name,
+          includes_numpad,
+        };
+    
+        // init sound data
+        if (key_define_type == 'single') {
+          // define sound path
+          const sound_path = `${folder}/${sound}`;
+          if(!fs.existsSync(sound_path)){
+            return;
+          }
+          const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
+          Object.assign(pack_data, { sound_data: sound_data });
+        } else {
+          const sound_data = {};
+          Object.keys(defines).map((kc) => {
+            if (defines[kc]) {
+              // define sound path
+              const sound_path = `${folder}/${defines[kc]}`;
+              if(!fs.existsSync(sound_path)){
+                return;
+              }
+              sound_data[kc] = { src: [sound_path] };
+            }
+          });
+          if (Object.keys(sound_data).length) {
+            Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
+          }
+        }
+    
+        // push pack data to pack list
+        packs.push(pack_data);
+      }
+    }else{
+      log.warn(`Archive packs are not supported yet. ${folder}`);
+      const zip = new Zip(folder);
+      const zipFiles = zip.getEntries();
+      let files = {};
+      zipFiles.map((file) => {
+        if(file.isDirectory){
+          return;
+        }
+        const fileName = path.basename(file.entryName);
+        if(fileName == 'config.json'){
+          files[fileName] = file.getData().toString('utf8');
+        }else{
+          const mimeType = mime.lookup(fileName);
+          files[fileName] = `data:${mimeType};base64,${file.getData().toString('base64')}`;
+        }
+      });
+
+      // get config vars
+      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = JSON.parse(files['config.json']);
 
       // pack sound pack data
       const pack_data = {
@@ -181,12 +243,10 @@ async function loadPacks() {
         name,
         includes_numpad,
       };
-  
+
       // init sound data
       if (key_define_type == 'single') {
-        // define sound path
-        const sound_path = `${folder}${sound}`;
-        if(!fs.existsSync(sound_path)){
+        if(files[sound] === undefined){
           return;
         }
         const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
@@ -196,18 +256,18 @@ async function loadPacks() {
         Object.keys(defines).map((kc) => {
           if (defines[kc]) {
             // define sound path
-            const sound_path = `${folder}${defines[kc]}`;
-            if(!fs.existsSync(sound_path)){
+            if(files[defines[kc]] === undefined){
               return;
             }
-            sound_data[kc] = { src: [sound_path] };
+            const file = files[defines[kc]];
+            sound_data[kc] = { src: [file.src], format: file.type };
           }
         });
         if (Object.keys(sound_data).length) {
           Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
         }
       }
-  
+
       // push pack data to pack list
       packs.push(pack_data);
     }
