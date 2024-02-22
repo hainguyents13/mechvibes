@@ -385,7 +385,6 @@ function packsToOptions(packs, pack_list) {
     loadPack()
 
     // handle tray hiding
-    console.log(store.get(MV_TRAY_LSID));
     if (store.get(MV_TRAY_LSID) !== undefined){
       tray_icon_toggle.checked = store.get(MV_TRAY_LSID);
     }
