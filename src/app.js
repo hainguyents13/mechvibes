@@ -103,23 +103,6 @@ function _loadPack(packId){
           }
         }
         Object.keys(pack.sound_data).map((kc) => {
-          let missing = false;
-          if(pack.sound_data[kc] !== undefined){
-            Object.keys(pack.sound_data[kc].src).map((i) => {
-              const path = pack.sound_data[kc].src[i];
-              console.log(path);
-              if(!fs.existsSync(path)){
-                missing = true;
-              }
-            })
-          }else{
-            missing = true;
-          }
-          if(missing){
-            // reject(5);
-            check();
-            return;
-          }
           const audio = new Howl(pack.sound_data[kc]);
           loaded_sounds[kc] = false;
           audio.once('load', function(){
