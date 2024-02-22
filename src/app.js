@@ -66,6 +66,8 @@ function loadPack(packId = null){
   const app_body = document.getElementById('app-body');
 
   log.info(`Loading ${packId}`)
+  app_logo.innerHTML = 'Loading...';
+  app_body.classList.add('loading');
   _loadPack(packId).then(() => {
     log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
