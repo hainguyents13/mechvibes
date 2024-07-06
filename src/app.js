@@ -74,8 +74,9 @@ function loadPack(packId = null){
     log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
     app_body.classList.remove('loading');  
-  }).catch(() => {
+  }).catch((e) => {
     app_logo.innerHTML = 'Failed';
+    log.warn(`Failed to load pack: ${e}`);
   });
 }
 
