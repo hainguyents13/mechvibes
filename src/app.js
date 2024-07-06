@@ -232,7 +232,7 @@ async function loadPacks() {
         if(file.isDirectory){
           return;
         }
-        const fileName = path.basename(file.entryName);
+        const fileName = path.basename(file.entryName).toLowerCase();
         if(fileName == 'config.json'){
           files[fileName] = file.getData().toString('utf8');
         }else{
@@ -273,10 +273,11 @@ async function loadPacks() {
         Object.keys(defines).map((kc) => {
           if (defines[kc]) {
             // define sound path
-            if(files[defines[kc]] === undefined){
+            const definition = defines[kc].toLowerCase();
+            if(files[definition] === undefined){
               return;
             }
-            const file = files[defines[kc]];
+            const file = files[definition];
             sound_data[kc] = { src: [file] };
           }
         });
