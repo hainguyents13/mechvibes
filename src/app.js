@@ -224,7 +224,6 @@ async function loadPacks() {
         packs.push(pack_data);
       }
     }else{
-      log.warn(`Archive packs are not supported yet. ${folder}`);
       const zip = new Zip(folder);
       const zipFiles = zip.getEntries();
       let files = {};
