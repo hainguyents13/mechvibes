@@ -69,7 +69,7 @@ function loadPack(packId = null){
   _loadPack(packId).then(() => {
     log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
-    app_body.classList.remove('loading');  
+    app_body.classList.remove('loading');
   }).catch(() => {
     app_logo.innerHTML = 'Failed';
   });
@@ -82,7 +82,7 @@ function _loadPack(packId){
       const pack = packs[packId];
       if(pack.key_define_type == 'single'){
         const sound_data = packs[packId].sound_data;
-        
+
         const audio = new Howl(sound_data);
         audio.once('load', function () {
           packs[packId].sound = audio;
@@ -196,7 +196,7 @@ async function loadPacks() {
         name,
         includes_numpad,
       };
-  
+
       // init sound data
       if (key_define_type == 'single') {
         // define sound path
@@ -222,7 +222,7 @@ async function loadPacks() {
           Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
         }
       }
-  
+
       // push pack data to pack list
       packs.push(pack_data);
     }
@@ -483,6 +483,13 @@ function packsToOptions(packs, pack_list) {
       }
       if(!holding){
         app_logo.classList.remove('pressed');
+
+        const sound_id = `keycode-${current_key_down}-up`;
+        log.silly(`Key up: ${sound_id}`);
+
+        if(current_pack) {
+          playSound(sound_id, volume.value);
+        }
       }
     });
 
@@ -556,9 +563,9 @@ function playSound(sound_id, volume) {
     // dynamic volume adjustment
     log.silly(`Volume: ${volume}`);
     log.silly(`System Volume: ${system_volume}`);
-  
+
     const adjustedVolume = volume * (100 / system_volume);
-  
+
     log.silly(`Adjusted Volume: ${adjustedVolume}`);
     log.silly(`Result Volume: ${adjustedVolume / 100}`);
 
@@ -570,7 +577,7 @@ function playSound(sound_id, volume) {
   }
 
   if (play_type == 'single') {
-    sound.play(sound_id);
+    const p = sound.play(sound_id);
   } else {
     sound.play();
   }
