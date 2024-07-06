@@ -11,7 +11,8 @@
     "build:win": "electron-builder -w",
     "build:mac": "electron-builder -m",
     "build:linux": "electron-builder -l",
-    "build:clean": "node tools/clean-dist.js"
+    "build:clean": "node tools/clean-dist.js",
+    "gh-actions:bump-version": "node tools/bump-version.js"
   },
   "keywords": [],
   "homepage": "https://mechvibes.com",
