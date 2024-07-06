@@ -283,6 +283,8 @@ async function loadPacks() {
         });
         if (Object.keys(sound_data).length) {
           Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
+        }else{
+          return;
         }
       }
 
