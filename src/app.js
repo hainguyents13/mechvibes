@@ -481,15 +481,14 @@ function packsToOptions(packs, pack_list) {
           holding = true;
         }
       }
+      if(current_pack) {
+        const sound_id = `keycode-${keycode}-up`;
+        playSound(sound_id, volume.value);
+        log.silly(`Keycode: ${keycode} up`)
+      }
+
       if(!holding){
         app_logo.classList.remove('pressed');
-
-        const sound_id = `keycode-${current_key_down}-up`;
-        log.silly(`Key up: ${sound_id}`);
-
-        if(current_pack) {
-          playSound(sound_id, volume.value);
-        }
       }
     });
 
