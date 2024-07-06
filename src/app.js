@@ -10,6 +10,8 @@ const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
 const path = require('path');
+const mime = require('mime-types');
+const Zip = require('adm-zip');
 const { platform } = process;
 const remapper = require('./utils/remapper');
 
@@ -66,12 +68,15 @@ function loadPack(packId = null){
   const app_body = document.getElementById('app-body');
 
   log.info(`Loading ${packId}`)
+  app_logo.innerHTML = 'Loading...';
+  app_body.classList.add('loading');
   _loadPack(packId).then(() => {
     log.info("loaded");
     app_logo.innerHTML = 'Mechvibes';
     app_body.classList.remove('loading');  
-  }).catch(() => {
+  }).catch((e) => {
     app_logo.innerHTML = 'Failed';
+    log.warn(`Failed to load pack: ${e}`);
   });
 }
 
@@ -103,29 +108,17 @@ function _loadPack(packId){
           }
         }
         Object.keys(pack.sound_data).map((kc) => {
-          let missing = false;
-          if(pack.sound_data[kc] !== undefined){
-            Object.keys(pack.sound_data[kc].src).map((i) => {
-              const path = pack.sound_data[kc].src[i];
-              console.log(path);
-              if(!fs.existsSync(path)){
-                missing = true;
-              }
-            })
-          }else{
-            missing = true;
-          }
-          if(missing){
-            // reject(5);
-            check();
-            return;
-          }
           const audio = new Howl(pack.sound_data[kc]);
-          loaded_sounds[kc] = false;
-          audio.once('load', function(){
+          if(audio.state() == "loaded"){
             loaded_sounds[kc] = audio;
             check();
-          })
+          }else{
+            loaded_sounds[kc] = false;
+            audio.once('load', function(){
+              loaded_sounds[kc] = audio;
+              check();
+            })
+          }
         })
       }
     }else{
@@ -167,25 +160,96 @@ function unloadAllPacks(){
 // load all pack
 async function loadPacks() {
   // get all audio folders
-  const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*/');
-  const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*/');
+  const official_packs = await glob.sync(OFFICIAL_PACKS_DIR + '/*');
+  const custom_packs = await glob.sync(CUSTOM_PACKS_DIR + '/*');
   const folders = [...official_packs, ...custom_packs];
+
+  log.info(`Loading ${folders.length} packs`);
+  log.debug(OFFICIAL_PACKS_DIR);
+  log.debug(CUSTOM_PACKS_DIR);
 
   // get pack data
   folders.map((folder) => {
-    // define group by types
-    const is_custom = folder.indexOf('mechvibes_custom') > -1 ? true : false;
-
     // get folder name
-    const splited = folder.split('/');
-    const folder_name = splited[splited.length - 2];
+    const folder_name = path.basename(folder);
+    // define if custom pack
+    const is_custom = (folder.substring(0, CUSTOM_PACKS_DIR.length) == CUSTOM_PACKS_DIR) ? true : false;
+    const is_archive = path.extname(folder) == '.zip';
 
-    // define config file path
-    const config_file = `${folder.replace(/\/$/, '')}/config.json`;
+    if(!is_archive){
+      // define config file path
+      const config_file = `${folder.replace(/\/$/, '')}/config.json`;
 
-    // get pack info and defines data
-    if(fs.existsSync(config_file)){
-      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+      // get pack info and defines data
+      if(fs.existsSync(config_file)){
+        const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+  
+        // pack sound pack data
+        const pack_data = {
+          pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
+          group: is_custom ? 'Custom' : 'Default',
+          abs_path: folder,
+          key_define_type,
+          name,
+          includes_numpad,
+        };
+    
+        // init sound data
+        if (key_define_type == 'single') {
+          // define sound path
+          const sound_path = `${folder}/${sound}`;
+          if(!fs.existsSync(sound_path)){
+            return;
+          }
+          const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
+          Object.assign(pack_data, { sound_data: sound_data });
+        } else {
+          const sound_data = {};
+          Object.keys(defines).map((kc) => {
+            if (defines[kc]) {
+              // define sound path
+              const sound_path = `${folder}/${defines[kc]}`;
+              if(!fs.existsSync(sound_path)){
+                return;
+              }
+              sound_data[kc] = { src: [sound_path] };
+            }
+          });
+          if (Object.keys(sound_data).length) {
+            Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
+          }
+        }
+    
+        // push pack data to pack list
+        packs.push(pack_data);
+      }
+    }else{
+      log.warn(`Archive packs are not supported yet. ${folder}`);
+      const zip = new Zip(folder);
+      const zipFiles = zip.getEntries();
+      let files = {};
+      zipFiles.map((file) => {
+        if(file.isDirectory){
+          return;
+        }
+        const fileName = path.basename(file.entryName).toLowerCase();
+        if(fileName == 'config.json'){
+          files[fileName] = file.getData().toString('utf8');
+        }else{
+          const _mimeType = mime.lookup(fileName);
+          // HACK: some soundpacks have mp4 files, which are actually audio files, and howler can play them but refuses
+          // to load them because it thinks they are video files. So we change the mimeType to audio/* but also mime.lookup
+          // doesn't seem to return a string, so we also need to convert it to a string.
+          let mimeType = `${_mimeType}`;
+          if(mimeType.substring(0, 6) == 'video/'){
+            mimeType = mimeType.replace('video/', 'audio/');
+          }
+          files[fileName] = `data:${mimeType};base64,${file.getData().toString('base64')}`;
+        }
+      });
+
+      // get config vars
+      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = JSON.parse(files['config.json']);
 
       // pack sound pack data
       const pack_data = {
@@ -196,12 +260,10 @@ async function loadPacks() {
         name,
         includes_numpad,
       };
-  
+
       // init sound data
       if (key_define_type == 'single') {
-        // define sound path
-        const sound_path = `${folder}${sound}`;
-        if(!fs.existsSync(sound_path)){
+        if(files[sound] === undefined){
           return;
         }
         const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
@@ -211,18 +273,21 @@ async function loadPacks() {
         Object.keys(defines).map((kc) => {
           if (defines[kc]) {
             // define sound path
-            const sound_path = `${folder}${defines[kc]}`;
-            if(!fs.existsSync(sound_path)){
+            const definition = defines[kc].toLowerCase();
+            if(files[definition] === undefined){
               return;
             }
-            sound_data[kc] = { src: [sound_path] };
+            const file = files[definition];
+            sound_data[kc] = { src: [file] };
           }
         });
         if (Object.keys(sound_data).length) {
           Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
+        }else{
+          return;
         }
       }
-  
+
       // push pack data to pack list
       packs.push(pack_data);
     }
@@ -385,7 +450,6 @@ function packsToOptions(packs, pack_list) {
     loadPack()
 
     // handle tray hiding
-    console.log(store.get(MV_TRAY_LSID));
     if (store.get(MV_TRAY_LSID) !== undefined){
       tray_icon_toggle.checked = store.get(MV_TRAY_LSID);
     }

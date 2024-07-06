@@ -88,14 +88,16 @@
     }
   },
   "dependencies": {
+    "adm-zip": "^0.5.10",
     "easy-volume": "^1.1.0",
     "electron-fetch": "^1.9.1",
     "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
     "glob": "^7.1.6",
-    "howler": "^2.1.2",
-    "iohook": "^0.9.3"
+    "howler": "^2.2.4",
+    "iohook": "^0.9.3",
+    "mime-types": "^2.1.35"
   },
   "devDependencies": {
     "electron": "^12.2.3",
