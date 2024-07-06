@@ -109,11 +109,16 @@ function _loadPack(packId){
         }
         Object.keys(pack.sound_data).map((kc) => {
           const audio = new Howl(pack.sound_data[kc]);
-          loaded_sounds[kc] = false;
-          audio.once('load', function(){
+          if(audio.state() == "loaded"){
             loaded_sounds[kc] = audio;
             check();
-          })
+          }else{
+            loaded_sounds[kc] = false;
+            audio.once('load', function(){
+              loaded_sounds[kc] = audio;
+              check();
+            })
+          }
         })
       }
     }else{
