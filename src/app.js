@@ -366,7 +366,7 @@ function packsToOptions(packs, pack_list) {
     fetch('https://api.github.com/repos/hainguyents13/mechvibes/releases/latest')
       .then((res) => res.json())
       .then((json) => {
-        if (json.tag_name > APP_VERSION) {
+        if (json.tag_name.localeCompare(APP_VERSION, undefined, { numeric: true }) === 1) {
           new_version.innerHTML = json.tag_name;
           update_available.classList.remove('hidden');
         }
