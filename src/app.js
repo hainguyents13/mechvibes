@@ -236,7 +236,14 @@ async function loadPacks() {
         if(fileName == 'config.json'){
           files[fileName] = file.getData().toString('utf8');
         }else{
-          const mimeType = mime.lookup(fileName);
+          const _mimeType = mime.lookup(fileName);
+          // HACK: some soundpacks have mp4 files, which are actually audio files, and howler can play them but refuses
+          // to load them because it thinks they are video files. So we change the mimeType to audio/* but also mime.lookup
+          // doesn't seem to return a string, so we also need to convert it to a string.
+          let mimeType = `${_mimeType}`;
+          if(mimeType.substring(0, 6) == 'video/'){
+            mimeType = mimeType.replace('video/', 'audio/');
+          }
           files[fileName] = `data:${mimeType};base64,${file.getData().toString('base64')}`;
         }
       });
