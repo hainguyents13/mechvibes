@@ -10,10 +10,8 @@ const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
 const path = require('path');
-const mime = require('mime-types');
-const Zip = require('adm-zip');
 const { platform } = process;
-const remapper = require('./utils/remapper');
+const { GetFileFromArchive } = require('./libs/soundpacks/file-manager');
 
 const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
@@ -76,6 +74,7 @@ function loadPack(packId = null){
     app_body.classList.remove('loading');
   }).catch((e) => {
     app_logo.innerHTML = 'Failed';
+    console.warn(e);
     log.warn(`Failed to load pack: ${e}`);
   });
 }
@@ -86,40 +85,19 @@ function _loadPack(packId){
       unloadAllPacks(); // unload all loaded packs before attempting to load a new pack.
       const pack = packs[packId];
       if(pack.key_define_type == 'single'){
-        const sound_data = packs[packId].sound_data;
-
-        const audio = new Howl(sound_data);
-        audio.once('load', function () {
-          packs[packId].sound = audio;
+        pack.LoadSounds().then(() => {
           resolve();
+        }).catch((e) => {
+          console.warn("Failed to load pack", e);
+          reject(e);
         });
       }else{
-        let loaded_sounds = {};
-        let check = () => {
-          let unloaded_exists = false;
-          Object.keys(loaded_sounds).map((key) => {
-            if (typeof loaded_sounds[key] !== 'object') {
-              unloaded_exists = true;
-            }
-          });
-          if(!unloaded_exists){
-            packs[packId].sound = loaded_sounds;
-            resolve();
-          }
-        }
-        Object.keys(pack.sound_data).map((kc) => {
-          const audio = new Howl(pack.sound_data[kc]);
-          if(audio.state() == "loaded"){
-            loaded_sounds[kc] = audio;
-            check();
-          }else{
-            loaded_sounds[kc] = false;
-            audio.once('load', function(){
-              loaded_sounds[kc] = audio;
-              check();
-            })
-          }
-        })
+        pack.LoadSounds().then(() => {
+          resolve();
+        }).catch((e) => {
+          console.warn("Failed to load pack", e);
+          reject(e);
+        });
       }
     }else{
       reject("That packID doesn't exist");
@@ -151,7 +129,7 @@ function unloadPack(packId){
 function unloadAllPacks(){
   Object.keys(packs).map((packId) => {
     if(packs[packId].sound !== undefined){
-      unloadPack(packId);
+      // unloadPack(packId);
     }
   })
 }
@@ -176,150 +154,74 @@ async function loadPacks() {
     const is_custom = (folder.substring(0, CUSTOM_PACKS_DIR.length) == CUSTOM_PACKS_DIR) ? true : false;
     const is_archive = path.extname(folder) == '.zip';
 
+    let config_json = null;
+    let soundpack_metadata = null;
+
     if(!is_archive){
       // define config file path
       const config_file = `${folder.replace(/\/$/, '')}/config.json`;
 
       // get pack info and defines data
       if(fs.existsSync(config_file)){
-        const { name, includes_numpad, soundup = '', sound = '', defines, key_define_type = 'single' } = require(config_file);
-
-        // pack sound pack data
-        const pack_data = {
+        // get config file
+        config_json = require(config_file);
+        // compile soundpack metadata
+        soundpack_metadata = {
           pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
           group: is_custom ? 'Custom' : 'Default',
           abs_path: folder,
-          key_define_type,
-          name,
-          includes_numpad,
+          folder_name,
+          is_custom,
+          is_archive,
         };
-
-        // init sound data
-        if (key_define_type == 'single') {
-          // define sound path
-          const sound_path = `${folder}/${sound}`;
-          if(!fs.existsSync(sound_path)){
-            return;
-          }
-          const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
-          Object.assign(pack_data, { sound_data: sound_data });
-        } else {
-          const sound_data = {};
-          Object.keys(defines).map((kc) => {
-            const upkey = `${kc}-up`;
-            const downkey = kc;
-
-            const setSound = (sound, key) => {
-              let sound_path = `${folder}/${sound}`;
-
-              if (sound_path.indexOf('{') >= 0) {
-                // sound path contains a number range of {1-10}, so pick a random number from that and replace it
-                const range = sound_path.match(/\{(.+?)\}/g)[0];
-                const range_values = range.replace("{", "").replace("}", "").split("-");
-                const random_number = Math.floor(Math.random() * (range_values[1] - range_values[0] + 1) + range_values[0]);
-                sound_path = sound_path.replace(range, random_number);
-              }
-
-              if (!fs.existsSync(sound_path)) {
-                return
-              }
-
-              sound_data[key] = {src: [sound_path]};
-            }
-
-            setSound(defines[downkey] ?? sound, downkey);
-            setSound(defines[upkey] ?? soundup, upkey);
-          });
-          if (Object.keys(sound_data).length) {
-            Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
-          }
-        }
-
-        // push pack data to pack list
-        packs.push(pack_data);
       }
     }else{
-      const zip = new Zip(folder);
-      const zipFiles = zip.getEntries();
-      let files = {};
-      zipFiles.map((file) => {
-        if(file.isDirectory){
-          return;
-        }
-        const fileName = path.basename(file.entryName).toLowerCase();
-        if(fileName == 'config.json'){
-          files[fileName] = file.getData().toString('utf8');
-        }else{
-          const _mimeType = mime.lookup(fileName);
-          // HACK: some soundpacks have mp4 files, which are actually audio files, and howler can play them but refuses
-          // to load them because it thinks they are video files. So we change the mimeType to audio/* but also mime.lookup
-          // doesn't seem to return a string, so we also need to convert it to a string.
-          let mimeType = `${_mimeType}`;
-          if(mimeType.substring(0, 6) == 'video/'){
-            mimeType = mimeType.replace('video/', 'audio/');
-          }
-          files[fileName] = `data:${mimeType};base64,${file.getData().toString('base64')}`;
-        }
-      });
-
-      // get config vars
-      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = JSON.parse(files['config.json']);
-
-      // pack sound pack data
-      const pack_data = {
+      // get config file
+      const config_file = GetFileFromArchive(folder, "config.json");
+      if(config_file === null){
+        console.warn(`Failed to load config.json from archive: ${folder_name}`);
+        return;
+      }
+      config_json = JSON.parse(config_file);
+      // compile soundpack metadata
+      soundpack_metadata = {
         pack_id: `${is_custom ? 'custom' : 'default'}-${folder_name}`,
         group: is_custom ? 'Custom' : 'Default',
         abs_path: folder,
-        key_define_type,
-        name,
-        includes_numpad,
+        folder_name,
+        is_custom,
+        is_archive,
       };
-
-      // init sound data
-      if (key_define_type == 'single') {
-        if(files[sound] === undefined){
-          return;
-        }
-        const sound_data = { src: [sound_path], sprite: keycodesRemap(defines) };
-        Object.assign(pack_data, { sound_data: sound_data });
-      } else {
-        const sound_data = {};
-        Object.keys(defines).map((kc) => {
-          if (defines[kc]) {
-            // define sound path
-            const definition = defines[kc].toLowerCase();
-            if(files[definition] === undefined){
-              return;
-            }
-            const file = files[definition];
-            sound_data[kc] = { src: [file] };
-          }
-        });
-        if (Object.keys(sound_data).length) {
-          Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
-        }else{
-          return;
-        }
-      }
-
-      // push pack data to pack list
-      packs.push(pack_data);
     }
+
+    if(config_json === null || soundpack_metadata === null){
+      console.warn(`Failed to load config.json: ${folder_name}`);
+      return;
+    }
+
+    // get soundpack config
+    let soundpack_config = null;
+    if(config_json.version === undefined){
+      const SoundpackConfig = require("./libs/soundpacks/config-v1");
+      soundpack_config = new SoundpackConfig(config_json, soundpack_metadata);
+    }else{
+      try{
+        const SoundpackConfig = require(`./libs/soundpacks/config-v${config_json.version}`);
+        soundpack_config = new SoundpackConfig(config_json, soundpack_metadata);
+      }catch{
+        log.warn(`Unsupported config version (${config_json.version}): ${folder_name}`);
+      }
+    }
+
+    if(soundpack_config === null){
+      console.warn(`Failed to load soundpack config: ${folder_name}`);
+      return;
+    }
+    packs.push(soundpack_config);
   });
 
   // end load
   return;
-}
-
-// ==================================================
-// remap keycodes from standard to os based keycodes
-function keycodesRemap(defines) {
-  const sprite = remapper('standard', platform, defines);
-  Object.keys(sprite).map((kc) => {
-    sprite[`keycode-${kc}`] = sprite[kc];
-    delete sprite[kc];
-  });
-  return sprite;
 }
 
 function getPack(pack_id){
@@ -562,7 +464,7 @@ function packsToOptions(packs, pack_list) {
       if(current_pack) {
         const sound_id = `keycode-${keycode}-up`;
         playSound(sound_id, volume.value);
-        log.silly(`Keycode: ${keycode} up`)
+        // log.silly(`Keycode: ${keycode} up`)
       }
 
       if(!holding){
@@ -626,12 +528,12 @@ function packsToOptions(packs, pack_list) {
 // ==================================================
 // universal play function
 function playSound(sound_id, volume) {
-  if(current_pack.sound === undefined){
+  if(current_pack.audio === undefined){
     // sound for this pack hasn't been loaded
     return;
   }
   const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
-  const sound = play_type == 'single' ? current_pack.sound : current_pack.sound[sound_id];
+  const sound = play_type == 'single' ? current_pack.audio : current_pack.audio[sound_id];
   if (!sound) {
     return;
   }
@@ -655,6 +557,7 @@ function playSound(sound_id, volume) {
 
   if (play_type == 'single') {
     sound.play(sound_id);
+    console.log(current_pack.audio);
   } else {
     sound.play();
   }

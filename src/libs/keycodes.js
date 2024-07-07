@@ -157,4 +157,26 @@ Object.assign(win32, {
 
 const linux = JSON.parse(JSON.stringify(standard));
 
-module.exports = { darwin, win32, linux };
+// ==================================================
+// remap keycodes from standard to os based keycodes
+function keycodesRemap(defines) {
+  const remapper = require('../utils/remapper');
+  const sprite = remapper('standard', process.platform, {...defines});
+  Object.keys(sprite).map((kc) => {
+    sprite[`keycode-${kc}`] = sprite[kc];
+    delete sprite[kc];
+  });
+  return sprite;
+}
+
+function keycodesFill(defines){
+  let keys = {...defines};
+  Object.keys(standard).map((kc) => {
+    if(!keys[kc]){
+      keys[kc] = null;
+    }
+  });
+  return keys;
+}
+
+module.exports = { darwin, win32, linux, keycodesRemap, keycodesFill };
