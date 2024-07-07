@@ -182,7 +182,7 @@ async function loadPacks() {
 
       // get pack info and defines data
       if(fs.existsSync(config_file)){
-        const { name, includes_numpad, soundup = '', sound = '', defines, key_define_type = 'single' } = require(config_file);
+        const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
 
         // pack sound pack data
         const pack_data = {
