@@ -212,7 +212,7 @@ async function loadPacks() {
             const setSound = (sound, key) => {
               let sound_path = `${folder}/${sound}`;
 
-              if (sound_path.indexOf('{') > 0) {
+              if (sound_path.indexOf('{') >= 0) {
                 // sound path contains a number range of {1-10}, so pick a random number from that and replace it
                 const range = sound_path.match(/\{(.+?)\}/g)[0];
                 const range_values = range.replace("{", "").replace("}", "").split("-");
