@@ -157,10 +157,16 @@ let demo_config = {
 
 	// how the key definitions are defined
 	"key_define_type": "single" || "multi",
+	// ^ If you're going to choose "single" you should just use a version 1 config.
 
 	// the sound file to use when key_define_type is "single".
-	// This property is still required when key_define_type is "multi", but is unused in that mode.
+	// or when key_define_type is "multi", the sound file to fallback on
+	// when a key doesn't have a sound defined.
 	"sound": "sound.ogg",
+	// the fallback key_up sound file to use when key_define_type is "multi".
+	// Note that, this is not supported when key_define_type is "single", and will be ignored,
+	// but is still required.
+	"soundup": "sound_up.ogg",
 
 	// key definitions
 	"defines": {
@@ -177,9 +183,11 @@ let demo_config = {
 		],
 		// when key_define_type is "multi"
 		"3": "sound.ogg",
-		"4": "sound.ogg"
+		"3-up": "sound_up.ogg",
+		"4": "sound.ogg",
+		"4-up": "sound_up.ogg"
 	},
 
-	// though the default assumed version is 1, it's better to define it incase the default ever changes.
-	"version": 1
+	// required
+	"version": 2
 }
