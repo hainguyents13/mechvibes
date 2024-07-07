@@ -121,7 +121,18 @@ class SoundpackConfig {
 	}
 
 	UnloadSounds(){
-
+		if(this.audio){
+			if(this.key_define_type == "single"){
+				this.audio.unload();
+				delete this.audio;
+			}else if(this.key_define_type == "multi"){
+				Object.keys(this.audio).map((kc) => {
+					this.audio[kc].unload();
+				});
+				delete this.audio;
+				console.log("unloaded");
+			}
+		}
 	}
 }
 

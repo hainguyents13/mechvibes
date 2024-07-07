@@ -107,20 +107,8 @@ function _loadPack(packId){
 
 function unloadPack(packId){
   if(packs[packId] !== undefined){
-    if(packs[packId].sound !== undefined){
-      if(packs[packId].key_define_type == 'single'){
-        packs[packId].sound.unload();
-        delete packs[packId].sound;
-      }else{
-        Object.keys(packs[packId].sound).map((kc) => {
-          packs[packId].sound[kc].unload();
-        })
-        delete packs[packId].sound;
-      }
-      return [true];
-    }else{
-      return [false, "pack is unloaded already"];
-    }
+    packs[packId].UnloadSounds();
+    return [true];
   }else{
     return [false, "pack doesn't exist"];
   }
@@ -129,7 +117,7 @@ function unloadPack(packId){
 function unloadAllPacks(){
   Object.keys(packs).map((packId) => {
     if(packs[packId].sound !== undefined){
-      // unloadPack(packId);
+      unloadPack(packId);
     }
   })
 }
