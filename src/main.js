@@ -400,7 +400,7 @@ if (!gotTheLock) {
 
     log.silly("Creating main window for the first time...");
     win = createWindow(true);
-    
+
     const startup_handler = new StartupHandler(app);
     if(!mute.is_enabled){
       iohook.start();
@@ -419,10 +419,8 @@ if (!gotTheLock) {
         }).catch((err) => {
           clearInterval(sys_check_interval);
           if(err == "" && !system_volume_error){
-            // this condition appears to only be hit when using ctrl+c to kill the app during development.
+            // this condition appears to only be hit when using ctrl+c to kill the app during development or on windows
             system_volume_error = true;
-            OnBeforeQuit();
-            app.exit(1);
           }
           log.error(`Volume Error: ${err}`);
         });
@@ -444,7 +442,7 @@ if (!gotTheLock) {
         });
       }
     }, 3000);
-    // NOTE: we could go lower than 3 seconds, but the problem is, the system volume check is slow, 
+    // NOTE: we could go lower than 3 seconds, but the problem is, the system volume check is slow,
     // so it's not a good idea to spam the system with requests.
 
     iohook.on('keydown', (event) => {
@@ -567,12 +565,12 @@ if (!gotTheLock) {
       ]);
 
       // On macOS double click doesn't work if we use tray.setContextMenu(), so we'll do it manually.
-      if(process.platform == "darwin"){ 
+      if(process.platform == "darwin"){
         // click on tray icon, show context menu
         tray.on('click', () => {
           tray.popUpContextMenu(contextMenu);
         });
-        
+
         // right click on tray icon, show the app
         tray.on("right-click", () => {
           app.dock.show();
