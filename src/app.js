@@ -185,7 +185,7 @@ async function loadPacks() {
 
     // get pack info and defines data
     if(fs.existsSync(config_file)){
-      const { name, includes_numpad, sound = '', defines, key_define_type = 'single' } = require(config_file);
+      const { name, includes_numpad, soundup = '', sound = '', defines, key_define_type = 'single' } = require(config_file);
 
       // pack sound pack data
       const pack_data = {
@@ -208,15 +208,31 @@ async function loadPacks() {
         Object.assign(pack_data, { sound_data: sound_data });
       } else {
         const sound_data = {};
+
         Object.keys(defines).map((kc) => {
-          if (defines[kc]) {
-            // define sound path
-            const sound_path = `${folder}${defines[kc]}`;
-            if(!fs.existsSync(sound_path)){
-              return;
+          const upkey = `${kc}-up`;
+          const downkey = kc;
+
+          const setSound = (sound, key) => {
+            let sound_path = `${folder}${sound}`;
+
+            if (sound_path.indexOf('{') > 0) {
+              // sound path contains a number range of {1-10}, so pick a random number from that and replace it
+              const range = sound_path.match(/\{(.+?)\}/g)[0];
+              const range_values = range.replace("{", "").replace("}", "").split("-");
+              const random_number = Math.floor(Math.random() * (range_values[1] - range_values[0] + 1) + range_values[0]);
+              sound_path = sound_path.replace(range, random_number);
             }
-            sound_data[kc] = { src: [sound_path] };
+
+            if (!fs.existsSync(sound_path)) {
+              return
+            }
+
+            sound_data[kc] = {src: [sound_path]};
           }
+
+          setSound(defines[downkey] ?? sound, downkey);
+          setSound(defines[upkey] ?? soundup, upkey);
         });
         if (Object.keys(sound_data).length) {
           Object.assign(pack_data, { sound_data: keycodesRemap(sound_data) });
