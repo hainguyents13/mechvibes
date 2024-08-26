@@ -65,15 +65,18 @@
       <div class="divider"></div>
       <div style="color: #666; font-size: 12px; text-align: center">
         <p>Made with ❤ by <a href="https://github.com/hainguyents13/mechvibes/" class="open-in-browser">hainguyents13</a></p>
-        <p>
+        <div style="display:flex;gap:1em;justify-content: center;">
           <a href="https://mechvibes.com" class="open-in-browser">Home page</a>
-          &nbsp;&nbsp;|&nbsp;&nbsp;
-          <!-- <a href="https://mechvibes.com/#qna" class="open-in-browser">FAQs</a>
-          &nbsp;&nbsp;|&nbsp;&nbsp; -->
+          <span>|</span>
           <a href="https://buymeacoff.ee/hainguyents13" class="open-in-browser">Buy me a coffee</a>
-          &nbsp;&nbsp;|&nbsp;&nbsp;
-          <a href="#" id="open-debug-options">Advanced</a>
-        </p>
+          <!-- 
+            Though access to the advanced window can be disabled by the server,
+            it's important to remember that users can *always* disable remote debugging
+            via the link in div#remote-in-use
+          -->
+          <span id="debug-options-seperator" class="hidden">|</span>
+          <a href="#" id="open-debug-options" class="hidden">Advanced</a>
+        </div>
         <p id="app-version" style="color: #999">-</p>
         <div style="position: relative;">
           <div id="update-available" class="hidden alert">

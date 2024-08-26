@@ -314,6 +314,7 @@ function packsToOptions(packs, pack_list) {
     const pack_list = document.getElementById('pack-list');
     const random_button = document.getElementById('random-button');
     const debug_button = document.getElementById('open-debug-options');
+    const debug_button_seperator = document.getElementById('debug-options-seperator');
     const volume_value = document.getElementById('volume-value-display');
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
@@ -340,6 +341,20 @@ function packsToOptions(packs, pack_list) {
           update_available.classList.remove('hidden');
         }
       });
+
+    // check if remote debugging can be enabled by user
+    fetch("https://beta.mechvibes.com/debug/status/", {
+      method: "GET",
+      headers: {
+        "User-Agent": `Mechvibes/${APP_VERSION} (Electron/${process.versions.electron})`
+      }
+    }).then(async (res) => {
+      const body = await res.text();
+      if(res.status == 200 && body == "enabled"){
+        debug_button.classList.remove("hidden");
+        debug_button_seperator.classList.remove("hidden");
+      }
+    });
 
     // a little hack for open link in browser
     Array.from(document.getElementsByClassName('open-in-browser')).forEach((elem) => {
