@@ -1,0 +1,16 @@
+{
+	"id": "custom-sound-pack-1720300926821",
+	"name": "Turquoise (Full Travel)",
+	"key_define_type": "multi",
+	"sound": "press/GENERIC_R{0-4}.mp3",
+	"soundup": "release/GENERIC.mp3",
+	"defines": {
+	  "14": "press/BACKSPACE.mp3",
+	  "14-up": "release/BACKSPACE.mp3",
+	  "28": "press/ENTER.mp3",
+	  "28-up": "release/ENTER.mp3",
+	  "57": "press/SPACE.mp3",
+	  "57-up": "release/SPACE.mp3"
+	},
+	"version": 2
+}
