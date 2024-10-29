@@ -23,7 +23,7 @@ jobs:
         # This might not be required?
         # repo-token: ${{ secrets.GITHUB_TOKEN }}
         operations-per-run: 100 # This should be temporary.
-        exempt-issue-labels: \!stale
+        exempt-issue-labels: !stale
         stale-issue-message: >
             This issue has been automatically marked as stale because it has not had
             any activity in the last 60 days. It will be closed in 7 days if no further
