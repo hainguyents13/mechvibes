@@ -13,11 +13,13 @@ const iohook = require('iohook');
 const StartupHandler = require('./utils/startup_handler');
 const StoreToggle = require('./utils/store_toggle');
 
-const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
-const home_dir = app.getPath('home');
+const SYSTRAY_ICON = path.join(__dirname, "/assets/system-tray-icon.png");
+const home_dir = app.getPath("home");
 const user_dir = app.getPath("userData");
-const custom_dir = path.join(home_dir, '/mechvibes_custom');
-const current_pack_store_id = 'mechvibes-pack';
+const configDir = path.join(home_dir, ".config", "Mechvibes");
+const custom_dir = path.join(configDir, "mechvibes_custom");
+const logsDir = path.join(configDir, "logs");
+const current_pack_store_id = "mechvibes-pack";
 
 const mute = new StoreToggle("mechvibes-muted", false);
 const start_minimized = new StoreToggle("mechvibes-start-minimized", false);
@@ -131,6 +133,9 @@ if(fs.existsSync(debugConfigFile)){
 log.transports.file.fileName = "mechvibes.log";
 log.transports.file.level = "info";
 log.transports.file.resolvePath = (variables) => {
+  return path.join(logsDir, variables.fileName);
+};
+log.transports.file.resolvePath = (variables) => {
   // ~/mechvibes.log
   // eg. /Users/lunaalfien/mechvibes.log
   return path.join(variables.home, variables.fileName);
@@ -164,7 +169,10 @@ global.custom_dir = custom_dir;
 global.current_pack_store_id = current_pack_store_id;
 global.debug_config_path = debugConfigFile;
 // create custom sound folder if not exists
+fs.ensureDirSync(configDir);
 fs.ensureDirSync(custom_dir);
+fs.ensureDirSync(logsDir);
+
 
 function createWindow(show = false) {
   // Create the browser window.
