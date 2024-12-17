@@ -16,6 +16,8 @@ const { GetFileFromArchive } = require('./libs/soundpacks/file-manager');
 const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
 const MV_TRAY_LSID = 'mechvibes-hidden';
+const MV_MUTED = 'mechvibes-muted';
+const MV_STARTUP_ENABLED = 'mechvibes-startup-enabled';
 
 const CUSTOM_PACKS_DIR = remote.getGlobal('custom_dir');
 const OFFICIAL_PACKS_DIR = path.join(__dirname, 'audio');
@@ -319,6 +321,8 @@ function packsToOptions(packs, pack_list) {
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
+    const mute_toggle = document.getElementById("mute_toggle");
+    const mute_toggle_group = document.getElementById("mute_toggle_group");
 
     // init
     app_logo.innerHTML = 'Loading...';
@@ -381,6 +385,19 @@ function packsToOptions(packs, pack_list) {
       store.set(MV_TRAY_LSID, tray_icon_toggle.checked);
     }
 
+    // handle mute
+    if (store.get(MV_MUTED) !== undefined){
+      mute_toggle.checked = store.get(MV_MUTED);
+    }
+    mute_toggle_group.onclick = function(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      // toggle checkbox
+      mute_toggle.checked = !mute_toggle.checked;
+      ipcRenderer.send("set_mute", mute_toggle.checked);
+      store.set(MV_MUTED, mute_toggle.checked);
+    }
+
     // ensure tray icon is reflected
     let initTray = () => {
       ipcRenderer.send("show_tray_icon", tray_icon_toggle.checked);
@@ -441,8 +458,10 @@ function packsToOptions(packs, pack_list) {
     ipcRenderer.on("mechvibes-mute-status", (_event, enabled) => {
       if(enabled){
         mechvibes_muted.classList.remove("hidden");
+        mute_toggle.checked = true;
       }else{
         mechvibes_muted.classList.add("hidden");
+        mute_toggle.checked = false;
       }
     });
 
