@@ -320,6 +320,15 @@ function packsToOptions(packs, pack_list) {
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
 
+        // Check if app was launched at system startup
+    const isStartup = remote.process.argv.includes('--startup');
+    
+    if (isStartup) {
+      // Hide window if launched at startup
+      remote.getCurrentWindow().hide();
+      store.set(MV_TRAY_LSID, true);
+      tray_icon_toggle.checked = true;
+    }
     // init
     app_logo.innerHTML = 'Loading...';
 
