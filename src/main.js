@@ -14,9 +14,8 @@ const StartupHandler = require('./utils/startup_handler');
 const StoreToggle = require('./utils/store_toggle');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
-const home_dir = app.getPath('home');
 const user_dir = app.getPath("userData");
-const custom_dir = path.join(home_dir, '/mechvibes_custom');
+const custom_dir = path.join(user_dir, '/custom');
 const current_pack_store_id = 'mechvibes-pack';
 
 const mute = new StoreToggle("mechvibes-muted", false);
@@ -128,12 +127,16 @@ if(fs.existsSync(debugConfigFile)){
   }
   // log.transports.remote.level = debug.level;
 }
+
+// Default log file paths
+// On Windows: %appdata%\Mechvibes\logs\mechvibes.log
+// On macOS: ~/Library/Logs/Mechvibes/mechvibes.log
+// On Linux: ~/.config/Mechvibes/logs/mechvibes.log
+//           $XDG_CONFIG_HOME/Mechvibes/logs/mechvibes.log
 log.transports.file.fileName = "mechvibes.log";
 log.transports.file.level = "info";
 log.transports.file.resolvePath = (variables) => {
-  // ~/mechvibes.log
-  // eg. /Users/lunaalfien/mechvibes.log
-  return path.join(variables.home, variables.fileName);
+  return path.join(variables.libraryDefaultDir, variables.fileName);
 }
 log.variables.sender = "main";
 // console.log(log.transports.console.format); // uncomment to see default formats in console
@@ -645,6 +648,37 @@ if (!gotTheLock) {
       powerMonitor.on('shutdown', () => {
         app.quit();
       });
+    }
+
+    // check if old custom directory exists
+    const home_dir = app.getPath('home');
+    const old_custom_dir = path.join(home_dir, "/mechvibes_custom");
+    if(fs.existsSync(old_custom_dir)){
+      log.debug("Old custom directory exists, prompting user for migration...");
+      const { dialog } = require('electron');
+      const response = dialog.showMessageBoxSync({
+        type: 'question',
+        buttons: ['Yes', 'No'],
+        title: 'Mechvibes',
+        message: 'Soundpacks have moved to a new location, do you want to migrate your old soundpacks to the new location?',
+        defaultId: 0,
+        cancelId: 1,
+      });
+
+      if (response === 0) {
+        log.debug("User requested migration, migrating...");
+        const oldCustomFiles = fs.readdirSync(old_custom_dir);
+        oldCustomFiles.forEach((file) => {
+          const sourcePath = path.join(old_custom_dir, file);
+          const destinationPath = path.join(custom_dir, file);
+          log.silly(`Moving ${sourcePath.replace(home_dir, "~")} to ${destinationPath.replace(home_dir, "~")}`);
+          fs.moveSync(sourcePath, destinationPath, { overwrite: true });
+        });
+        log.silly("Removing old custom directory...");
+        fs.removeSync(old_custom_dir);
+        log.debug("Migration complete.");
+        win.reload();
+      }
     }
   });
 }
