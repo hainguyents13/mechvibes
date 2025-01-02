@@ -185,7 +185,7 @@ function createWindow(show = false) {
       nodeIntegration: true,
       enableRemoteModule: true,
     },
-    show,
+    show: false,
   });
 
   // remove menu bar
@@ -231,10 +231,10 @@ function createWindow(show = false) {
   })
 
   // condition for start_minimized
-  if (start_minimized.is_enabled) {
-    win.close();
-  } else {
+  if (show) {
     win.show();
+  } else {
+    win.close();
   }
 
   return win;
@@ -401,11 +401,15 @@ if (!gotTheLock) {
   app.on('ready', () => {
     log.silly("Ready event has fired.");
     app.setAsDefaultProtocolClient('mechvibes');
+    const startup_handler = new StartupHandler(app);
 
     log.silly("Creating main window for the first time...");
+    if(startup_handler.was_started_at_login() && start_minimized.is_enabled){
+      win = createWindow(false);
+    }else{
     win = createWindow(true);
+    }
 
-    const startup_handler = new StartupHandler(app);
     if(!mute.is_enabled){
       iohook.start();
     }

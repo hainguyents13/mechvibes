@@ -7,9 +7,18 @@ class startupHandler {
     return this.app.getLoginItemSettings().openAtLogin;
   }
 
+  get was_started_at_login() {
+    if(process.platform == 'darwin') {
+      return this.app.getLoginItemSettings().wasOpenedAtLogin;
+    }else{
+      return process.argv.includes('--startup');
+    }
+  }
+
   enable() {
     this.app.setLoginItemSettings({
       openAtLogin: true,
+      args: ['--startup']
     });
   }
 
