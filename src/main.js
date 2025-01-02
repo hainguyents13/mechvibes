@@ -404,7 +404,7 @@ if (!gotTheLock) {
     const startup_handler = new StartupHandler(app);
 
     log.silly("Creating main window for the first time...");
-    if(startup_handler.was_started_at_login() && start_minimized.is_enabled){
+    if(startup_handler.was_started_at_login && start_minimized.is_enabled){
       win = createWindow(false);
     }else{
     win = createWindow(true);
