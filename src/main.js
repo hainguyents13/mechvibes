@@ -21,6 +21,7 @@ const current_pack_store_id = 'mechvibes-pack';
 const mute = new StoreToggle("mechvibes-muted", false);
 const start_minimized = new StoreToggle("mechvibes-start-minimized", false);
 const active_volume = new StoreToggle("mechvibes-active-volume", true);
+const storage_prompted = new StoreToggle("mechvibes-migrate-asked", false);
 
 // Remote debugging defaults
 const IpcServer = require("./utils/ipc");
@@ -650,34 +651,38 @@ if (!gotTheLock) {
       });
     }
 
-    // check if old custom directory exists
-    const home_dir = app.getPath('home');
-    const old_custom_dir = path.join(home_dir, "/mechvibes_custom");
-    if(fs.existsSync(old_custom_dir)){
-      log.debug("Old custom directory exists, prompting user for migration...");
-      const { dialog } = require('electron');
-      const response = dialog.showMessageBoxSync({
-        type: 'question',
-        buttons: ['Yes', 'No'],
-        title: 'Mechvibes',
-        message: 'Soundpacks have moved to a new location, do you want to migrate your old soundpacks to the new location?',
-        defaultId: 0,
-        cancelId: 1,
-      });
-
-      if (response === 0) {
-        log.debug("User requested migration, migrating...");
-        const oldCustomFiles = fs.readdirSync(old_custom_dir);
-        oldCustomFiles.forEach((file) => {
-          const sourcePath = path.join(old_custom_dir, file);
-          const destinationPath = path.join(custom_dir, file);
-          log.silly(`Moving ${sourcePath.replace(home_dir, "~")} to ${destinationPath.replace(home_dir, "~")}`);
-          fs.moveSync(sourcePath, destinationPath, { overwrite: true });
+    if(storage_prompted.is_enabled){
+      // check if old custom directory exists
+      const home_dir = app.getPath('home');
+      const old_custom_dir = path.join(home_dir, "/mechvibes_custom");
+      if(fs.existsSync(old_custom_dir)){
+        log.debug("Old custom directory exists, prompting user for migration...");
+        const { dialog } = require('electron');
+        const response = dialog.showMessageBoxSync({
+          type: 'question',
+          buttons: ['Yes', 'Not right now', "Don't ask again"],
+          title: 'Mechvibes',
+          message: "Soundpacks have moved to a new location, do you want to migrate your old soundpacks to the new location? We'll only ask you this once.",
+          defaultId: 0,
+          cancelId: 1,
         });
-        log.silly("Removing old custom directory...");
-        fs.removeSync(old_custom_dir);
-        log.debug("Migration complete.");
-        win.reload();
+  
+        if (response === 0) {
+          log.debug("User requested migration, migrating...");
+          const oldCustomFiles = fs.readdirSync(old_custom_dir);
+          oldCustomFiles.forEach((file) => {
+            const sourcePath = path.join(old_custom_dir, file);
+            const destinationPath = path.join(custom_dir, file);
+            log.silly(`Moving ${sourcePath.replace(home_dir, "~")} to ${destinationPath.replace(home_dir, "~")}`);
+            fs.moveSync(sourcePath, destinationPath, { overwrite: true });
+          });
+          log.silly("Removing old custom directory...");
+          fs.removeSync(old_custom_dir);
+          log.debug("Migration complete.");
+          win.reload();
+        }else if(response === 2){
+          storage_prompted.enable();
+        }
       }
     }
   });
