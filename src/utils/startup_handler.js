@@ -29,7 +29,7 @@ class startupHandler {
   }
 
   toggle() {
-    if (this.isEnabled) {
+    if (this.is_enabled) {
       this.disable();
     } else {
       this.enable();
