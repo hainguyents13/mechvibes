@@ -23,6 +23,8 @@ const start_minimized = new StoreToggle("mechvibes-start-minimized", false);
 const active_volume = new StoreToggle("mechvibes-active-volume", true);
 const storage_prompted = new StoreToggle("mechvibes-migrate-asked", false);
 
+let contextMenu;
+
 // Remote debugging defaults
 const IpcServer = require("./utils/ipc");
 let debug = {
@@ -175,7 +177,7 @@ function createWindow(show = false) {
   win = new BrowserWindow({
     name: "app", // used by logger to differentiate messages sent by different windows.
     width: 400,
-    height: 600,
+    height: 650,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
@@ -471,8 +473,8 @@ if (!gotTheLock) {
       // tray icon tooltip
       tray.setToolTip('Mechvibes');
 
-      // context menu when hover on tray icon
-      const contextMenu = Menu.buildFromTemplate([
+      // context menu when right-click on tray icon
+      contextMenu = Menu.buildFromTemplate([
         {
           label: 'Mechvibes',
           click: function () {
@@ -521,10 +523,10 @@ if (!gotTheLock) {
           checked: mute.is_enabled,
           click: function () {
             mute.toggle();
-            if(!mute.is_enabled){
-              iohook.start();
-            }else{
+            if(mute.is_enabled){
               iohook.stop();
+            }else{
+              iohook.start();
             }
             win.webContents.send("mechvibes-mute-status", mute.is_enabled);
           },
@@ -605,6 +607,22 @@ if (!gotTheLock) {
         createTrayIcon();
       }
     })
+
+    ipcMain.on('set_mute', (event, enabled) => {
+      mute.toggle();
+      if(mute.is_enabled){
+        iohook.stop();
+      }else{
+        iohook.start();
+      }
+      for (let menuItem of contextMenu.items ) {
+        if(menuItem.label == 'Mute'){
+          menuItem.checked = mute.is_enabled;
+        }
+      }
+
+      win.webContents.send('mechvibes-mute-status', mute.is_enabled);
+    });
 
     ipcMain.on("electron-log", (event, message, level) => {
       const window_options = event.sender.browserWindowOptions;
