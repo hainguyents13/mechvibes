@@ -6,7 +6,7 @@
 
 > Mechvibes started as a side project I created for myself. Like many mechanical keyboard lovers, I faced challenges when using my keyboard in quiet environments - whether it was late at night or in the office. The loud, satisfying clicks might be music to my ears, but not so much for my parents or coworkers! If you’re in the same boat, Mechvibes is here for you.
 
-![Mechvibes](https://i.imgur.com/78qUULA.jpg)
+![Mechvibes screenshot](https://github.com/user-attachments/assets/f0340d8a-3e47-4117-a110-ce54575fc27c)
 
 ## What Can You Do with Mechvibes?
 🎨 **Customize Your Sound Experience:** Add new keyboard sound sets by recording any sound you like. Follow a few simple steps, and you’re good to go!
@@ -39,12 +39,10 @@ That’s it, your app is ready to use!
 We’d love to hear from you! 🤝 Got an idea or ran into an issue? Feel free to share. It’s always appreciated!
 
 ## Powered by an Amazing Community
-Mechvibes has grown far beyond its initial scope, thanks to the incredible support and contributions from the community. Many users have created and shared sound packs, offered ideas, and even contributed code to improve the app. This collaborative spirit has made Mechvibes a project shaped by its users, for its users.
-
+Mechvibes has grown far beyond its initial scope, thanks to the incredible support and contributions from the community. Many users have created and shared sound packs, offered ideas, and even contributed code to improve the app.
 A heartfelt thank you to everyone who has helped Mechvibes evolve - you’ve truly made this project special ❤️
 
-Active contributors:
-
+### 🎖️ Contributors:
 <a href="https://github.com/hainguyents13/mechvibes/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=hainguyents13/mechvibes&anon=1" height="30" />
 </a>
