@@ -176,6 +176,7 @@ function createWindow(show = false) {
     name: "app", // used by logger to differentiate messages sent by different windows.
     width: 400,
     height: 600,
+    backgroundThrottling: false,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
