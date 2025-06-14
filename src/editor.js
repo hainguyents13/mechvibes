@@ -1,18 +1,19 @@
 'use strict';
 
-const fs = require('fs');
-const path = require('path');
-const { shell } = require('electron');
+// Use the nodeAPI object exposed by the preload script
+const fs = window.nodeAPI.fs;
+const path = window.nodeAPI.path;
+const { shell } = window.nodeAPI.electron;
 
-const remapper = require('./utils/remapper');
-const layouts = require('./libs/layouts');
-const keycodes = require('./libs/keycodes');
-const $ = require('./assets/jquery');
+const remapper = window.nodeAPI.remapper;
+const layouts = window.nodeAPI.layouts;
+const keycodes = window.nodeAPI.keycodes;
+// $ is already globally available from jQuery loaded in the HTML
 
-const layout = layouts[process.platform];
+const layout = layouts[window.nodeAPI.platform];
 const { sizes } = layouts;
-const os_keycode = keycodes[process.platform];
-const CUSTOM_PACKS_DIR = path.join(__dirname, '../../../custom');
+const os_keycode = keycodes[window.nodeAPI.platform];
+const CUSTOM_PACKS_DIR = path.join(window.nodeAPI.__dirname, '../../../custom');
 
 let selected_keycode = null;
 let current_edit_mode = 'visual';
