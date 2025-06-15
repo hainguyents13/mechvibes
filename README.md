@@ -1,6 +1,45 @@
-<p align="center" width="100%">
-    <img  src="https://github.com/user-attachments/assets/7fff0e20-5a37-4f40-a638-2bfa27dbb429"> 
-</p>
+
+
+# MechvibesDX - The next version of Mechvibes
+
+
+I've been working on **MechvibesDX** - a complete rewrite of Mechvibes with significant improvements to performance, compatibility, and user experience. You can check it out at the new repository: [mechvibes-dx](https://github.com/hainguyents13/mechvibes-dx)
+
+## What's happening
+
+-   **Current repo**: Will become legacy once MechvibesDX is stable
+-   **New repo**: [mechvibes-dx](https://github.com/hainguyents13/mechvibes-dx) - active development
+-   **Future**: When MechvibesDX reaches v1.0, it will become the main Mechvibes
+
+## Major improvements in MechvibesDX
+
+-   **Performance**: Completely rewritten audio engine for faster soundpack loading
+-   **Audio Events**: Support for both keyboard (keydown/keyup) and mouse (button press/release) sounds with extended button support
+-   **Size**: Significantly smaller application size with reduced memory footprint
+-   **Settings**: Advanced settings page for fine-tuning audio, performance, and behavior options
+-   **Compatibility**: Much better support for existing soundpacks from the community
+-   **Soundpack Management**: Easy soundpack installation - import via modal or copy to folder and refresh, no app restart required
+-   **Customization**: Modern UI design with extensive theming options, custom backgrounds, logo customization
+-   **Organization**: Separate keyboard/mouse soundpack folders, better file
+-   **Architecture**: Built with Rust and modern web technologies
+
+## Try it out
+
+Head over to [mechvibes-dx](https://github.com/hainguyents13/mechvibes-dx) to:
+
+-   Download the latest build and test new features
+-   Migrate your soundpacks easily with the new migration tools
+-   Customize the interface with themes, backgrounds, and logo options
+-   Report issues or suggest improvements
+
+I'm working towards a stable v1.0 release, and your feedback helps make MechvibesDX better. The migration process for existing soundpacks is much smoother now.
+
+**Check out MechvibesDX**: https://github.com/hainguyents13/mechvibes-dx
+
+_This repository will remain available during the transition period._
+
+
+---
 
 # Mechvibes: A fun and practical way to bring your favorite keyboard sounds anywhere
 
