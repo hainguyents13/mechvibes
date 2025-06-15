@@ -1,3 +1,4 @@
+![image](https://github.com/user-attachments/assets/2437f93b-30b3-4a07-8527-f1b23dae7fd2)
 
 
 # MechvibesDX - The next version of Mechvibes
