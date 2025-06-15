@@ -742,7 +742,6 @@ function openEditorWindow() {
     editor_window.focus();
     return;
   }
-
   editor_window = new BrowserWindow({
     width: 1200,
     height: 600,
@@ -752,8 +751,9 @@ function openEditorWindow() {
     // modal: true,
     // parent: win,
     webPreferences: {
-      // preload: path.join(__dirname, 'editor.js'),
-      nodeIntegration: true,
+      preload: path.join(__dirname, 'editor-preload.js'),
+      nodeIntegration: false,
+      contextIsolation: true,
     },
   });
 
