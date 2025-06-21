@@ -225,6 +225,7 @@ table {
   height: 5px;
   border-radius: 5px;
   overflow: hidden;
+  pointer-events: none;
 }
 .warning-level{
   height:100%;
