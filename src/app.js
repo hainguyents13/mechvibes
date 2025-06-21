@@ -23,6 +23,7 @@ const APP_VERSION = remote.getGlobal('app_version');
 
 let active_volume = true;
 let system_volume = 50; // a default just incase the algorithm needs to run before the volume is set
+let is_system_muted = false;
 let current_pack = null;
 let current_key_down = null;
 const packs = [];
@@ -430,6 +431,7 @@ function packsToOptions(packs, pack_list) {
 
     // warn about muted system
     ipcRenderer.on("system-mute-status", (_event, enabled) => {
+      is_system_muted = enabled;
       if(enabled){
         system_muted.classList.remove("hidden");
       }else{
@@ -456,7 +458,6 @@ function packsToOptions(packs, pack_list) {
 
     // if key released, clear current key
     ipcRenderer.on('keyup', (_, { keycode }) => {
-      // current_key_down = null;
       let holding = false;
       pressed_keys[`${keycode}`] = false;
       for (const key in pressed_keys) {
@@ -464,11 +465,12 @@ function packsToOptions(packs, pack_list) {
           holding = true;
         }
       }
-      if(current_pack) {
-        const sound_id = `keycode-${keycode}-up`;
-        playSound(sound_id, volume.value);
-        // log.silly(`Keycode: ${keycode} up`)
+
+      const event = {
+        type: "keyup",
+        keycode: keycode,
       }
+      playSound(event, volume.value);
 
       if(!holding){
         app_logo.classList.remove('pressed');
@@ -477,7 +479,7 @@ function packsToOptions(packs, pack_list) {
 
     // key pressed, pack current key and play sound
     ipcRenderer.on('keydown', (_, { keycode }) => {
-      // if hold down a key, don't repeat the sound
+      // if hold down a key, don't repeat the event
       if(pressed_keys[`${keycode}`] !== undefined && pressed_keys[`${keycode}`]){
         return;
       }
@@ -487,17 +489,11 @@ function packsToOptions(packs, pack_list) {
       // app_logo.innerHTML = keycode;
       app_logo.classList.add('pressed');
 
-      // pack current pressed key
-      current_key_down = keycode;
-
-      // pack sprite id
-      const sound_id = `keycode-${current_key_down}`;
-
-      // get loaded audio object
-      // if object valid, pack volume and play sound
-      if (current_pack) {
-        playSound(sound_id, volume.value);
+      const event = {
+        type: "keydown",
+        keycode: keycode,
       }
+      playSound(event, volume.value);
     });
 
     // on random button click
@@ -530,38 +526,35 @@ function packsToOptions(packs, pack_list) {
 
 // ==================================================
 // universal play function
-function playSound(sound_id, volume) {
-  if(current_pack.audio === undefined){
+function playSound(event, volume) {
+  if(current_pack === null || current_pack.audio === undefined){
     // sound for this pack hasn't been loaded
-    return;
-  }
-  const play_type = current_pack.key_define_type ? current_pack.key_define_type : 'single';
-  const sound = play_type == 'single' ? current_pack.audio : current_pack.audio[sound_id];
-  if (!sound) {
     return;
   }
 
   if(active_volume){
     // dynamic volume adjustment
-    log.silly(`Volume: ${volume}`);
-    log.silly(`System Volume: ${system_volume}`);
-
     const adjustedVolume = volume * (100 / system_volume);
+    
+    if(!is_system_muted){
+      log.silly(`Volume: ${volume}`);
+      log.silly(`System Volume: ${system_volume}`);
+      log.silly(`Adjusted Volume: ${adjustedVolume}`);
+      log.silly(`Result Volume: ${adjustedVolume / 100}`);
+    }
 
-    log.silly(`Adjusted Volume: ${adjustedVolume}`);
-    log.silly(`Result Volume: ${adjustedVolume / 100}`);
-
-    sound.volume(1);
     Howler.masterGain.gain.setValueAtTime(Number(adjustedVolume / 100), Howler.ctx.currentTime);
   }else{
-    sound.volume(1);
     Howler.masterGain.gain.setValueAtTime(Number(volume / 100), Howler.ctx.currentTime);
   }
 
-  if (play_type == 'single') {
-    sound.play(sound_id);
-    console.log(current_pack.audio);
-  } else {
-    sound.play();
+  if(current_pack.HandleEvent !== undefined){
+    // if pack has custom play sound function, use it
+    current_pack.HandleEvent(event, volume);
+    log.info(`Playing sound for keycode: ${event.keycode} (${event.type})`);
+    return;
+  }else{
+    log.warn("Pack version doesn't have a HandleEvent function");
+    return;
   }
 }

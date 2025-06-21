@@ -120,6 +120,37 @@ class SoundpackConfig {
 		});
 	}
 
+	/**
+	 * Handle a sound event from the playSound function.
+	 * @param {object} event the event object containing the keycode and type
+	 * @property {string} event.type the type of the event, either "keydown" or "keyup"
+	 * @property {number} event.keycode the keycode of the key that was pressed
+	 */
+	HandleEvent(event){
+		let keycode = event.keycode;
+		if(event.type == "keyup"){
+			// if the event is a keyup, we can ignore it because,
+			// v1 doesn't support keyup sounds.
+			return;
+		}
+		const sound_id = `keycode-${keycode}`;
+		const play_type = this.key_define_type ? this.key_define_type : 'single';
+		const sound = play_type == 'single' ? this.audio : this.audio[sound_id];
+		if (!sound) {
+			return;
+		}
+
+		if (play_type == 'single') {
+			sound.play(sound_id);
+			console.log(this.audio);
+		} else {
+			sound.play();
+		}
+	}
+
+	/**
+	 * Unload the sounds from memory
+	 */
 	UnloadSounds(){
 		if(this.audio){
 			if(this.key_define_type == "single"){
