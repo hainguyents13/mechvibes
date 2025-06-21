@@ -415,6 +415,23 @@ function packsToOptions(packs, pack_list) {
       displayVolume();
     };
 
+    volume.addEventListener('wheel', (e) => {
+      e.preventDefault();
+      // Determine the scroll direction and adjust the volume
+      if (e.deltaY < 0) {
+        // Scroll up, increase volume
+        console.log("negative", volume.value, volume.step, volume.max);
+        volume.value = Math.min(parseInt(volume.max), parseInt(volume.value) + parseInt(volume.step));
+
+      } else {
+        // Scroll down, decrease volume
+        console.log("positive", volume.value, volume.step, volume.min);
+        volume.value = Math.max(parseInt(volume.min), parseInt(volume.value) - parseInt(volume.step));
+      }
+      store.set(MV_VOL_LSID, volume.value);
+      displayVolume();
+    });
+
     // warn about debugging
     ipcRenderer.on("debug-in-use", (_event, enabled) => {
       if(enabled){
