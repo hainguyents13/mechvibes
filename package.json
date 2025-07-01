@@ -100,7 +100,7 @@
     "mime-types": "^2.1.35"
   },
   "devDependencies": {
-    "electron": "^12.2.3",
+    "electron": "^28.3.2",
     "electron-builder": "^24.13.3"
   }
 }
