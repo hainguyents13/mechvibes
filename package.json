@@ -94,13 +94,13 @@
     "electron-log": "^4.4.8",
     "electron-store": "^6.0.0",
     "fs-extra": "^9.0.1",
-    "glob": "^7.1.6",
+    "glob": "^13.0.6",
     "howler": "^2.2.4",
     "iohook": "^0.9.3",
     "mime-types": "^2.1.35"
   },
   "devDependencies": {
     "electron": "^12.2.3",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^26.8.1"
   }
 }
