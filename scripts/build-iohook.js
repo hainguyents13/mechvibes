@@ -37,6 +37,7 @@ const ABI = nodeAbi.getAbi(ELECTRON_VERSION, 'electron'); // e.g. 87 for Electro
 const essential = `electron-v${ABI}-${process.platform}-${ARCH}`;
 const outDir = path.join(ROOT, 'node_modules', 'iohook', 'builds', essential, 'build', 'Release');
 const outFile = path.join(outDir, 'iohook.node');
+const outDylib = path.join(outDir, 'uiohook.dylib');
 
 function run(cmd, args, opts = {}) {
   console.log(`$ ${cmd} ${args.join(' ')}`);
@@ -44,7 +45,7 @@ function run(cmd, args, opts = {}) {
 }
 
 function alreadyBuilt() {
-  return fs.existsSync(outFile);
+  return fs.existsSync(outFile) && fs.existsSync(outDylib);
 }
 
 function main() {
@@ -113,10 +114,16 @@ function main() {
     }
     run(gyp, args, { cwd: tmp });
 
-    // 7. Install the binary where iohook's index.js and electron-builder expect it
+    // 7. Install the binary where iohook's index.js and electron-builder expect
+    //    it. iohook.node dynamically links @rpath/uiohook.dylib (uiohook is
+    //    built as a shared library), so the dylib must ship alongside it —
+    //    exactly like iohook's official x64 prebuild layout. electron-builder
+    //    unpacks .dylib files from node_modules into app.asar.unpacked, which
+    //    is how the packaged app finds it at runtime.
     fs.mkdirSync(outDir, { recursive: true });
     fs.copyFileSync(path.join(tmp, 'build', 'Release', 'iohook.node'), outFile);
-    console.log(`Installed iohook.node -> ${outFile}`);
+    fs.copyFileSync(path.join(tmp, 'build', 'Release', 'uiohook.dylib'), path.join(outDir, 'uiohook.dylib'));
+    console.log(`Installed iohook.node + uiohook.dylib -> ${outDir}`);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
