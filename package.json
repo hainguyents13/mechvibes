@@ -102,7 +102,7 @@
   },
   "devDependencies": {
     "electron": "^12.2.3",
-    "electron-builder": "^24.13.3",
+    "electron-builder": "^26.15.3",
     "node-abi": "^4.33.0"
   }
 }
