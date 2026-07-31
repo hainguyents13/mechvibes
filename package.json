@@ -89,7 +89,7 @@
     }
   },
   "dependencies": {
-    "adm-zip": "^0.5.10",
+    "adm-zip": "^0.6.0",
     "easy-volume": "^1.1.0",
     "electron-fetch": "^1.9.1",
     "electron-log": "^4.4.8",
