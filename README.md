@@ -73,6 +73,12 @@ Follow these steps:
   - For Windows: `yarn build:win`
   - For Linux: `yarn build:linux`
 
+On macOS, `yarn build:mac` produces both Intel (x64) and Apple Silicon
+(arm64) builds. The arm64 build requires compiling the `iohook` native
+module from source (its 0.9.3 release ships no arm64 prebuilt binary);
+`scripts/build-iohook.js` does this automatically as part of the build
+and only rebuilds when the binary for your platform is missing.
+
 That’s it, your app is ready to use!
 
 ## Have Feedback or Suggestions?
