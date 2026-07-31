@@ -9,7 +9,7 @@
     "start": "electron .",
     "build:all": "electron-builder -wml",
     "build:win": "electron-builder -w",
-    "build:mac": "electron-builder -m",
+    "build:mac": "node scripts/build-iohook.js && electron-builder -m",
     "build:linux": "electron-builder -l",
     "build:clean": "node tools/clean-dist.js"
   },
@@ -56,7 +56,8 @@
         {
           "target": "dmg",
           "arch": [
-            "x64"
+            "x64",
+            "arm64"
           ]
         }
       ],
@@ -101,6 +102,7 @@
   },
   "devDependencies": {
     "electron": "^12.2.3",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "node-abi": "^4.33.0"
   }
 }
