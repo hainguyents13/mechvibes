@@ -101,7 +101,7 @@
     "mime-types": "^2.1.35"
   },
   "devDependencies": {
-    "electron": "^12.2.3",
+    "electron": "^41.10.6",
     "electron-builder": "^24.13.3",
     "node-abi": "^4.33.0"
   }
