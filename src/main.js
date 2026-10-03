@@ -8,10 +8,24 @@ const fs = require('fs-extra');
 const log = require("electron-log");
 const Store = require("electron-store");
 const store = new Store();
-const iohook = require('iohook');
+const keyboard_hook = createKeyboardHook();
 
 const StartupHandler = require('./utils/startup_handler');
 const StoreToggle = require('./utils/store_toggle');
+
+// On Linux, prefer reading keyboards directly so typing is heard on Wayland too.
+// iohook hooks X11, so there it only sees XWayland windows.
+function createKeyboardHook(){
+  if(process.platform === 'linux'){
+    const LinuxInput = require('./utils/linux_input');
+    if(LinuxInput.isAvailable()){
+      log.info("Reading keyboards from /dev/input");
+      return new LinuxInput();
+    }
+    log.warn("No readable keyboard in /dev/input (add your user to the 'input' group), falling back to iohook. On Wayland only XWayland windows will be heard.");
+  }
+  return require('iohook');
+}
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const user_dir = app.getPath("userData");
@@ -176,11 +190,12 @@ function createWindow(show = false) {
     name: "app", // used by logger to differentiate messages sent by different windows.
     width: 400,
     height: 600,
-    backgroundThrottling: false,
     webSecurity: false,
     // resizable: false,
     // fullscreenable: false,
     webPreferences: {
+      // keep playing sounds without delay while the window is hidden in the tray
+      backgroundThrottling: false,
       preload: path.join(__dirname, 'app.js'),
       contextIsolation: false,
       nodeIntegration: true,
@@ -412,7 +427,7 @@ if (!gotTheLock) {
     }
 
     if(!mute.is_enabled){
-      iohook.start();
+      keyboard_hook.start();
     }
 
     let volume = -1; // set to an out-of-bound value to force an update on first run
@@ -454,11 +469,11 @@ if (!gotTheLock) {
     // NOTE: we could go lower than 3 seconds, but the problem is, the system volume check is slow,
     // so it's not a good idea to spam the system with requests.
 
-    iohook.on('keydown', (event) => {
+    keyboard_hook.on('keydown', (event) => {
       win.webContents.send("keydown", event);
     });
 
-    iohook.on('keyup', (event) => {
+    keyboard_hook.on('keyup', (event) => {
       win.webContents.send("keyup", event);
     });
 
@@ -523,9 +538,9 @@ if (!gotTheLock) {
           click: function () {
             mute.toggle();
             if(!mute.is_enabled){
-              iohook.start();
+              keyboard_hook.start();
             }else{
-              iohook.stop();
+              keyboard_hook.stop();
             }
             win.webContents.send("mechvibes-mute-status", mute.is_enabled);
           },
@@ -728,6 +743,10 @@ function OnBeforeQuit(){
   app.removeAsDefaultProtocolClient("mechvibes");
 }
 app.on("before-quit", OnBeforeQuit);
+
+app.on("will-quit", () => {
+  keyboard_hook.stop();
+});
 
 // always be sure that your application handles the 'quit' event in your main process
 app.on('quit', () => {

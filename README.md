@@ -64,6 +64,15 @@ _This repository will remain available during the transition period._
 - Run it.
 - Enjoy!
 
+### Linux and Wayland
+Wayland doesn't let apps listen to keys typed into other windows, so on Linux Mechvibes reads the keyboard
+devices directly. That needs your user to be in the `input` group (log out and back in afterwards):
+```
+sudo usermod -aG input $USER
+```
+Note that any program you run can then read your keystrokes. Without it Mechvibes falls back to X11,
+which on Wayland only hears apps running through XWayland.
+
 ## Compile from Source
 Prefer to build the app yourself? 
 Follow these steps:

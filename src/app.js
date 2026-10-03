@@ -5,7 +5,9 @@
 // const gkm = require('gkm');
 const Store = require('electron-store');
 const store = new Store();
-const { Howl } = require('howler');
+const { Howl, Howler } = require('howler');
+// Howler suspends audio after 30s of silence, which makes the first key after a pause sound late
+Howler.autoSuspend = false;
 const { shell, remote, ipcRenderer } = require('electron');
 const fs = require('fs');
 const glob = require('glob');
