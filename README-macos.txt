@@ -58,7 +58,12 @@ Add /Applications/MechvibesDX.app to each list and enable the toggle.
   - Accessibility covers key capture while the MechvibesDX window is focused.
   - Input Monitoring covers key capture while the window is minimized or
     another app is focused. Without it, sounds only play while the
-    MechvibesDX window has focus, and nothing tells you why.
+    MechvibesDX window has focus.
+
+Click the MechvibesDX icon in the menu bar to see where you stand. Each
+permission is listed there: "Granted" in green when it is on, or a red
+"Grant ..." line when it is missing. Clicking that line opens System
+Settings at the right page.
 
 You have to remove and re-add both entries after replacing the app with a
 newer build, because macOS keys the permission to the binary's identity. The

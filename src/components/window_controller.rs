@@ -35,6 +35,10 @@ fn show_window(window: &dioxus::desktop::DesktopContext) {
     crate::libs::native_window::activate_app();
 }
 
+/// How often the macOS tray permission lines are re-read.
+#[cfg(target_os = "macos")]
+const PERMISSION_POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(1);
+
 #[component]
 pub fn WindowController() -> Element {
     let window = use_window();
@@ -98,7 +102,34 @@ pub fn WindowController() -> Element {
         let update_config = update_config.clone();
 
         spawn(async move {
+            // macOS: when the tray's permission lines were last checked, and
+            // what they last showed. Only a change touches the tray, so an idle
+            // app does no menu work. The check itself is two cheap queries.
+            #[cfg(target_os = "macos")]
+            let mut last_permission_check = std::time::Instant::now();
+            #[cfg(target_os = "macos")]
+            let mut last_permissions = None;
+
             loop {
+                // macOS: keep the "Accessibility: Granted" / "Input Monitoring:
+                // Granted" lines current, so a grant made in System Settings
+                // shows up within about a second. The menu cannot be refreshed
+                // at the moment it opens: the tray library opens it in the same
+                // call that reports the click, so there is no hook in between.
+                #[cfg(target_os = "macos")]
+                if last_permission_check.elapsed() >= PERMISSION_POLL_INTERVAL {
+                    last_permission_check = std::time::Instant::now();
+                    let status = crate::libs::permissions::current();
+                    if last_permissions != Some(status) {
+                        last_permissions = Some(status);
+                        tray_manager_clone.with_mut(|tray_opt| {
+                            if let Some(tray) = tray_opt {
+                                tray.apply_permissions(status);
+                            }
+                        });
+                    }
+                }
+
                 // Handle window actions from internal sources
                 if let Some(receiver) = window_action_receiver.read().as_ref() {
                     if let Ok(action) = receiver.try_recv() {
@@ -188,6 +219,14 @@ pub fn WindowController() -> Element {
                             } else {
                                 crate::always_print!("🌐 Opened official website in browser");
                             }
+                        }
+                        #[cfg(target_os = "macos")]
+                        TrayMessage::OpenAccessibilitySettings => {
+                            crate::libs::permissions::open_accessibility_settings();
+                        }
+                        #[cfg(target_os = "macos")]
+                        TrayMessage::OpenInputMonitoringSettings => {
+                            crate::libs::permissions::open_input_monitoring_settings();
                         }
                         TrayMessage::Exit => {
                             crate::always_print!("📢 Tray: Exit requested - closing application");

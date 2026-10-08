@@ -27,6 +27,86 @@ pub enum TrayMessage {
     OpenGitHub,
     OpenDiscord,
     OpenWebsite,
+    /// macOS: "Grant Accessibility…" was clicked.
+    #[cfg(target_os = "macos")]
+    OpenAccessibilitySettings,
+    /// macOS: "Grant Input Monitoring…" was clicked.
+    #[cfg(target_os = "macos")]
+    OpenInputMonitoringSettings,
+}
+
+/// The two macOS permission lines in the tray menu.
+///
+/// Each shows "X: Granted" (nothing to do) or a red "Grant X…" (clickable, opens
+/// the matching System Settings pane). Kept past menu construction so the
+/// text can change in place when a permission is granted or revoked.
+#[cfg(target_os = "macos")]
+struct PermissionItems {
+    accessibility: MenuItem,
+    input_monitoring: MenuItem,
+    /// The native menu the tray shows. The menu library does not expose its
+    /// native items, so the colours are applied through this (see
+    /// `permissions::style_menu_item`). It lives as long as the tray does.
+    ns_menu: *mut std::ffi::c_void,
+}
+
+/// Where the two permission lines sit in the tray menu.
+#[cfg(target_os = "macos")]
+const ACCESSIBILITY_POSITION: usize = 4;
+#[cfg(target_os = "macos")]
+const INPUT_MONITORING_POSITION: usize = 5;
+
+#[cfg(target_os = "macos")]
+impl PermissionItems {
+    fn new(
+        status: crate::libs::permissions::PermissionStatus,
+        ns_menu: *mut std::ffi::c_void
+    ) -> Self {
+        use crate::libs::permissions::menu_text;
+        Self {
+            accessibility: MenuItem::with_id(
+                MenuId::new("perm_accessibility"),
+                menu_text("Accessibility", status.accessibility),
+                !status.accessibility,
+                None
+            ),
+            input_monitoring: MenuItem::with_id(
+                MenuId::new("perm_input_monitoring"),
+                menu_text("Input Monitoring", status.input_monitoring),
+                !status.input_monitoring,
+                None
+            ),
+            ns_menu,
+        }
+    }
+
+    /// Styles the two lines: a grey label with a neon green "Granted", or the
+    /// whole line in red when the permission is missing.
+    fn style(&self, status: crate::libs::permissions::PermissionStatus) {
+        use crate::libs::permissions::style_menu_item;
+        style_menu_item(
+            self.ns_menu,
+            ACCESSIBILITY_POSITION,
+            "Accessibility",
+            status.accessibility
+        );
+        style_menu_item(
+            self.ns_menu,
+            INPUT_MONITORING_POSITION,
+            "Input Monitoring",
+            status.input_monitoring
+        );
+    }
+
+    fn apply(&self, status: crate::libs::permissions::PermissionStatus) {
+        use crate::libs::permissions::menu_text;
+        self.accessibility.set_text(menu_text("Accessibility", status.accessibility));
+        self.accessibility.set_enabled(!status.accessibility);
+        self.input_monitoring.set_text(menu_text("Input Monitoring", status.input_monitoring));
+        self.input_monitoring.set_enabled(!status.input_monitoring);
+        // Setting the text above replaces the title, so the colours go on after.
+        self.style(status);
+    }
 }
 
 /// Scales the alpha channel of an RGBA buffer in place to dim the icon.
@@ -167,6 +247,8 @@ pub struct TrayManager {
     /// the state show as a checkmark instead.
     mute_item: CheckMenuItem,
     icons: TrayIcons,
+    #[cfg(target_os = "macos")]
+    permissions: PermissionItems,
 }
 
 impl TrayManager {
@@ -229,6 +311,22 @@ impl TrayManager {
             ]
         )?;
 
+        // macOS: show whether Accessibility and Input Monitoring are granted,
+        // between the mute item and the links. Inserted rather than listed above
+        // so the menu on Windows and Linux is built exactly as before.
+        #[cfg(target_os = "macos")]
+        let permissions = {
+            use tray_icon::menu::ContextMenu;
+            let status = crate::libs::permissions::current();
+            let permissions = PermissionItems::new(status, menu.ns_menu() as *mut std::ffi::c_void);
+            // After "Show" (0), separator (1), mute (2), separator (3).
+            menu.insert(&permissions.accessibility, ACCESSIBILITY_POSITION)?;
+            menu.insert(&permissions.input_monitoring, INPUT_MONITORING_POSITION)?;
+            menu.insert(&PredefinedMenuItem::separator(), INPUT_MONITORING_POSITION + 1)?;
+            permissions.style(status);
+            permissions
+        };
+
         #[cfg(target_os = "macos")]
         install_menu_event_handler();
 
@@ -248,7 +346,23 @@ impl TrayManager {
             tray_icon,
             mute_item,
             icons,
+            #[cfg(target_os = "macos")]
+            permissions,
         })
+    }
+
+    /// macOS: updates the two permission lines to match `status`.
+    ///
+    /// Called by the window controller when the polled state changes, so a grant
+    /// made in System Settings shows up without restarting the app.
+    #[cfg(target_os = "macos")]
+    pub fn apply_permissions(&mut self, status: crate::libs::permissions::PermissionStatus) {
+        self.permissions.apply(status);
+        crate::always_print!(
+            "🔐 Tray permissions: Accessibility {}, Input Monitoring {}",
+            if status.accessibility { "granted" } else { "missing" },
+            if status.input_monitoring { "granted" } else { "missing" }
+        );
     }
 
     /// Syncs the tray checkmark and icon with the persisted sound state.
@@ -336,6 +450,16 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
             "exit" => {
                 crate::always_print!("❌ Tray menu: Exit clicked");
                 return Some(TrayMessage::Exit);
+            }
+            #[cfg(target_os = "macos")]
+            "perm_accessibility" => {
+                crate::always_print!("🔐 Tray menu: Grant Accessibility clicked");
+                return Some(TrayMessage::OpenAccessibilitySettings);
+            }
+            #[cfg(target_os = "macos")]
+            "perm_input_monitoring" => {
+                crate::always_print!("🔐 Tray menu: Grant Input Monitoring clicked");
+                return Some(TrayMessage::OpenInputMonitoringSettings);
             }
             _ => {
                 crate::always_print!("❓ Tray menu: Unknown menu item: {}", event.id.0);
