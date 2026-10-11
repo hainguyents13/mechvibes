@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Numpad and system keys make sound again on Wayland.** The numpad keys, NumLock, ScrollLock, PrintScreen, Pause and the extra key next to the left Shift produced no sound on Wayland while X11 worked: the input-device table had no entry for them and dropped them silently. They are mapped to the same names X11 emits, so the sound packs that already define them keep working.
+
 ## [0.8.3] - 2026-10-07
 
 ### Changed

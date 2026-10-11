@@ -221,7 +221,83 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
         KeyCode::KEY_DOT => "Period",
         KeyCode::KEY_SLASH => "Slash",
         
+        // Numpad and the system/edition keys around it.
+        //
+        // The strings are copied from `map_key_to_code` in `input_listener.rs`
+        // deliberately: the soundpacks and the engine match on these exact
+        // names, so a new spelling here would leave the key silent until every
+        // pack was updated. The X11 path emits `Numpad0`, `NumpadEnter`,
+        // `NumLock`, `PrintScreen` and so on, and this table has to agree with
+        // it.
+        KeyCode::KEY_KP0 => "Numpad0",
+        KeyCode::KEY_KP1 => "Numpad1",
+        KeyCode::KEY_KP2 => "Numpad2",
+        KeyCode::KEY_KP3 => "Numpad3",
+        KeyCode::KEY_KP4 => "Numpad4",
+        KeyCode::KEY_KP5 => "Numpad5",
+        KeyCode::KEY_KP6 => "Numpad6",
+        KeyCode::KEY_KP7 => "Numpad7",
+        KeyCode::KEY_KP8 => "Numpad8",
+        KeyCode::KEY_KP9 => "Numpad9",
+        KeyCode::KEY_KPENTER => "NumpadEnter",
+        KeyCode::KEY_KPPLUS => "NumpadAdd",
+        KeyCode::KEY_KPMINUS => "NumpadSubtract",
+        KeyCode::KEY_KPASTERISK => "NumpadMultiply",
+        KeyCode::KEY_KPSLASH => "NumpadDivide",
+        KeyCode::KEY_KPDOT => "NumpadDecimal",
+        KeyCode::KEY_NUMLOCK => "NumLock",
+        KeyCode::KEY_SCROLLLOCK => "ScrollLock",
+        KeyCode::KEY_SYSRQ => "PrintScreen",
+        KeyCode::KEY_PAUSE => "Pause",
+        KeyCode::KEY_102ND => "IntlBackslash",
+
         _ => "",
     }
 }
 
+#[cfg(all(test, target_os = "linux"))]
+mod tests {
+    use super::map_evdev_keycode;
+    use evdev::KeyCode;
+
+    /// The numpad group reaches the keyboard path as KEY events carrying
+    /// `KEY_KP*` codes, and this table used to drop all of them, which made
+    /// every numpad key silent on Wayland while X11 worked. The names have to
+    /// match what `map_key_to_code` emits, because the soundpacks key off them.
+    #[test]
+    fn numpad_keys_map_to_the_same_codes_x11_emits() {
+        let cases = [
+            (KeyCode::KEY_KP0, "Numpad0"),
+            (KeyCode::KEY_KP5, "Numpad5"),
+            (KeyCode::KEY_KP9, "Numpad9"),
+            (KeyCode::KEY_KPENTER, "NumpadEnter"),
+            (KeyCode::KEY_KPPLUS, "NumpadAdd"),
+            (KeyCode::KEY_KPMINUS, "NumpadSubtract"),
+            (KeyCode::KEY_KPASTERISK, "NumpadMultiply"),
+            (KeyCode::KEY_KPSLASH, "NumpadDivide"),
+            (KeyCode::KEY_KPDOT, "NumpadDecimal"),
+            (KeyCode::KEY_NUMLOCK, "NumLock"),
+            (KeyCode::KEY_SCROLLLOCK, "ScrollLock"),
+            (KeyCode::KEY_SYSRQ, "PrintScreen"),
+            (KeyCode::KEY_PAUSE, "Pause"),
+            (KeyCode::KEY_102ND, "IntlBackslash"),
+        ];
+
+        for (key, expected) in cases {
+            assert_eq!(
+                map_evdev_keycode(key),
+                expected,
+                "{:?} must map to {}",
+                key,
+                expected
+            );
+        }
+    }
+
+    /// The numpad group must not swallow the mouse buttons: these are two
+    /// different groups that happen to share the KEY event type.
+    #[test]
+    fn the_numpad_group_did_not_swallow_the_mouse_buttons() {
+        assert_eq!(map_evdev_keycode(KeyCode::BTN_LEFT), "");
+    }
+}
