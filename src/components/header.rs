@@ -116,11 +116,19 @@ body {
   background-color: oklch(21.15% 0.012 254.09);
 }
 
-/* Linux-specific: Force border-radius and box-shadow rendering with hardware acceleration */
-* {
-  -webkit-transform: translateZ(0);
-  transform: translateZ(0);
-}
+/* Linux-specific: Force border-radius and box-shadow rendering with hardware
+ * acceleration.
+ *
+ * There used to be a blanket `* { transform: translateZ(0) }` here. It is gone
+ * on purpose, and should not come back: a transform creates a stacking context,
+ * so applying it to * put every layout div in its own context and trapped the
+ * soundpack dropdown's z-index inside its ancestors'. Later sections then
+ * painted over the open list, and the fixed click-outside backdrop stopped
+ * covering the window because a transformed ancestor became its containing
+ * block. The !important radius and shadow overrides below are what actually
+ * fixed the Linux rendering; the blanket acceleration only cost. Compositor
+ * hints stay scoped to the components that need them, in the block at the end
+ * of this stylesheet. */
 
 /* Explicitly force rounded corners with vendor prefixes */
 .rounded-box {

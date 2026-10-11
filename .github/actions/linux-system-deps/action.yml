@@ -6,9 +6,10 @@ description: >
 
 # libasound2-dev backs rodio/cpal, libevdev-dev backs the Linux input listener,
 # and the webkit/gtk/appindicator/rsvg set backs the Dioxus desktop webview and
-# tray icon. The AppImage extras from the README list (autoconf, automake,
-# libtool, libfuse2) are omitted on purpose: they are for building appimagetool
-# itself, and the build script downloads a prebuilt one.
+# tray icon. libxi-dev and libxtst-dev back rdev's X11 backend; libssl-dev backs
+# the TLS stack reqwest links against. The AppImage extras from the README list
+# (autoconf, automake, libtool, libfuse2) are omitted on purpose: they are for
+# building appimagetool itself, and the build script downloads a prebuilt one.
 runs:
   using: composite
   steps:
@@ -24,4 +25,7 @@ runs:
           libayatana-appindicator3-dev \
           librsvg2-dev \
           libevdev-dev \
-          libxdo-dev
+          libxdo-dev \
+          libxi-dev \
+          libxtst-dev \
+          libssl-dev
