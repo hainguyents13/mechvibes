@@ -32,59 +32,7 @@ fn show_window(window: &dioxus::desktop::DesktopContext) {
     window.set_focus();
 
     #[cfg(target_os = "macos")]
-    activate_app();
-}
-
-/// macOS: make this app the active one so the restored window comes to the
-/// front instead of appearing behind whatever the user was using.
-///
-/// A tray click does not activate the app, and an app started in the
-/// background (a login item) is not frontmost, so `set_visible(true)` leaves the
-/// window on screen but behind other apps' windows. `set_focus()` alone does not
-/// fix that: it goes through `activateIgnoringOtherApps:`, which macOS 14
-/// deprecated and no longer reliably honors.
-///
-/// No single call was reliable when tried on a background-launched app, so this
-/// sends all three, newest last: `NSRunningApplication activateWithOptions:`
-/// (all windows, ignoring other apps), the legacy
-/// `-[NSApplication activateIgnoringOtherApps:]`, and `-[NSApplication
-/// activate]` where it exists (macOS 14+). The combination brought the window
-/// to the front every time it was tried.
-#[cfg(target_os = "macos")]
-fn activate_app() {
-    use objc2::{ msg_send, sel };
-    use objc2::runtime::{ AnyClass, AnyObject, Bool };
-
-    /// NSApplicationActivateAllWindows | NSApplicationActivateIgnoringOtherApps
-    const ACTIVATE_ALL_WINDOWS_IGNORING_OTHER_APPS: usize = 1 | 2;
-
-    // SAFETY: plain Objective-C messages with no unusual ownership, sent on the
-    // main thread (this runs in the UI event loop). Every receiver is checked
-    // for null before use.
-    unsafe {
-        if let Some(class) = AnyClass::get(c"NSRunningApplication") {
-            let current: *mut AnyObject = msg_send![class, currentApplication];
-            if !current.is_null() {
-                let _: Bool = msg_send![
-                    current,
-                    activateWithOptions: ACTIVATE_ALL_WINDOWS_IGNORING_OTHER_APPS
-                ];
-            }
-        }
-
-        let Some(class) = AnyClass::get(c"NSApplication") else {
-            return;
-        };
-        let app: *mut AnyObject = msg_send![class, sharedApplication];
-        if app.is_null() {
-            return;
-        }
-        let _: () = msg_send![app, activateIgnoringOtherApps: Bool::YES];
-        let has_activate: Bool = msg_send![app, respondsToSelector: sel!(activate)];
-        if has_activate.as_bool() {
-            let _: () = msg_send![app, activate];
-        }
-    }
+    crate::libs::native_window::activate_app();
 }
 
 #[component]
