@@ -6,6 +6,7 @@ use crate::{
         check_soundpack_conflict,
         extract_and_install_soundpack_with_type,
         get_soundpack_id_from_zip,
+        SoundpackConflict,
     },
     utils::soundpack_validator::{ validate_soundpack_structure, validate_zip_file },
 };
@@ -175,6 +176,8 @@ pub fn SoundpackImportModal(
                 // Resolve the exact directory the install would write to and
                 // refuse the import if a pack already lives there. Previously
                 // this compared a raw ID against prefixed ones and never fired.
+                // A built-in pack is a conflict too, even though its folder is
+                // free: the built-in one would hide the imported pack.
                 let soundpacks_dir =
                     crate::state::paths::soundpacks::get_custom_soundpacks_dir();
                 match
@@ -184,7 +187,7 @@ pub fn SoundpackImportModal(
                         &soundpacks_dir
                     )
                 {
-                    Ok(true) => {
+                    Ok(Some(SoundpackConflict::AlreadyInstalled(_))) => {
                         error_step.set(ImportStep::CheckingConflicts);
                         error_message.set(
                             format!("A sound pack with ID '{}' already exists.\nPlease remove the existing sound pack and try again.", soundpack_id)
@@ -192,7 +195,17 @@ pub fn SoundpackImportModal(
                         is_loading.set(false);
                         return; // Stop import process on conflict
                     }
-                    Ok(false) => {}
+                    Ok(Some(SoundpackConflict::ShadowsBuiltin { folder_path })) => {
+                        // Pointing at the existing pack would be a dead end here:
+                        // a built-in pack cannot be removed by the user.
+                        error_step.set(ImportStep::CheckingConflicts);
+                        error_message.set(
+                            format!("'{}' is the ID of a built-in sound pack, so the built-in one would hide the pack you are importing.\nEdit the pack's config.json to use a different ID and try again.", folder_path)
+                        );
+                        is_loading.set(false);
+                        return; // Stop import process on conflict
+                    }
+                    Ok(None) => {}
                     Err(e) => {
                         error_step.set(ImportStep::Validating);
                         error_message.set(format!("Failed to read soundpack ID: {}", e));

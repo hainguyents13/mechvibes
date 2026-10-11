@@ -37,12 +37,22 @@ fn read_config_from_zip(file_path: &str) -> Result<Value, String> {
     Err("No config.json found in ZIP file".to_string())
 }
 
+/// The raw ID stored in `config.json`, and whether it had to be minted here.
+///
+/// One place decides both, because the two callers need the second half for
+/// different reasons: the resolver only wants the value, and the installer has
+/// to write a minted ID back into the config it saves, or a later scan would
+/// mint a different one for the same folder.
+fn resolve_soundpack_id(config: &Value) -> (String, bool) {
+    match config.get("id").and_then(|v| v.as_str()) {
+        Some(id) if !id.trim().is_empty() => (id.to_string(), false),
+        _ => (format!("imported-{}", Uuid::new_v4()), true),
+    }
+}
+
 /// The raw ID stored in `config.json`, generating one when it is absent or blank.
 fn soundpack_id_from_config(config: &Value) -> String {
-    match config.get("id").and_then(|v| v.as_str()) {
-        Some(id) if !id.trim().is_empty() => id.to_string(),
-        _ => format!("imported-{}", Uuid::new_v4()),
-    }
+    resolve_soundpack_id(config).0
 }
 
 /// Extract soundpack ID from ZIP without extracting files
@@ -85,17 +95,71 @@ pub fn resolve_soundpack_install_dir(
     Ok(base.join(soundpack_type).join(&soundpack_id))
 }
 
-/// Check whether installing `file_path` would overwrite an existing pack.
+/// Why an import cannot go ahead.
 ///
-/// Resolves the destination directory the installer would use and reports
-/// whether it already exists, so a repeated ID cannot silently replace it.
-/// This also catches a directory left on disk that is not in the loaded list.
+/// The two collisions need different advice, so a caller has to be able to tell
+/// them apart: an installed pack can be removed by the user, a built-in one
+/// cannot.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoundpackConflict {
+    /// A pack already lives at the directory the import would extract into.
+    AlreadyInstalled(PathBuf),
+    /// The ID belongs to a built-in pack. The import would install fine and the
+    /// built-in one would then shadow it in the list, so it would never play.
+    ShadowsBuiltin { folder_path: String },
+}
+
+/// What to tell the user when the destination is already taken.
+fn already_installed_message(soundpack_id: &str) -> String {
+    format!(
+        "A sound pack with ID '{}' already exists.\nPlease remove the existing sound pack and try again.",
+        soundpack_id
+    )
+}
+
+/// Refuse an install whose destination is already taken.
+///
+/// Extraction writes into the pack's own folder, so an existing one means
+/// replacing the installed pack file by file. The import dialog checks this
+/// first, to show a friendly message before anything is written; the guard
+/// lives here as well so that every caller is covered, not only the dialog.
+fn guard_install_dir_is_free(install_dir: &Path, soundpack_id: &str) -> Result<(), String> {
+    if install_dir.exists() {
+        return Err(already_installed_message(soundpack_id));
+    }
+    Ok(())
+}
+
+/// The collision installing `file_path` would hit, or `None` when it is safe.
+///
+/// Two collisions count. An existing directory at the resolved install path:
+/// extraction writes into the pack's own folder, so it would replace the
+/// installed pack file by file. And an ID that belongs to a built-in pack: the
+/// import lands in the custom folder and succeeds, but the built-in one shadows
+/// it in the list, so the imported pack never plays and the user cannot tell
+/// why. A built-in pack is not on disk under `base`, so an existence check
+/// alone can never see it.
 pub fn check_soundpack_conflict(
     file_path: &str,
     target_type: Option<crate::state::soundpack::SoundpackType>,
     base: &Path
-) -> Result<bool, String> {
-    Ok(resolve_soundpack_install_dir(file_path, target_type, base)?.exists())
+) -> Result<Option<SoundpackConflict>, String> {
+    let install_dir = resolve_soundpack_install_dir(file_path, target_type, base)?;
+    if install_dir.exists() {
+        return Ok(Some(SoundpackConflict::AlreadyInstalled(install_dir)));
+    }
+
+    let config = read_config_from_zip(file_path)?;
+    let folder_path = format!(
+        "{}/{}",
+        resolve_soundpack_type(&config, target_type),
+        soundpack_id_from_config(&config)
+    );
+    if crate::state::paths::soundpacks::is_builtin_soundpack(&folder_path) {
+        return Ok(Some(SoundpackConflict::ShadowsBuiltin { folder_path }));
+    }
+
+    Ok(None)
 }
 
 /// Extract and install soundpack from ZIP file with specified target type
@@ -118,7 +182,6 @@ pub fn extract_and_install_soundpack_with_type(
 
     // Find config.json to determine soundpack info
     let mut config_content = String::new();
-    let mut soundpack_id = String::new();
     let mut found_config = false;
 
     // First pass: find and read config.json
@@ -153,17 +216,14 @@ pub fn extract_and_install_soundpack_with_type(
         .unwrap_or("Unknown Soundpack")
         .to_string();
 
-    // Extract ID from config content only
-    if let Some(id) = config.get("id").and_then(|v| v.as_str()) {
-        if !id.trim().is_empty() {
-            soundpack_id = id.to_string();
-        }
-    }
+    // Resolve the ID the same way the import dialog does, from the parsed
+    // config, so the two cannot drift apart.
+    let (soundpack_id, id_was_generated) = resolve_soundpack_id(&config);
 
-    // If no ID in config, generate a UUID-based ID
-    if soundpack_id.is_empty() {
-        soundpack_id = format!("imported-{}", Uuid::new_v4());
-        // Add the generated ID to the config
+    // A minted ID is this pack's identity from now on, so it has to be written
+    // into the config that gets saved: a later scan of the folder would
+    // otherwise mint a different one for it.
+    if id_was_generated {
         config["id"] = Value::String(soundpack_id.clone());
     }
 
@@ -174,6 +234,11 @@ pub fn extract_and_install_soundpack_with_type(
     // Custom soundpacks go to system app data directory
     let soundpacks_dir = crate::state::paths::soundpacks::get_custom_soundpacks_dir();
     let install_dir = soundpacks_dir.join(soundpack_type).join(&soundpack_id);
+
+    // Refuse before touching the filesystem: the dialog checks first for its own
+    // message, but a second caller would otherwise bring the silent overwrite
+    // of an installed pack back.
+    guard_install_dir_is_free(&install_dir, &soundpack_id)?;
 
     // Create installation directory
     path
@@ -344,16 +409,63 @@ mod tests {
     }
 
     #[test]
-    fn conflict_is_reported_only_when_destination_exists() {
+    fn a_free_destination_is_not_a_conflict() {
+        let base = scratch_dir();
+        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
+
+        assert_eq!(check_soundpack_conflict(&pack_zip, None, &base).expect("free check"), None);
+    }
+
+    #[test]
+    fn an_existing_destination_is_a_conflict() {
         let base = scratch_dir();
         let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
         let install_dir = resolve_soundpack_install_dir(&pack_zip, None, &base).expect(
             "resolve"
         );
 
-        assert!(!check_soundpack_conflict(&pack_zip, None, &base).expect("free check"));
+        std::fs::create_dir_all(&install_dir).expect("existing pack dir");
+
+        assert_eq!(
+            check_soundpack_conflict(&pack_zip, None, &base).expect("taken check"),
+            Some(SoundpackConflict::AlreadyInstalled(install_dir))
+        );
+    }
+
+    #[test]
+    fn a_builtin_id_is_a_conflict_even_though_the_custom_folder_is_free() {
+        let base = scratch_dir();
+        // `mouse/ping` ships with the app, so nothing exists under the custom
+        // folder and an existence check alone would let the import through. The
+        // built-in pack would then shadow the imported one in the list.
+        let pack_zip = zip_with_config(
+            &base,
+            "pack.zip",
+            r#"{"id":"ping","type":"mouse","defs":{"MouseLeft":{"type":"single","file":"a.ogg"}}}"#
+        );
+
+        assert_eq!(
+            check_soundpack_conflict(&pack_zip, None, &base).expect("builtin check"),
+            Some(SoundpackConflict::ShadowsBuiltin { folder_path: "mouse/ping".to_string() })
+        );
+    }
+
+    #[test]
+    fn the_installer_refuses_a_destination_that_is_already_taken() {
+        let base = scratch_dir();
+        let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
+
+        assert!(
+            guard_install_dir_is_free(&install_dir, "custom-sound-pack-77777732").is_ok(),
+            "a free destination must be allowed through"
+        );
 
         std::fs::create_dir_all(&install_dir).expect("existing pack dir");
-        assert!(check_soundpack_conflict(&pack_zip, None, &base).expect("taken check"));
+        let error = guard_install_dir_is_free(&install_dir, "custom-sound-pack-77777732")
+            .expect_err("an existing destination must be refused");
+        assert!(
+            error.contains("custom-sound-pack-77777732"),
+            "the error must name the ID so the user can find the pack, got: {error}"
+        );
     }
 }
