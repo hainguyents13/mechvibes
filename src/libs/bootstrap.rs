@@ -282,10 +282,12 @@ mod tests {
         );
     }
 
-    /// Neither Windows nor macOS can be compiled by this suite, and macOS has no
-    /// job in ci.yml at all - it is only built when a release is tagged. So this
-    /// file is the only place a drift in those two branches gets caught before a
-    /// user finds it.
+    /// Neither Windows nor macOS can be compiled by this suite: both branches
+    /// sit behind `cfg(target_os)`, so on Linux they are never built. CI does
+    /// cover both platforms - every leg of the packaging matrix runs
+    /// `scripts/ci-check.sh` - but a leg only proves that the platform builds
+    /// and that its own tests pass. It says nothing about what this branch hands
+    /// to the listener, so this guard is what pins that.
     ///
     /// Both must hand the unified listener `None` for the pointer gate. Neither
     /// platform has /dev/input, so rdev is the mouse source there and there is no
