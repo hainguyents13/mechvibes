@@ -12,6 +12,7 @@ const glob = require('glob');
 const path = require('path');
 const { platform } = process;
 const { GetFileFromArchive } = require('./libs/soundpacks/file-manager');
+const { buildMuteAccelerator } = require('./utils/mute_shortcut');
 
 const MV_PACK_LSID = remote.getGlobal("current_pack_store_id");
 const MV_VOL_LSID = 'mechvibes-volume';
@@ -320,6 +321,9 @@ function packsToOptions(packs, pack_list) {
     const volume = document.getElementById('volume');
     const tray_icon_toggle = document.getElementById("tray_icon_toggle");
     const tray_icon_toggle_group = document.getElementById("tray_icon_toggle_group");
+    const mute_shortcut_input = document.getElementById("mute-shortcut");
+    const mute_shortcut_status = document.getElementById("mute-shortcut-status");
+    const clear_mute_shortcut = document.getElementById("clear-mute-shortcut");
 
     // init
     app_logo.innerHTML = 'Loading...';
@@ -463,6 +467,60 @@ function packsToOptions(packs, pack_list) {
       }else{
         mechvibes_muted.classList.add("hidden");
       }
+    });
+
+    ipcRenderer.on("mute-shortcut-update", (_event, state) => {
+      mute_shortcut_input.value = state.shortcut;
+      if (!state.shortcut) {
+        mute_shortcut_status.textContent = 'Click and press a key combination.';
+      } else if (state.active) {
+        mute_shortcut_status.textContent = `Saved shortcut: ${state.shortcut}`;
+      } else {
+        mute_shortcut_status.textContent = `Could not register ${state.shortcut}. Choose another shortcut.`;
+      }
+    });
+
+    ipcRenderer.on("mute-shortcut-result", (_event, result) => {
+      mute_shortcut_input.value = result.shortcut;
+      if (result.success) {
+        mute_shortcut_status.textContent = result.shortcut
+          ? `Shortcut saved: ${result.shortcut}`
+          : 'Mute shortcut cleared.';
+      } else if (result.reason === 'unavailable') {
+        mute_shortcut_status.textContent = 'Could not register that shortcut; it may be in use or unsupported.';
+      } else if (result.reason === 'modifier-required') {
+        mute_shortcut_status.textContent = 'Use at least one modifier key (Ctrl, Alt, Shift, or Command).';
+      } else {
+        mute_shortcut_status.textContent = 'That shortcut is invalid. Choose another key combination.';
+      }
+    });
+
+    mute_shortcut_input.addEventListener('focus', () => {
+      mute_shortcut_status.textContent = 'Press a key combination with a modifier to record it.';
+    });
+
+    mute_shortcut_input.addEventListener('keydown', (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (event.key === 'Escape') {
+        mute_shortcut_input.blur();
+        return;
+      }
+
+      const result = buildMuteAccelerator(event.key, event, platform);
+      if (!result.success) {
+        mute_shortcut_status.textContent = result.reason === 'modifier-required'
+          ? 'Use at least one modifier key (Ctrl, Alt, Shift, or Command).'
+          : 'That key is not supported. Choose a letter, number, function, or navigation key.';
+        return;
+      }
+
+      mute_shortcut_input.value = result.accelerator;
+      ipcRenderer.send('set-mute-shortcut', result.accelerator);
+    });
+
+    clear_mute_shortcut.addEventListener('click', () => {
+      ipcRenderer.send('set-mute-shortcut', '');
     });
 
     ipcRenderer.on("ava-toggle", (_event, enabled) => {
