@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
-- **The sound pack list is usable again.** Opening the keyboard or mouse pack selector drew the list underneath the sections below it, so the Mouse section and the volume row sat on top of most of the options and picking a pack was guesswork. The list now floats above everything else, and clicking outside it closes it the way it should.
+- **Linux: the sound pack list is usable again.** Opening the keyboard or mouse pack selector drew the list underneath the sections below it, so the Mouse section and the volume row sat on top of most of the options and picking a pack was guesswork. The list now floats above everything else, and clicking outside it closes it the way it should.
 - **Numpad and system keys make sound again on Wayland.** The numpad keys, NumLock, ScrollLock, PrintScreen, Pause and the extra key next to the left Shift produced no sound on Wayland while X11 worked: the input-device table had no entry for them and dropped them silently. They are mapped to the same names X11 emits, so the sound packs that already define them keep working.
 
 ## [0.8.3] - 2026-10-07
