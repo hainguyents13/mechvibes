@@ -1,5 +1,5 @@
 // Modules to control application life and create native browser window
-const { app, BrowserWindow, Tray, Menu, shell, ipcMain } = require('electron');
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain, globalShortcut } = require('electron');
 const { getVolume, getMute } = require('easy-volume');
 const path = require('path');
 const os = require("os");
@@ -12,11 +12,13 @@ const iohook = require('iohook');
 
 const StartupHandler = require('./utils/startup_handler');
 const StoreToggle = require('./utils/store_toggle');
+const { registerMuteShortcut } = require('./utils/mute_shortcut');
 
 const SYSTRAY_ICON = path.join(__dirname, '/assets/system-tray-icon.png');
 const user_dir = app.getPath("userData");
 const custom_dir = path.join(user_dir, '/custom');
 const current_pack_store_id = 'mechvibes-pack';
+const mute_shortcut_store_id = 'mechvibes-mute-shortcut';
 
 const mute = new StoreToggle("mechvibes-muted", false);
 const start_minimized = new StoreToggle("mechvibes-start-minimized", false);
@@ -163,12 +165,62 @@ log.hooks.push((msg, {transportName}) => {
 // be closed automatically when the JavaScript object is garbage collected.
 var win = null;
 var tray = null;
+var mute_menu_item = null;
+var registered_mute_shortcut = null;
 global.app_version = app.getVersion();
 global.custom_dir = custom_dir;
 global.current_pack_store_id = current_pack_store_id;
 global.debug_config_path = debugConfigFile;
 // create custom sound folder if not exists
 fs.ensureDirSync(custom_dir);
+
+function toggleMute() {
+  mute.toggle();
+  if (mute.is_enabled) {
+    iohook.stop();
+  } else {
+    iohook.start();
+  }
+  if (mute_menu_item !== null) {
+    mute_menu_item.checked = mute.is_enabled;
+  }
+  if (win !== null && !win.isDestroyed()) {
+    win.webContents.send("mechvibes-mute-status", mute.is_enabled);
+  }
+}
+
+function setMuteShortcut(shortcut) {
+  if (typeof shortcut !== 'string') {
+    const savedShortcut = store.get(mute_shortcut_store_id, '');
+    return {
+      success: false,
+      shortcut: savedShortcut,
+      active: !savedShortcut || registered_mute_shortcut === savedShortcut,
+      reason: 'invalid',
+    };
+  }
+
+  const accelerator = shortcut.trim();
+  const result = registerMuteShortcut(globalShortcut, accelerator, registered_mute_shortcut, toggleMute);
+  if (!result.success) {
+    if (result.error) {
+      log.warn(`Invalid mute shortcut: ${result.error.message}`);
+    } else {
+      log.warn(`Could not register mute shortcut: ${accelerator}`);
+    }
+    const savedShortcut = store.get(mute_shortcut_store_id, '');
+    return {
+      success: false,
+      shortcut: savedShortcut,
+      active: !savedShortcut || registered_mute_shortcut === savedShortcut,
+      reason: result.reason,
+    };
+  }
+
+  registered_mute_shortcut = accelerator || null;
+  store.set(mute_shortcut_store_id, accelerator);
+  return { success: true, shortcut: accelerator, active: true };
+}
 
 function createWindow(show = false) {
   // Create the browser window.
@@ -205,6 +257,11 @@ function createWindow(show = false) {
     }
     win.webContents.send("ava-toggle", active_volume.is_enabled);
     win.webContents.send("mechvibes-mute-status", mute.is_enabled);
+    const savedShortcut = store.get(mute_shortcut_store_id, '');
+    win.webContents.send("mute-shortcut-update", {
+      shortcut: savedShortcut,
+      active: !savedShortcut || registered_mute_shortcut === savedShortcut,
+    });
   })
 
   // Emitted when the window is closed.
@@ -414,6 +471,10 @@ if (!gotTheLock) {
     if(!mute.is_enabled){
       iohook.start();
     }
+    const saved_mute_shortcut = store.get(mute_shortcut_store_id, '');
+    if (saved_mute_shortcut) {
+      setMuteShortcut(saved_mute_shortcut);
+    }
 
     let volume = -1; // set to an out-of-bound value to force an update on first run
     let system_mute = false;
@@ -518,17 +579,10 @@ if (!gotTheLock) {
         },
         {
           label: 'Mute',
+          id: 'mute-toggle',
           type: 'checkbox',
           checked: mute.is_enabled,
-          click: function () {
-            mute.toggle();
-            if(!mute.is_enabled){
-              iohook.start();
-            }else{
-              iohook.stop();
-            }
-            win.webContents.send("mechvibes-mute-status", mute.is_enabled);
-          },
+          click: toggleMute,
         },
         {
           label: 'Extras',
@@ -572,6 +626,7 @@ if (!gotTheLock) {
           },
         },
       ]);
+      mute_menu_item = contextMenu.getMenuItemById('mute-toggle');
 
       // On macOS double click doesn't work if we use tray.setContextMenu(), so we'll do it manually.
       if(process.platform == "darwin"){
@@ -605,6 +660,10 @@ if (!gotTheLock) {
       }else if(!show && tray === null){
         createTrayIcon();
       }
+    })
+
+    ipcMain.on("set-mute-shortcut", (event, shortcut) => {
+      event.sender.send("mute-shortcut-result", setMuteShortcut(shortcut));
     })
 
     ipcMain.on("electron-log", (event, message, level) => {
@@ -725,6 +784,10 @@ app.on('activate', function () {
 // ensure app gets unregistered
 function OnBeforeQuit(){
   log.silly("Shutting down...");
+  if (registered_mute_shortcut !== null) {
+    globalShortcut.unregister(registered_mute_shortcut);
+    registered_mute_shortcut = null;
+  }
   app.removeAsDefaultProtocolClient("mechvibes");
 }
 app.on("before-quit", OnBeforeQuit);

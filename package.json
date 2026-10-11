@@ -7,6 +7,7 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
+    "test": "node tests/mute-shortcut.test.js",
     "build:all": "electron-builder -wml",
     "build:win": "electron-builder -w",
     "build:mac": "node scripts/build-iohook.js && electron-builder -m",
