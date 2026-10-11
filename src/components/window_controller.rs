@@ -1,4 +1,6 @@
-use crate::libs::tray::{ handle_tray_events, store_tray, with_tray, TrayManager, TrayMessage };
+use crate::libs::tray::{
+    handle_tray_events, store_tray, take_tray, with_tray, TrayManager, TrayMessage,
+};
 use crate::libs::tray_service::TRAY_UPDATE_SERVICE;
 use crate::libs::window_manager::{ WindowAction, WINDOW_MANAGER };
 use crate::libs::AudioContext;
@@ -16,9 +18,10 @@ use std::sync::Arc;
 /// macOS it is not for a window the user minimized to the Dock: tao's
 /// `set_visible(true)` only orders the window front, which leaves a
 /// miniaturized window where it is, and `set_focus()` returns early for a
-/// minimized window, so nothing appears and the app is never activated. The
-/// macOS branch therefore restores it from the Dock first and activates the
-/// app explicitly. Windows and Linux behavior is unchanged.
+/// minimized window, so nothing appears and the app is never activated. macOS
+/// therefore restores it from the Dock before showing it, the order #97 was
+/// written against, and activates the app explicitly afterwards. Windows and
+/// Linux keep the other order: they un-minimize after showing.
 ///
 /// The `set_focus()` below is not what raises the window on Linux or Windows:
 /// it runs while `set_visible(true)` is still only queued for tao's event loop,
@@ -34,8 +37,17 @@ fn show_window(window: &dioxus::desktop::DesktopContext) {
         window.is_visible()
     );
 
-    window.set_visible(true);
+    // Restore from the Dock before showing. tao's `set_visible(true)` only
+    // orders a miniaturized window front without un-minimizing it, so on macOS
+    // the restore has to come first.
+    #[cfg(target_os = "macos")]
     window.set_minimized(false);
+
+    window.set_visible(true);
+
+    #[cfg(not(target_os = "macos"))]
+    window.set_minimized(false);
+
     window.set_focus();
 
     #[cfg(target_os = "macos")]
@@ -128,6 +140,10 @@ pub fn WindowController() -> Element {
                     WindowAction::Hide => {
                         window_clone.set_visible(false);
                         WINDOW_MANAGER.set_visible(false);
+                        // A show that has not been applied yet must not survive
+                        // the hide: the focus block below runs on a later tick
+                        // and would raise the window again after it was hidden.
+                        pending_show_focus = false;
                         crate::always_print!("🔽 Window hidden from internal action");
                     }
                 }
@@ -207,6 +223,12 @@ pub fn WindowController() -> Element {
                     }
                     TrayMessage::Exit => {
                         crate::always_print!("📢 Tray: Exit requested - closing application");
+                        // The tray lives in a thread-local and exit goes through
+                        // `std::process::exit`, which runs no destructors, so
+                        // the icon would be left to the OS. Dropping it here
+                        // removes it from the notification area first, which is
+                        // what Windows needs to not keep a ghost icon.
+                        drop(take_tray());
                         // Close the window which will trigger app exit
                         window_clone.close();
                     }
@@ -244,8 +266,10 @@ pub fn WindowController() -> Element {
             );
         }
 
-        // Windows and macOS never unmap the window out from under the runtime,
-        // so the async timer they always had keeps driving the loop.
+        // Windows and macOS keep the async timer they always had. Windows never
+        // unmaps the window, so the runtime keeps polling. macOS does unmap it
+        // (see #113), but its tray menu items are handled by AppKit on the main
+        // thread now, so a click no longer depends on this loop being polled.
         #[cfg(not(target_os = "linux"))]
         {
             spawn(async move {

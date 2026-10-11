@@ -37,9 +37,10 @@ pub fn with_tray<R>(f: impl FnOnce(&mut TrayManager) -> R) -> Option<R> {
 
 /// Takes the tray out of its store, for teardown.
 ///
-/// No caller yet: the process owns the tray for its whole life and drops it on
-/// exit. Kept so a teardown path has somewhere to hand it back to.
-#[allow(dead_code)]
+/// The process owns the tray for its whole life, but exit goes through
+/// `std::process::exit`, which runs no destructors: without this the tray would
+/// be left to the OS and the icon could stay behind in the notification area.
+/// The Exit path calls it before closing the window.
 pub fn take_tray() -> Option<TrayManager> {
     TRAY.with(|slot| slot.borrow_mut().take())
 }
