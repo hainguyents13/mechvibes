@@ -204,19 +204,28 @@ NumpadDecimal, NumpadEnter
 
 ### Mouse Keys
 
-The app captures these mouse events on every platform and the engine understands
-these exact code strings:
+The engine understands these exact code strings, but which of them the app can
+actually capture depends on the platform:
 
-| Code | Emitted when |
-|------|--------------|
-| `MouseLeft` | Left button press/release |
-| `MouseRight` | Right button press/release |
-| `MouseMiddle` | Middle (wheel) button press/release |
-| `MouseWheelUp` | Wheel scrolled up |
-| `MouseWheelDown` | Wheel scrolled down |
-| `Mouse4` | First extra button (usually Back) |
-| `Mouse5` | Second extra button (usually Forward) |
-| `Mouse6`, `Mouse7`, `Mouse8` | Further extra buttons, on mice that have them |
+| Code | Emitted when | Captured on |
+|------|--------------|-------------|
+| `MouseLeft` | Left button press/release | Everywhere |
+| `MouseRight` | Right button press/release | Everywhere |
+| `MouseMiddle` | Middle (wheel) button press/release | Windows, Linux |
+| `MouseWheelUp` | Wheel scrolled up | Linux under Wayland |
+| `MouseWheelDown` | Wheel scrolled down | Linux under Wayland |
+| `Mouse4` | First extra button (usually Back) | Windows, Linux |
+| `Mouse5` | Second extra button (usually Forward) | Windows, Linux |
+| `Mouse6`, `Mouse7`, `Mouse8` | Further extra buttons, on mice that have them | Windows, Linux |
+
+Two limits are worth knowing before you build a pack around these codes:
+
+- **macOS reports the left and right buttons only.** The other codes never reach
+  the engine there, whatever the pack defines.
+- **The wheel is Linux under Wayland only.** On X11 the listener does not report
+  wheel events yet, Windows Raw Input does not emit them, and macOS has none.
+  Touchpad scrolling is not covered either: two-finger scrolling is synthesized
+  by the compositor and produces no `REL_WHEEL` delta, so it makes no sound.
 
 **A mouse code a pack does not define produces no sound.** The app deliberately
 does not substitute another sound: a wheel that sounds like the left click is

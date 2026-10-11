@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 #[cfg(target_os = "linux")]
 use crossbeam_channel::Sender;
 
-/// Wheel scrolls arrive with no release event and can repeat far faster than a
-/// human clicks, so they are rate-limited to one sound per this window. 120 ms
-/// is the value the rdev listener and the engine use too.
-const WHEEL_DEBOUNCE_MS: u64 = 120;
+// One definition for every source: the engine owns the window and throttles
+// with it again on the way in.
+#[cfg(target_os = "linux")]
+use crate::libs::audio::engine::WHEEL_DEBOUNCE_MS;
 
 #[cfg(target_os = "linux")]
 pub fn start_evdev_keyboard_listener(
