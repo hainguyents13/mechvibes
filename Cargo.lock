@@ -3567,6 +3567,7 @@ version = "0.8.3"
 dependencies = [
  "base64",
  "bincode",
+ "block2",
  "chrono",
  "cpal",
  "crossbeam-channel",

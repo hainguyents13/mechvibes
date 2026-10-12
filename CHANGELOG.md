@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **macOS: the menu bar icon now shows whether MechvibesDX has the permissions it needs.** Click the icon and the menu lists **Accessibility** and **Input Monitoring**. A permission you have granted reads "Accessibility: Granted", with the word "Granted" in green and the rest in grey. The colours differ between light and dark menus, so each stays readable in both. One that is missing reads "Grant Accessibility…" or "Grant Input Monitoring…" in red, and clicking it opens System Settings at that permission's page. The status updates within about a second of changing it in System Settings, and that works even when the window has been hidden for a long time. Granting Accessibility now takes effect straight away, with no restart: until now, an app started without it stayed silent while its window was focused until it was relaunched. Granting Input Monitoring still needs MechvibesDX to be quit and relaunched, because macOS only lets an app capture keys globally if it had that permission when it started; until you relaunch, the menu can read "Granted" while sounds still stop when another app is in front. Windows and Linux menus are unchanged. Previously a missing permission only showed up as silence, for example no sound while another app is in front.
+
 ### Fixed
 
 - **Linux: the sound pack list is usable again.** Opening the keyboard or mouse pack selector drew the list underneath the sections below it, so the Mouse section and the volume row sat on top of most of the options and picking a pack was guesswork. The list now floats above everything else, and clicking outside it closes it the way it should.
