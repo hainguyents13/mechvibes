@@ -94,6 +94,71 @@ impl TrayIcons {
     }
 }
 
+/// macOS: where menu events wait for the tray loop (see `install_menu_event_handler`).
+#[cfg(target_os = "macos")]
+static MENU_EVENTS: std::sync::OnceLock<crossbeam_channel::Receiver<MenuEvent>> = std::sync::OnceLock::new();
+
+/// Routes one menu event: "Show" is acted on at once, and every event, "Show"
+/// included, is then queued for the tray loop exactly as before.
+///
+/// Split out from the handler so the routing can be tested without AppKit.
+#[cfg(target_os = "macos")]
+fn route_menu_event<E>(event: E, id: &str, show_now: impl FnOnce(), queue: impl FnOnce(E)) {
+    if id == "show" {
+        show_now();
+    }
+    queue(event);
+}
+
+/// macOS: takes over the tray menu's events so "Show" can be handled on the main
+/// thread without the tray loop.
+///
+/// The loop that normally handles menu events runs inside the Dioxus virtual DOM,
+/// which stops being polled when a hidden web view stops acknowledging UI updates
+/// (see `native_window`). Then nothing would ever read the "Show" click, and the
+/// only thing that could show the window is that same loop. The menu library
+/// calls this handler on the main thread, from AppKit's menu action, so the
+/// window is shown here directly. With a handler set the library no longer fills
+/// its own channel, so the events are queued on one of ours that
+/// `handle_tray_events` reads instead.
+#[cfg(target_os = "macos")]
+fn install_menu_event_handler() {
+    let (sender, receiver) = crossbeam_channel::unbounded::<MenuEvent>();
+    if MENU_EVENTS.set(receiver).is_err() {
+        return; // already installed
+    }
+    MenuEvent::set_event_handler(
+        Some(move |event: MenuEvent| {
+            let id = event.id.0.clone();
+            route_menu_event(
+                event,
+                &id,
+                || {
+                    if crate::libs::native_window::show_main_window() {
+                        crate::libs::window_manager::WINDOW_MANAGER.set_visible(true);
+                        crate::always_print!("🔼 Tray menu: window shown natively");
+                    }
+                },
+                |event| {
+                    let _ = sender.send(event);
+                }
+            );
+        })
+    );
+}
+
+/// The next menu event, if any, from wherever this platform delivers them.
+fn next_menu_event() -> Option<MenuEvent> {
+    #[cfg(target_os = "macos")]
+    {
+        MENU_EVENTS.get().and_then(|receiver| receiver.try_recv().ok())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        MenuEvent::receiver().try_recv().ok()
+    }
+}
+
 pub struct TrayManager {
     tray_icon: TrayIcon,
     /// Kept alive past menu construction so the checkmark can be toggled in
@@ -163,6 +228,9 @@ impl TrayManager {
                 &exit_item,
             ]
         )?;
+
+        #[cfg(target_os = "macos")]
+        install_menu_event_handler();
 
         // Decode both icon variants once; muting only swaps between them.
         let icons = TrayIcons::load()?;
@@ -242,7 +310,7 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
     }
 
     // Handle menu events
-    if let Ok(event) = MenuEvent::receiver().try_recv() {
+    if let Some(event) = next_menu_event() {
         crate::always_print!("🖱️ Tray menu event received: {:?}", event);
         match event.id.0.as_str() {
             "show" => {
@@ -281,6 +349,30 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn show_is_acted_on_at_once_and_still_queued_for_the_tray_loop() {
+        let shown = std::cell::Cell::new(false);
+        let queued = std::cell::RefCell::new(Vec::new());
+        route_menu_event("the event", "show", || shown.set(true), |e| queued.borrow_mut().push(e));
+
+        assert!(shown.get(), "Show must not wait for the tray loop");
+        assert_eq!(*queued.borrow(), vec!["the event"], "and the loop still sees it");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn other_menu_items_are_only_queued() {
+        for id in ["toggle_mute", "github", "discord", "website", "exit", "perm_accessibility"] {
+            let shown = std::cell::Cell::new(false);
+            let queued = std::cell::RefCell::new(Vec::new());
+            route_menu_event(id, id, || shown.set(true), |e| queued.borrow_mut().push(e));
+
+            assert!(!shown.get(), "{id} must not show the window");
+            assert_eq!(*queued.borrow(), vec![id], "{id} must reach the tray loop unchanged");
+        }
+    }
 
     #[test]
     fn fading_dims_alpha_and_leaves_color_channels_intact() {

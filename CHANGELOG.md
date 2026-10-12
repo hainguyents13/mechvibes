@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Linux: the sound pack list is usable again.** Opening the keyboard or mouse pack selector drew the list underneath the sections below it, so the Mouse section and the volume row sat on top of most of the options and picking a pack was guesswork. The list now floats above everything else, and clicking outside it closes it the way it should.
+- **macOS: "Show MechvibesDX" in the menu bar now shows the window even when the app has frozen in the background.** After the window had been hidden for a long time, for example when the app starts hidden at login and runs all day, choosing it could do nothing at all: the window never appeared and the app had to be quit and restarted. The part of the app that handled that menu item could freeze while the window was hidden, and it was also the only thing that could bring the window back. The window is now shown directly by macOS when you pick the item, and showing it lets the frozen part start running again. Windows and Linux are unchanged.
+- **Numpad and system keys make sound again on Wayland.** The numpad keys, NumLock, ScrollLock, PrintScreen, Pause and the extra key next to the left Shift produced no sound on Wayland while X11 worked: the input-device table had no entry for them and dropped them silently. They are mapped to the same names X11 emits, so the sound packs that already define them keep working.
+
 ## [0.8.3] - 2026-10-07
 
 ### Changed
