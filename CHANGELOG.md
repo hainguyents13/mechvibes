@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **macOS: the menu bar icon now shows whether MechvibesDX has the permissions it needs.** Click the icon and the menu lists **Accessibility** and **Input Monitoring**. A permission you have granted reads "Accessibility: Granted", with the word "Granted" in bright green. One that is missing reads "Grant Accessibility…" or "Grant Input Monitoring…" in red, and clicking it opens System Settings at that permission's page. The status updates within about a second of changing it in System Settings, with no restart. Windows and Linux menus are unchanged. Previously a missing permission only showed up as silence, for example no sound while another app is in front.
+- **macOS: the menu bar icon now shows whether MechvibesDX has the permissions it needs.** Click the icon and the menu lists **Accessibility** and **Input Monitoring**. A permission you have granted reads "Accessibility: Granted", with the word "Granted" in green and the rest in grey. The colours differ between light and dark menus, so each stays readable in both. One that is missing reads "Grant Accessibility…" or "Grant Input Monitoring…" in red, and clicking it opens System Settings at that permission's page. The status updates within about a second of changing it in System Settings, and that works even when the window has been hidden for a long time. Key capture also starts as soon as a missing permission is granted, with no restart: until now, an app started without Accessibility or Input Monitoring stayed silent until it was relaunched. Windows and Linux menus are unchanged. Previously a missing permission only showed up as silence, for example no sound while another app is in front.
 
 ### Fixed
 
