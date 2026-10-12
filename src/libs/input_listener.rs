@@ -182,13 +182,6 @@ pub fn start_unified_input_listener(
         let mut ctrl_pressed = false;
         let mut alt_pressed = false;
 
-        // macOS: creating the event tap fails without Input Monitoring, and the
-        // thread would then end for good. Wait for the permission first, so
-        // granting it in System Settings starts global key capture without a
-        // restart. (Already granted: this returns at once.)
-        #[cfg(target_os = "macos")]
-        crate::libs::permissions::wait_for_input_monitoring();
-
         crate::always_print!("🎮 Starting rdev::listen() - listening to keyboard/mouse events");
         let result = listen(move |event: Event| {
             match event.event_type {

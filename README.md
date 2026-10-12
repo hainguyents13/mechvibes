@@ -101,7 +101,7 @@ Old V1 soundpacks (e.g., from the original Mechvibes) are auto-detected on impor
 - **Permissions**: global key capture needs **both** of these in System Settings > Privacy & Security, enabled for `MechvibesDX` (or for your terminal, if you launch the binary from there):
   - **Accessibility**: used while the MechvibesDX window is focused.
   - **Input Monitoring**: used while the window is minimized or another app is focused. Without it the app runs normally but is silent unless its window has focus.
-  - **Check them from the menu bar icon.** Click the MechvibesDX icon: each permission shows "Granted" in green, or a red "Grant …" line that opens System Settings at the right page when clicked. It updates within about a second of a change, and granting a missing permission starts key capture straight away, with no restart.
+  - **Check them from the menu bar icon.** Click the MechvibesDX icon: each permission shows "Granted" in green, or a red "Grant …" line that opens System Settings at the right page when clicked. It updates within about a second of a change. Granting **Accessibility** takes effect straight away. After granting **Input Monitoring**, quit and relaunch MechvibesDX: macOS only lets an app capture keys globally if it had the permission when it started, so until you relaunch the menu can read "Granted" while sounds still stop when another app is in front.
 - **After installing a new build**: the app is ad-hoc signed, so macOS ties its permissions to that exact binary. A rebuilt or reinstalled app keeps its toggles on but they stop working. Remove `MechvibesDX` from both lists with the `-` button, add `/Applications/MechvibesDX.app` back, and relaunch. Alternatively run `tccutil reset ListenEvent com.hainguyents13.mechvibesdx` and `tccutil reset Accessibility com.hainguyents13.mechvibesdx`, and macOS prompts again on next launch.
 - **Start at login**: registers MechvibesDX as a login item (System Settings > General > Login Items), which needs macOS 13 or later and the app installed in `/Applications`. If macOS asks, allow it there. "Start minimized" is read from your saved settings, so it applies whenever the app launches.
 - Arm64 (Apple Silicon) only in current builds. Intel builds available on request.
@@ -230,7 +230,7 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 
 **macOS: sounds only play while the app window is focused?**
 - Click the MechvibesDX icon in the menu bar: a red "Grant Input Monitoring…" line means it is missing.
-- Input Monitoring is missing or stale. See the macOS permissions notes above: remove and re-add `MechvibesDX` under both Accessibility and Input Monitoring, then relaunch.
+- Input Monitoring is missing or stale. See the macOS permissions notes above: remove and re-add `MechvibesDX` under both Accessibility and Input Monitoring, then relaunch. A relaunch is always needed after granting Input Monitoring, even when it was simply missing.
 
 **Hotkey (`Ctrl+Alt+M`) not working?**
 - Windows: Run as administrator (required for global hotkey).

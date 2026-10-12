@@ -9,12 +9,14 @@
 //! so a silent app can be diagnosed from the menu bar. Reading the state here
 //! never shows a system prompt; only the explicit "Grant …" menu items do that.
 //!
-//! The key listeners wait here for a missing permission and start as soon as it
-//! is granted (`wait_for_accessibility`, `wait_for_input_monitoring`), so a grant
-//! made in System Settings needs no restart. The tray lines are kept current by
-//! `watch`, which runs on the main thread's dispatch queue and so keeps working
-//! while the window is hidden, when the web view and the tasks inside it can
-//! freeze (see `native_window`).
+//! The focused-window listener waits here for Accessibility and starts as soon
+//! as it is granted (`wait_for_accessibility`), because Accessibility trust is
+//! live, so that grant needs no restart. Input Monitoring is not: a process that
+//! started without it cannot create its global event tap later, so the app has to
+//! be relaunched after that grant, and nothing here waits for it. The tray lines
+//! are kept current by `watch`, which runs on the main thread's dispatch queue
+//! and so keeps working while the window is hidden, when the web view and the
+//! tasks inside it can freeze (see `native_window`).
 #![cfg(target_os = "macos")]
 
 use block2::RcBlock;
@@ -123,25 +125,6 @@ pub fn wait_until_granted(mut is_granted: impl FnMut() -> bool, mut wait: impl F
 /// restart.
 pub fn wait_for_accessibility() {
     wait_until_granted(application_is_trusted, || std::thread::sleep(CHECK_INTERVAL));
-}
-
-/// Blocks the calling thread until Input Monitoring is granted, then returns, so
-/// the caller can create its event tap. Returns at once if it already is.
-///
-/// Creating an event tap without the permission is what normally makes macOS
-/// prompt for it and list the app under Input Monitoring. Waiting instead of
-/// trying would lose that, so access is requested once up front.
-pub fn wait_for_input_monitoring() {
-    if input_monitoring_granted() {
-        return;
-    }
-    // SAFETY: a plain request with no arguments; it shows the system prompt.
-    unsafe {
-        CGRequestListenEventAccess();
-    }
-    crate::always_print!("🔐 Input Monitoring is not granted: global key capture starts when it is");
-    wait_until_granted(input_monitoring_granted, || std::thread::sleep(CHECK_INTERVAL));
-    crate::always_print!("🔐 Input Monitoring granted: starting global key capture");
 }
 
 /// Remembers the last status seen. Returns the new status when it differs from

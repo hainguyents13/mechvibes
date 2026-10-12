@@ -63,8 +63,11 @@ Add /Applications/MechvibesDX.app to each list and enable the toggle.
 Click the MechvibesDX icon in the menu bar to see where you stand. Each
 permission is listed there: "Granted" in green when it is on, or a red
 "Grant ..." line when it is missing. Clicking that line opens System
-Settings at the right page. Granting a missing permission takes effect
-straight away; you do not need to restart MechvibesDX.
+Settings at the right page. Granting Accessibility takes effect straight
+away. After granting Input Monitoring, quit and relaunch MechvibesDX: macOS
+only lets an app capture keys globally if it had the permission when it
+started, so until you relaunch the menu can say "Granted" while sounds still
+stop when another app is in front.
 
 You have to remove and re-add both entries after replacing the app with a
 newer build, because macOS keys the permission to the binary's identity. The
