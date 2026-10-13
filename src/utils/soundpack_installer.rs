@@ -2,9 +2,43 @@ use crate::utils::path;
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
-use std::path::{ Path, PathBuf };
+use std::path::{ Component, Path, PathBuf };
 use uuid::Uuid;
 use zip::ZipArchive;
+
+/// True when `name` is exactly one ordinary path component: no separators, no
+/// `.` or `..`, no root and no Windows drive prefix. Anything else would let a
+/// value from the ZIP point outside the folder it is joined onto.
+fn is_single_path_component(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    matches!((components.next(), components.next()), (Some(Component::Normal(_)), None)) &&
+        !name.contains(['/', '\\', ':'])
+}
+
+/// The ID becomes a folder name under the custom sound packs directory, so it
+/// has to stay a single folder name.
+fn validate_soundpack_id(id: &str) -> Result<(), String> {
+    if is_single_path_component(id) {
+        Ok(())
+    } else {
+        Err(format!("The sound pack ID '{}' is not a valid folder name.", id))
+    }
+}
+
+/// Every file is placed at the root of the install folder, so only the last
+/// segment of the entry name is used. ZIPs made on Windows can separate folders
+/// with `\`, so both separators count. `Ok(None)` means a folder entry.
+fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
+    let name = entry_name.rsplit(['/', '\\']).next().unwrap_or_default();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if is_single_path_component(name) {
+        Ok(Some(name))
+    } else {
+        Err(format!("The ZIP contains a file with an unsafe name: '{}'", entry_name))
+    }
+}
 
 /// Read and parse the `config.json` inside a soundpack ZIP.
 fn read_config_from_zip(file_path: &str) -> Result<Value, String> {
@@ -55,10 +89,16 @@ fn soundpack_id_from_config(config: &Value) -> String {
     resolve_soundpack_id(config).0
 }
 
-/// Extract soundpack ID from ZIP without extracting files
+/// Extract soundpack ID from ZIP without extracting files.
+///
+/// The ID is validated here as well as at the install step: this is what the
+/// import dialog resolves before anything is written, and an ID that is not a
+/// single folder name must never look acceptable to it.
 pub fn get_soundpack_id_from_zip(file_path: &str) -> Result<String, String> {
     let config = read_config_from_zip(file_path)?;
-    Ok(soundpack_id_from_config(&config))
+    let soundpack_id = soundpack_id_from_config(&config);
+    validate_soundpack_id(&soundpack_id)?;
+    Ok(soundpack_id)
 }
 
 /// Resolve the soundpack type exactly as the installer does.
@@ -91,6 +131,10 @@ pub fn resolve_soundpack_install_dir(
 ) -> Result<PathBuf, String> {
     let config = read_config_from_zip(file_path)?;
     let soundpack_id = soundpack_id_from_config(&config);
+    // This is where an untrusted ID becomes a path, so it is validated here too:
+    // the dialog asks this before the installer ever runs, and an ID such as
+    // `..` would otherwise resolve to a directory outside the sound packs one.
+    validate_soundpack_id(&soundpack_id)?;
     let soundpack_type = resolve_soundpack_type(&config, target_type);
     Ok(base.join(soundpack_type).join(&soundpack_id))
 }
@@ -226,6 +270,7 @@ pub fn extract_and_install_soundpack_with_type(
     if id_was_generated {
         config["id"] = Value::String(soundpack_id.clone());
     }
+    validate_soundpack_id(&soundpack_id)?;
 
     // Determine soundpack type - use target type if provided, otherwise auto-detect
     let soundpack_type = resolve_soundpack_type(&config, target_type);
@@ -256,26 +301,11 @@ pub fn extract_and_install_soundpack_with_type(
             .map_err(|e| format!("Failed to read archive entry: {}", e))?;
         let file_path = file.name().to_string();
 
-        // Skip directories
-        if file_path.ends_with('/') {
+        // Skip directories; place every file at the root of the install folder
+        let Some(filename) = entry_file_name(&file_path)? else {
             continue;
-        }
-
-        // Determine output path - strip the first directory level if it exists and place all files at root
-        let output_path = if file_path.contains('/') {
-            // Get the filename only (remove directory structure)
-            let filename = file_path.split('/').last().unwrap_or(&file_path);
-            install_dir.join(filename)
-        } else {
-            install_dir.join(&file_path)
         };
-
-        // Create parent directory if needed
-        if let Some(parent) = output_path.parent() {
-            path
-                ::ensure_directory_exists(parent)
-                .map_err(|e| format!("Failed to create parent directory: {}", e))?;
-        }
+        let output_path = install_dir.join(filename);
 
         // Extract file
         let mut output_file = File::create(&output_path).map_err(|e|
@@ -467,5 +497,41 @@ mod tests {
             error.contains("custom-sound-pack-77777732"),
             "the error must name the ID so the user can find the pack, got: {error}"
         );
+    }
+
+    #[test]
+    fn ordinary_ids_are_accepted() {
+        for id in ["cherrymx-black-abs", "imported-1b4e28ba-2fa1-11d2-883f-0016d3cca427", "My Pack 2"] {
+            assert!(validate_soundpack_id(id).is_ok(), "{id}");
+        }
+    }
+
+    #[test]
+    fn ids_that_leave_the_sound_packs_folder_are_refused() {
+        for id in ["..", ".", "../x", "..\\..\\x", "a/b", "a\\b", "/etc", "C:\\x", "C:x", ""] {
+            assert!(validate_soundpack_id(id).is_err(), "{id}");
+        }
+    }
+
+    #[test]
+    fn entries_keep_only_their_file_name() {
+        assert_eq!(entry_file_name("config.json"), Ok(Some("config.json")));
+        assert_eq!(entry_file_name("pack/audio.ogg"), Ok(Some("audio.ogg")));
+        assert_eq!(entry_file_name("pack\\audio.ogg"), Ok(Some("audio.ogg")));
+        assert_eq!(entry_file_name("../../audio.ogg"), Ok(Some("audio.ogg")));
+        assert_eq!(entry_file_name("..\\..\\evil.dll"), Ok(Some("evil.dll")));
+    }
+
+    #[test]
+    fn folder_entries_are_skipped() {
+        assert_eq!(entry_file_name("pack/"), Ok(None));
+        assert_eq!(entry_file_name("pack\\"), Ok(None));
+    }
+
+    #[test]
+    fn entries_that_escape_the_install_folder_are_refused() {
+        for entry in ["..", "pack/..", "pack\\..", "C:evil.dll", "pack/C:evil.dll"] {
+            assert!(entry_file_name(entry).is_err(), "{entry}");
+        }
     }
 }

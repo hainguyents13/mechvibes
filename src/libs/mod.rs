@@ -23,6 +23,9 @@ pub mod evdev_input_listener;
 #[cfg(target_os = "macos")]
 pub mod native_window;
 
+#[cfg(target_os = "macos")]
+pub mod permissions;
+
 // Windows input worker: Raw Input capture runs in a separate process
 // (`input_worker`, driven by `rawinput_listener`) because tao/wry claims the
 // process-wide Raw Input registration in the UI process. The UI side spawns
