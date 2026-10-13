@@ -8,10 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The tray icon menu works while the window is hidden.** Hiding to the tray used to leave the menu able to act once: after a first Mute, Show or Exit nothing in it responded any more, and the mute checkmark moved without the sound changing. The window also came back behind every other window instead of to the front. The menu is now handled on the toolkit's own main loop, which keeps running while the window is hidden, and the window is raised and focused when it is asked for.
+
+## [0.8.4] - 2026-10-13
+
+### Added
+
+- **macOS: the menu bar icon now shows whether MechvibesDX has the permissions it needs.** Click the icon and the menu lists **Accessibility** and **Input Monitoring**. A permission you have granted reads "Accessibility: Granted", with the word "Granted" in green and the rest in grey. The colours differ between light and dark menus, so each stays readable in both. One that is missing reads "Grant Accessibility…" or "Grant Input Monitoring…" in red, and clicking it opens System Settings at that permission's page. The status updates within about a second of changing it in System Settings, and that works even when the window has been hidden for a long time. Granting Accessibility now takes effect straight away, with no restart: until now, an app started without it stayed silent while its window was focused until it was relaunched. Granting Input Monitoring still needs MechvibesDX to be quit and relaunched, because macOS only lets an app capture keys globally if it had that permission when it started; until you relaunch, the menu can read "Granted" while sounds still stop when another app is in front. Windows and Linux menus are unchanged. Previously a missing permission only showed up as silence, for example no sound while another app is in front.
+
+### Fixed
+
 - **Linux: the sound pack list is usable again.** Opening the keyboard or mouse pack selector drew the list underneath the sections below it, so the Mouse section and the volume row sat on top of most of the options and picking a pack was guesswork. The list now floats above everything else, and clicking outside it closes it the way it should.
 - **macOS: "Show MechvibesDX" in the menu bar now shows the window even when the app has frozen in the background.** After the window had been hidden for a long time, for example when the app starts hidden at login and runs all day, choosing it could do nothing at all: the window never appeared and the app had to be quit and restarted. The part of the app that handled that menu item could freeze while the window was hidden, and it was also the only thing that could bring the window back. The window is now shown directly by macOS when you pick the item, and showing it lets the frozen part start running again. Windows and Linux are unchanged.
+- **Importing a sound pack can no longer write files outside its own folder.** A crafted pack ID or file name could place files elsewhere on disk. The ID now has to be a plain folder name, every file is written inside the pack's folder, and a pack with an unsafe name is refused with an error.
 - **Numpad and system keys make sound again on Wayland.** The numpad keys, NumLock, ScrollLock, PrintScreen, Pause and the extra key next to the left Shift produced no sound on Wayland while X11 worked: the input-device table had no entry for them and dropped them silently. They are mapped to the same names X11 emits, so the sound packs that already define them keep working.
-- **The tray icon menu works while the window is hidden.** Hiding to the tray used to leave the menu able to act once: after a first Mute, Show or Exit nothing in it responded any more, and the mute checkmark moved without the sound changing. The window also came back behind every other window instead of to the front. The menu is now handled on the toolkit's own main loop, which keeps running while the window is hidden, and the window is raised and focused when it is asked for.
 
 ## [0.8.3] - 2026-10-07
 
