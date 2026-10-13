@@ -159,12 +159,21 @@ pub fn start_focused_keyboard_listener(
     thread::spawn(move || {
         crate::always_print!("🎮 Starting focused keyboard listener (device_query polling)...");
         
+        // Without Accessibility there is nothing to poll yet. Wait for it instead
+        // of ending the thread, so granting it in System Settings starts the
+        // listener without a restart.
         #[cfg(target_os = "macos")]
-        let Some(device_state) = macos_device_state() else {
-            crate::always_eprint!(
-                "Accessibility permission is not enabled; focused keyboard polling is disabled"
-            );
-            return;
+        let device_state = match macos_device_state() {
+            Some(device_state) => device_state,
+            None => {
+                crate::always_print!(
+                    "🔐 Accessibility is not granted: focused keyboard polling starts when it is"
+                );
+                crate::libs::permissions::wait_for_accessibility();
+                crate::always_print!("🔐 Accessibility granted: starting focused keyboard polling");
+                // A stateless handle on macOS, as in `macos_device_state`.
+                DeviceState
+            }
         };
 
         #[cfg(not(target_os = "macos"))]
