@@ -138,7 +138,7 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
 
    Click "Publish release" on the draft. The in-app auto-updater (`src/utils/auto_updater.rs`) reads published (non-draft) releases from the GitHub API, so existing installs will detect the update after this step - not before.
 
-   Publishing **automatically announces** the release to the Mechvibes Discord's release channel (verified live with v0.7.0) — a Mantine-style message (greeting + release notes + links) with an `@everyone` ping. Nothing to run for a normal release.
+   Publishing **automatically announces** the release to the Mechvibes Discord's release channel (verified live with v0.7.0) — a Mantine-style message (greeting + release notes + links) that pings the opt-in **Release Updates** role, not `@everyone`. Members pick that role under Channels & Roles. Nothing to run for a normal release.
 
    Manual runs of `announce-release.yml` are for exceptional cases only, and **publishing already posts on its own — a manual run about the same release creates a second message** (this happened on v0.7.0; one had to be deleted by hand):
 
@@ -148,7 +148,7 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
    gh workflow run announce-release.yml                    # ping-free test message
    ```
 
-   The `message` mode adds nothing around your text and fails (rather than truncates) past Discord's 2000-character cap. A historical note so nobody re-learns this the hard way: v0.6.3 was not announced automatically simply because this workflow **did not exist yet** when that release was published — not because of any `GITHUB_TOKEN` event rule; GitHub's anti-recursion rule only suppresses events *performed by* the token, and clicking Publish is performed by you. One-time setup: create a webhook in the channel (Channel settings → Integrations → Webhooks), then `gh secret set DISCORD_RELEASE_WEBHOOK`. No bot or bot token involved.
+   The `message` mode adds nothing around your text and fails (rather than truncates) past Discord's 2000-character cap. A historical note so nobody re-learns this the hard way: v0.6.3 was not announced automatically simply because this workflow **did not exist yet** when that release was published — not because of any `GITHUB_TOKEN` event rule; GitHub's anti-recursion rule only suppresses events *performed by* the token, and clicking Publish is performed by you. One-time setup: create a webhook in the channel (Channel settings → Integrations → Webhooks), then `gh secret set DISCORD_RELEASE_WEBHOOK`, and `gh variable set DISCORD_RELEASE_ROLE_ID` with the role's ID (unset means the message pings nobody). No bot or bot token involved.
 
 ## Why a draft first?
 
