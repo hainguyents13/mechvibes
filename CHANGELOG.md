@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Linux: mouse clicks now make sound in every application under Wayland.** On Wayland the mouse was read through X11, which only sees input while one of its own windows is under the pointer. Clicks in Wayland-native windows (the terminal, the file manager, the browser, and this app's own window) produced no sound at all, while apps that run through XWayland (Discord, for one) kept working. Mouse buttons are now read straight from the input devices, the same way keystrokes already are. If the input devices cannot be read, the previous behaviour stays as a fallback, and a click is never played twice. Two limits are worth knowing: the pointer gate is decided once at startup, so a mouse that is plugged in or reconnected while the app runs (over Bluetooth, or after the machine wakes from sleep) stays silent until the app is restarted; and touchpad tap-to-click is synthesized by libinput, so taps make no sound.
+
 ## [0.8.4] - 2026-10-13
 
 ### Added
