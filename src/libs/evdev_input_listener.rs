@@ -16,6 +16,7 @@ pub fn start_evdev_keyboard_listener(
     mouse_tx: Sender<String>,
     hotkey_tx: Sender<String>,
     _is_focused: Arc<Mutex<bool>>,
+    pointer_capture_active: Arc<std::sync::atomic::AtomicBool>,
 ) {
     crate::always_print!("🔍 [evdev] start_evdev_keyboard_listener() called - spawning thread");
     thread::spawn(move || {
@@ -51,6 +52,14 @@ pub fn start_evdev_keyboard_listener(
             // Check if device has keyboard capabilities
             if device.supported_keys().is_some() {
                 crate::always_print!("🔍 [evdev] Found keyboard device: {:?} - {}", path.display(), device.name().unwrap_or("Unknown"));
+
+                // A device advertising BTN_LEFT is where pointer clicks come
+                // from, so evdev now covers the mouse and the rdev mouse path
+                // must stay silent to avoid reporting the same click twice.
+                if device.supported_keys().is_some_and(|keys| keys.contains(KeyCode::BTN_LEFT)) {
+                    crate::always_print!("🖱️ [evdev] Pointer buttons available on {:?} - gating the rdev mouse path", path.display());
+                    pointer_capture_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
 
                 // Set device to non-blocking mode to prevent blocking on idle devices
                 if let Err(e) = device.set_nonblocking(true) {
@@ -94,6 +103,29 @@ pub fn start_evdev_keyboard_listener(
                                 }
 
                                 let key_value = event.value();
+
+                                // Mouse buttons arrive as KEY events carrying
+                                // BTN_* codes, on the same devices and path as
+                                // keystrokes. They are translated first so they
+                                // never also travel the keyboard table.
+                                if let Some(button_code) = map_evdev_mouse_button(KeyCode(event.code())) {
+                                    match key_value {
+                                        // Button press (value == 1)
+                                        1 => {
+                                            if event_count <= 5 {
+                                                crate::always_print!("🔍 [evdev] Sending mouse press: {}", button_code);
+                                            }
+                                            let _ = mouse_tx.send(button_code.to_string());
+                                        }
+                                        // Button release (value == 0)
+                                        0 => {
+                                            let _ = mouse_tx.send(format!("UP:{}", button_code));
+                                        }
+                                        // Ignore auto-repeat (value == 2)
+                                        _ => {}
+                                    }
+                                    continue;
+                                }
 
                                 // Convert event code to KeyCode
                                 let key = KeyCode(event.code());
@@ -201,6 +233,31 @@ fn map_wheel_delta(value: i32) -> Option<&'static str> {
     }
 }
 
+/// Translates the pointer buttons that arrive as `EventType::KEY` events with
+/// `BTN_*` codes.
+///
+/// Deliberately separate from `map_evdev_keycode`: these are not keys. The
+/// strings returned must stay identical to the ones `map_button_to_code`
+/// produces for rdev's buttons, because soundpack configs key off them.
+#[cfg(target_os = "linux")]
+fn map_evdev_mouse_button(key: evdev::KeyCode) -> Option<&'static str> {
+    use evdev::KeyCode;
+
+    match key {
+        KeyCode::BTN_LEFT => Some("MouseLeft"),
+        KeyCode::BTN_RIGHT => Some("MouseRight"),
+        KeyCode::BTN_MIDDLE => Some("MouseMiddle"),
+        KeyCode::BTN_SIDE => Some("Mouse4"),
+        KeyCode::BTN_EXTRA => Some("Mouse5"),
+        KeyCode::BTN_FORWARD => Some("Mouse6"),
+        KeyCode::BTN_BACK => Some("Mouse7"),
+        KeyCode::BTN_TASK => Some("Mouse8"),
+        // BTN_TOUCH is finger contact on a touchpad, not a click, and every
+        // other BTN_* code stays unmapped.
+        _ => None,
+    }
+}
+
 #[cfg(target_os = "linux")]
 fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
     use evdev::KeyCode;
@@ -304,7 +361,7 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
 
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
-    use super::{map_evdev_keycode, map_wheel_delta};
+    use super::*;
     use evdev::KeyCode;
 
     /// REL_WHEEL deltas must land on the wheel codes the soundpacks define;
@@ -316,6 +373,33 @@ mod tests {
         assert_eq!(map_wheel_delta(-1), Some("MouseWheelDown"));
         assert_eq!(map_wheel_delta(-3), Some("MouseWheelDown"));
         assert_eq!(map_wheel_delta(0), None);
+    }
+
+    /// Pointer buttons ride the keyboard event path, so their translation has
+    /// to land on the exact codes `map_button_to_code` emits: the soundpack
+    /// configs key off those strings, not off evdev's BTN_* names.
+    #[test]
+    fn pointer_buttons_map_to_the_same_codes_rdev_produces() {
+        let cases = [
+            (KeyCode::BTN_LEFT, "MouseLeft"),
+            (KeyCode::BTN_RIGHT, "MouseRight"),
+            (KeyCode::BTN_MIDDLE, "MouseMiddle"),
+            (KeyCode::BTN_SIDE, "Mouse4"),
+            (KeyCode::BTN_EXTRA, "Mouse5"),
+            (KeyCode::BTN_FORWARD, "Mouse6"),
+            (KeyCode::BTN_BACK, "Mouse7"),
+            (KeyCode::BTN_TASK, "Mouse8"),
+        ];
+
+        for (key, expected) in cases {
+            assert_eq!(
+                map_evdev_mouse_button(key),
+                Some(expected),
+                "{:?} must map to {}",
+                key,
+                expected
+            );
+        }
     }
 
     /// The numpad group reaches the keyboard path as KEY events carrying
@@ -350,6 +434,22 @@ mod tests {
                 expected
             );
         }
+    }
+
+    /// Only real buttons count. A touchpad reporting finger contact, or any
+    /// keyboard key, must keep travelling the keyboard path instead.
+    #[test]
+    fn touchpad_contact_and_keyboard_keys_are_not_clicks() {
+        assert_eq!(
+            map_evdev_mouse_button(KeyCode::BTN_TOUCH),
+            None,
+            "BTN_TOUCH is finger contact on a touchpad, not a click"
+        );
+        assert_eq!(
+            map_evdev_mouse_button(KeyCode::KEY_A),
+            None,
+            "keyboard keys must keep travelling the keyboard path"
+        );
     }
 
     /// The numpad group must not swallow the mouse buttons: these are two

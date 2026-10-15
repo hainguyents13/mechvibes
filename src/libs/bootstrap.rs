@@ -46,21 +46,38 @@ pub fn start_input_capture_with_focus(
 
         if display_server == "wayland" {
             // On Wayland, evdev reads the device nodes directly, so it works
-            // focused or not, and it carries hotkey detection with it.
+            // focused or not, and it carries hotkey detection with it. It
+            // owns the pointer too: rdev's Linux listen() is X11 XRecord, and
+            // XWayland only delivers input while one of its windows is under
+            // the pointer, so clicks over Wayland-native windows never arrive
+            // that way - but their BTN_* events do show up on these devices.
             crate::debug_print!("🎮 Starting evdev keyboard listener (Wayland mode)...");
+            // Flips true once evdev has opened a device advertising BTN_LEFT.
+            // Until then rdev is the only mouse source, so it stays ungated.
+            let evdev_pointer_active = std::sync::Arc::new(
+                std::sync::atomic::AtomicBool::new(false)
+            );
             crate::libs::evdev_input_listener::start_evdev_keyboard_listener(
                 keyboard_tx.clone(),
                 mouse_tx.clone(),
                 hotkey_tx.clone(),
-                window_focused.clone()
+                window_focused.clone(),
+                evdev_pointer_active.clone()
             );
 
-            // rdev covers mouse only here. It is handed a permanently-focused
+            // rdev covers mouse only here, and only while evdev found no
+            // pointer device to read. It is handed a permanently-focused
             // flag so its keyboard branch stays quiet and cannot double every
             // keystroke evdev already reported.
             crate::debug_print!("🎮 Starting unified input listener for mouse events (Wayland mode)...");
             let always_focused = std::sync::Arc::new(std::sync::Mutex::new(true));
-            start_unified_input_listener(keyboard_tx, mouse_tx, hotkey_tx, Some(always_focused));
+            start_unified_input_listener(
+                keyboard_tx,
+                mouse_tx,
+                hotkey_tx,
+                Some(always_focused),
+                Some(evdev_pointer_active)
+            );
         } else {
             // X11: the hybrid. rdev handles keyboard while unfocused,
             // device_query while focused.
@@ -69,7 +86,8 @@ pub fn start_input_capture_with_focus(
                 keyboard_tx.clone(),
                 mouse_tx,
                 hotkey_tx,
-                Some(window_focused.clone())
+                Some(window_focused.clone()),
+                None
             );
 
             crate::debug_print!("🎮 Starting focused keyboard listener (X11 mode - focused)...");
@@ -103,7 +121,8 @@ pub fn start_input_capture_with_focus(
                     fallback_keyboard_tx.clone(),
                     fallback_mouse_tx,
                     fallback_hotkey_tx,
-                    Some(fallback_focus.clone())
+                    Some(fallback_focus.clone()),
+                    None
                 );
                 start_focused_keyboard_listener(fallback_keyboard_tx, fallback_focus);
             })
@@ -122,7 +141,8 @@ pub fn start_input_capture_with_focus(
             keyboard_tx.clone(),
             mouse_tx,
             hotkey_tx,
-            Some(window_focused.clone())
+            Some(window_focused.clone()),
+            None
         );
 
         crate::debug_print!("🎮 Starting focused keyboard listener (focused)...");
@@ -150,6 +170,29 @@ pub fn start_input_capture(
 
 #[cfg(test)]
 mod tests {
+    /// Returns the text inside the parentheses of `function(...)` in `source`,
+    /// paren-balanced so nested calls such as `mouse_tx.clone()` survive.
+    fn call_arguments<'a>(source: &'a str, function: &str) -> &'a str {
+        let open = source
+            .find(&format!("{}(", function))
+            .unwrap_or_else(|| panic!("{} must be called", function));
+        let rest = &source[open + function.len() + 1..];
+        let mut depth = 1usize;
+        for (index, byte) in rest.bytes().enumerate() {
+            match byte {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &rest[..index];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("{} is not a closed call", function);
+    }
+
     /// Windows headless must never be routed through rdev as its primary
     /// listener. rdev's low-level hooks are what swallow dead keys and delay
     /// the second click of a double-click (phase 06); the Raw Input worker is
@@ -202,5 +245,71 @@ mod tests {
             headless_fn.contains("start_input_capture_with_focus("),
             "headless must not carry its own copy of the platform wiring"
         );
+    }
+
+    /// Wayland clicks must come from evdev: rdev's XRecord path never sees
+    /// them over Wayland-native windows. That needs the mouse sender and the
+    /// coverage gate on the evdev call, and the same gate on the unified
+    /// listener so an XWayland click evdev already reported is not doubled.
+    #[test]
+    fn wayland_gives_evdev_the_mouse_sender_and_the_pointer_gate() {
+        const SOURCE: &str = include_str!("bootstrap.rs");
+        let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes tests");
+
+        let wayland_block = runtime
+            .split("if display_server == \"wayland\" {")
+            .nth(1)
+            .expect("the Wayland branch must exist");
+        let wayland_block = wayland_block
+            .split("} else {")
+            .next()
+            .expect("the Wayland branch must end before the X11 branch");
+
+        let evdev_arguments = call_arguments(wayland_block, "start_evdev_keyboard_listener");
+        assert!(
+            evdev_arguments.contains("mouse_tx.clone()"),
+            "evdev must be handed the mouse channel it reports clicks on, got: {evdev_arguments}"
+        );
+        assert!(
+            evdev_arguments.contains("evdev_pointer_active.clone()"),
+            "evdev must be handed the pointer coverage gate, got: {evdev_arguments}"
+        );
+
+        let unified_arguments = call_arguments(wayland_block, "start_unified_input_listener");
+        assert!(
+            unified_arguments.contains("Some(evdev_pointer_active)"),
+            "the rdev mouse path must be gated by evdev pointer coverage, got: {unified_arguments}"
+        );
+    }
+
+    /// Neither Windows nor macOS can be compiled by this suite: both branches
+    /// sit behind `cfg(target_os)`, so on Linux they are never built. CI does
+    /// cover both platforms - every leg of the packaging matrix runs
+    /// `scripts/ci-check.sh` - but a leg only proves that the platform builds
+    /// and that its own tests pass. It says nothing about what this branch hands
+    /// to the listener, so this guard is what pins that.
+    ///
+    /// Both must hand the unified listener `None` for the pointer gate. Neither
+    /// platform has /dev/input, so rdev is the mouse source there and there is no
+    /// evdev listener to hand the gate to - passing one by accident would either
+    /// silence the mouse or need a listener that does not exist. The X11 branch
+    /// says the same thing and is compiled here, so it needs no guard.
+    #[test]
+    fn the_platforms_without_evdev_must_pass_no_pointer_gate() {
+        const SOURCE: &str = include_str!("bootstrap.rs");
+        let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes tests");
+
+        for platform in ["windows", "macos"] {
+            let block = runtime
+                .split(&format!("#[cfg(target_os = \"{platform}\")]"))
+                .nth(1)
+                .unwrap_or_else(|| panic!("the {platform} branch must exist"));
+
+            let arguments = call_arguments(block, "start_unified_input_listener");
+            assert!(
+                arguments.trim_end().ends_with("None"),
+                "{platform} has no evdev listener, so it must pass None as the pointer gate, got: {arguments}"
+            );
+        }
     }
 }

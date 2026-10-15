@@ -161,11 +161,15 @@ fn map_button_to_code(button: Button) -> &'static str {
 ///
 /// When is_focused is provided, keyboard events are only sent when the window is UNFOCUSED
 /// to avoid duplicate events with the focused_input_listener
+///
+/// When evdev_active is provided and reads true, the Linux evdev listener owns the
+/// pointer, so the mouse branches here stay quiet and clicks are reported once.
 pub fn start_unified_input_listener(
     keyboard_tx: Sender<String>,
     mouse_tx: Sender<String>,
     hotkey_tx: Sender<String>,
     is_focused: Option<Arc<Mutex<bool>>>,
+    evdev_active: Option<Arc<std::sync::atomic::AtomicBool>>,
 ) {
     crate::always_print!("🎮 Starting unified input listener (keyboard + mouse + hotkeys)...");
 
@@ -272,6 +276,15 @@ pub fn start_unified_input_listener(
 
                 // ===== MOUSE EVENTS =====
                 EventType::ButtonPress(button) => {
+                    // evdev reads the pointer straight from /dev/input on
+                    // Wayland; rdev's XRecord path would only duplicate the
+                    // clicks it already reported.
+                    if let Some(ref active) = evdev_active {
+                        if active.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                    }
+
                     let button_code = map_button_to_code(button);
                     if !button_code.is_empty() && button_code != "MouseUnknown" {
                         // crate::always_print!("🖱️ Mouse Button Pressed: {}", button_code);
@@ -307,6 +320,12 @@ pub fn start_unified_input_listener(
                     }
                 }
                 EventType::ButtonRelease(button) => {
+                    if let Some(ref active) = evdev_active {
+                        if active.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                    }
+
                     let button_code = map_button_to_code(button);
                     if !button_code.is_empty() && button_code != "MouseUnknown" {
                         // crate::always_print!("🖱️ Mouse Button Released: {}", button_code);
@@ -321,6 +340,12 @@ pub fn start_unified_input_listener(
                 }
                 // Skip mouse wheel events for now
                 EventType::Wheel { delta_x: _, delta_y: _ } => {
+                    if let Some(ref active) = evdev_active {
+                        if active.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
+                    }
+
                     // let wheel_event = if delta_y > 0 {
                     //     "MouseWheelUp"
                     // } else if delta_y < 0 {
