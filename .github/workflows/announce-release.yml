@@ -23,8 +23,10 @@ on:
         required: false
         type: string
       # For hand-written announcements (e.g. a multi-release recap). Posted
-      # VERBATIM with a real @everyone ping - include your own greeting and
-      # links, nothing is added around it. Takes precedence over `tag`.
+      # VERBATIM - include your own greeting and links, nothing is added
+      # around it. Write <@&ROLE_ID> to ping the release role, or @everyone
+      # for the rare message the whole server must see. Takes precedence
+      # over `tag`.
       message:
         description: "Custom message to post verbatim (real ping). Overrides tag/notes formatting."
         required: false
@@ -44,6 +46,10 @@ jobs:
           # New Webhook -> copy URL, then `gh secret set DISCORD_RELEASE_WEBHOOK`.
           # A webhook URL is all this needs - no bot, no bot token.
           WEBHOOK: ${{ secrets.DISCORD_RELEASE_WEBHOOK }}
+          # The opt-in "Release Updates" role that releases ping, instead of
+          # @everyone. Members pick it under Channels & Roles. Not a secret:
+          # `gh variable set DISCORD_RELEASE_ROLE_ID`. Unset = no ping at all.
+          ROLE_ID: ${{ vars.DISCORD_RELEASE_ROLE_ID }}
           IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
           DISPATCH_TAG: ${{ inputs.tag }}
           # Env-passed like RELEASE_BODY: quotes/newlines/markdown must never
@@ -71,8 +77,8 @@ jobs:
               echo "::error::Custom message exceeds Discord's 2000-character cap"
               exit 1
             fi
-            payload=$(jq -n --arg msg "$DISPATCH_MESSAGE" \
-              '{content: $msg, allowed_mentions: {parse: ["everyone"]}}')
+            payload=$(jq -n --arg msg "$DISPATCH_MESSAGE" --arg role "$ROLE_ID" \
+              '{content: $msg, allowed_mentions: {parse: ["everyone"], roles: (if $role == "" then [] else [$role] end)}}')
             curl -fsS -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
             echo "Posted custom announcement to Discord"
             exit 0
@@ -128,16 +134,19 @@ jobs:
             --arg name "$RELEASE_NAME" \
             --arg url "$RELEASE_URL" \
             --arg body "$RELEASE_BODY" \
+            --arg role "$ROLE_ID" \
             --argjson test "$IS_TEST" \
             '
-            ("Hi @everyone, MechvibesDX \($name) is out! 🎉\n\nHere is what’s new:\n\n") as $head |
+            (if $role == "" then "everyone" else "<@&\($role)>" end) as $who |
+            ("Hi \($who), MechvibesDX \($name) is out! 🎉\n\nHere is what’s new:\n\n") as $head |
             ("\n\n**Download & full changelog:**\n- GitHub release – \($url)\n- Or just open the app and click *Download & install* (Settings → Updates)") as $foot |
             (2000 - ($head | length) - ($foot | length) - 10) as $room |
             {
               content: ($head + (if ($body | length) > $room then ($body | .[:$room]) + "\n…" else $body end) + $foot),
-              # Test runs suppress ALL pings - "@everyone" renders as plain
-              # text and nobody gets notified. Real releases ping for real.
-              allowed_mentions: { parse: (if $test then [] else ["everyone"] end) }
+              # Only the release role can be pinged, never @everyone. Test
+              # runs suppress ALL pings - the role renders but nobody gets
+              # notified. Real releases ping the role for real.
+              allowed_mentions: { parse: [], roles: (if $test or $role == "" then [] else [$role] end) }
             }')
 
           curl -fsS -H "Content-Type: application/json" -d "$payload" "$WEBHOOK"
