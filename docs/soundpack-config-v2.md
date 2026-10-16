@@ -214,18 +214,25 @@ actually capture depends on the platform:
 | `MouseMiddle` | Middle (wheel) button press/release | Windows, Linux |
 | `MouseWheelUp` | Wheel scrolled up | Linux under Wayland |
 | `MouseWheelDown` | Wheel scrolled down | Linux under Wayland |
-| `Mouse4` | First extra button (usually Back) | Windows, Linux |
-| `Mouse5` | Second extra button (usually Forward) | Windows, Linux |
-| `Mouse6`, `Mouse7`, `Mouse8` | Further extra buttons, on mice that have them | Windows, Linux |
+| `Mouse4` | First extra button (usually Back) | Windows, and Linux under Wayland |
+| `Mouse5` | Second extra button (usually Forward) | Windows, and Linux under Wayland |
+| `Mouse6`, `Mouse7` | Further extra buttons, on mice that have them | Linux under Wayland |
+| `Mouse8` | Third extra button; on X11, the Back button | Linux |
 
-Two limits are worth knowing before you build a pack around these codes:
+Three limits are worth knowing before you build a pack around these codes:
 
 - **macOS reports the left and right buttons only.** The other codes never reach
   the engine there, whatever the pack defines.
-- **The wheel is Linux under Wayland only.** On X11 the listener does not report
-  wheel events yet, Windows Raw Input does not emit them, and macOS has none.
-  Touchpad scrolling is not covered either: two-finger scrolling is synthesized
-  by the compositor and produces no `REL_WHEEL` delta, so it makes no sound.
+- **On X11 the extra buttons do not arrive as `Mouse4` or `Mouse5`.** rdev reads
+  X11 buttons 4 to 7 as wheel axes, so the side buttons reach it as unknown
+  codes: Back is reported as `Mouse8` and Forward is dropped. The `Mouse4` and
+  `Mouse5` pair comes from Wayland only.
+- **The wheel is Linux under Wayland only.** The X11 listener does not report
+  wheel events, and the rdev branch that would report them on Windows and macOS
+  is commented out, so those platforms ignore the wheel: on macOS rdev does see
+  it, the app just does not act on it. Touchpad scrolling is not covered either:
+  two-finger scrolling is synthesized by the compositor and produces no
+  `REL_WHEEL` delta, so it makes no sound.
 
 **A mouse code a pack does not define produces no sound.** The app deliberately
 does not substitute another sound: a wheel that sounds like the left click is
