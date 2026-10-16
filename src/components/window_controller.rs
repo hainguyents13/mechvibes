@@ -335,9 +335,19 @@ mod tests {
             release_hook.contains("take_tray()"),
             "the release hook must drop the tray the thread-local holds"
         );
+        let exit_item = runtime
+            .split("TrayMessage::Exit =>")
+            .nth(1)
+            .expect("the tray's own Exit item must keep its release");
+        let release_at = exit_item
+            .find("take_tray()")
+            .expect("the Exit item must take the tray out itself");
+        let close_at = exit_item
+            .find(".close()")
+            .expect("the Exit item must close the window");
         assert!(
-            runtime.contains("TrayMessage::Exit"),
-            "the tray's own Exit item must keep its release, which takes the icon out before the window closes"
+            release_at < close_at,
+            "the Exit item must take the icon out before it closes the window, not after"
         );
     }
 
