@@ -322,8 +322,9 @@ mod tests {
     use evdev::KeyCode;
 
     /// Pointer buttons ride the keyboard event path, so their translation has
-    /// to land on the names the soundpack configs key off, which are the ones
-    /// the Windows listener publishes, not off evdev's BTN_* names.
+    /// to land on the names the soundpack configs key off. The first five are
+    /// the ones the Windows listener publishes; the rest continue that series
+    /// for mice with more buttons than it can report.
     #[test]
     fn pointer_buttons_map_to_the_names_the_soundpacks_use() {
         let cases = [
