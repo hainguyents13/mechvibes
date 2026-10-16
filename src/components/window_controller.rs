@@ -338,7 +338,14 @@ mod tests {
         let exit_item = runtime
             .split("TrayMessage::Exit =>")
             .nth(1)
-            .expect("the tray's own Exit item must keep its release");
+            .expect("the tray's own Exit item must keep its release")
+            // The match ends where the comment about `set_visible` begins, so the
+            // region stops there. Unbounded, the searches below would run to the
+            // end of the component and could match an unrelated later call,
+            // letting this pass for the wrong reason.
+            .split("`set_visible` only queues")
+            .next()
+            .expect("the Exit item must end before the rest of the component");
         let release_at = exit_item
             .find("take_tray()")
             .expect("the Exit item must take the tray out itself");
