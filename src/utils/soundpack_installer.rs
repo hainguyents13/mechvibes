@@ -601,6 +601,48 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_first_install_into_an_empty_data_directory_works() {
+        let base = scratch_dir();
+        // Nothing under `base` exists yet, so this is the path a first import
+        // takes: the parent has to be created before the leaf, or create_dir
+        // would fail with NotFound.
+        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
+        let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
+
+        let info = extract_and_install_into(&pack_zip, None, &base).expect(
+            "a first install must succeed"
+        );
+        assert_eq!(info.id, "custom-sound-pack-77777732");
+        assert!(
+            install_dir.join("config.json").exists(),
+            "the pack must end up under its type directory"
+        );
+    }
+
+    #[test]
+    fn a_refused_import_leaves_the_installed_pack_alone() {
+        let base = scratch_dir();
+        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
+        let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
+        std::fs::create_dir_all(&install_dir).expect("existing pack dir");
+        let installed = install_dir.join("audio.ogg");
+        std::fs::write(&installed, b"original").expect("write installed file");
+
+        extract_and_install_into(&pack_zip, None, &base).expect_err(
+            "an existing destination must be refused"
+        );
+        assert_eq!(
+            std::fs::read(&installed).expect("the installed file must survive"),
+            b"original",
+            "a refused import must not rewrite the pack that is already installed"
+        );
+        assert!(
+            !install_dir.join("config.json").exists(),
+            "a refused import must not write anything into the existing folder"
+        );
+    }
+
     /// A ZIP with a valid config plus one entry the extractor refuses, so the
     /// import fails after the install folder has been created.
     fn zip_with_a_refused_entry(dir: &Path, name: &str, config: &str) -> String {
