@@ -225,17 +225,32 @@ pub fn check_soundpack_conflict(
 pub struct SoundpackInfo {
     pub name: String,
     pub id: String,
+    /// The key the pack is recorded under: `{type}/{id}`.
+    pub folder_path: String,
 }
 
 pub fn extract_and_install_soundpack_with_type(
     file_path: &str,
     target_type: Option<crate::state::soundpack::SoundpackType>
 ) -> Result<SoundpackInfo, String> {
-    extract_and_install_into(
+    let info = extract_and_install_into(
         file_path,
         target_type,
         &crate::state::paths::soundpacks::get_custom_soundpacks_dir()
-    )
+    )?;
+
+    // Stamp the arrival so the lists can sort by it and badge it as new. This
+    // sits in the caller rather than in the install itself because it writes the
+    // shared application config: installing into a scratch directory, as the
+    // tests do, must not touch that.
+    crate::state::config_writer::apply(|config| {
+        crate::state::soundpack_library::mark_added(
+            &mut config.soundpack_added_at,
+            &info.folder_path
+        );
+    });
+
+    Ok(info)
 }
 
 /// Extract and install into `soundpacks_dir`.
@@ -345,15 +360,10 @@ fn extract_and_install_into(
         return Err(error);
     }
 
-    // Stamp the arrival so the lists can sort by it and badge it as new. The
-    // key is `{type}/{id}`, the same folder_path the scanner records.
-    crate::state::config_writer::apply(|config| {
-        crate::state::soundpack_library::mark_added(&mut config.soundpack_added_at, &folder_path);
-    });
-
     Ok(SoundpackInfo {
         name: soundpack_name,
         id: soundpack_id,
+        folder_path,
     })
 }
 
@@ -607,23 +617,39 @@ mod tests {
         // Nothing under `base` exists yet, so this is the path a first import
         // takes: the parent has to be created before the leaf, or create_dir
         // would fail with NotFound.
-        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
+        let pack_zip = zip_with_config_and_audio(&base, "pack.zip", MOUSE_CONFIG);
         let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
 
         let info = extract_and_install_into(&pack_zip, None, &base).expect(
             "a first install must succeed"
         );
         assert_eq!(info.id, "custom-sound-pack-77777732");
-        assert!(
-            install_dir.join("config.json").exists(),
-            "the pack must end up under its type directory"
+        assert_eq!(info.folder_path, "mouse/custom-sound-pack-77777732");
+        assert_eq!(
+            file_names(&install_dir),
+            vec!["audio.ogg".to_string(), "config.json".to_string()],
+            "the pack must hold exactly the files the ZIP carried"
+        );
+        let saved: Value = serde_json
+            ::from_str(
+                &std::fs::read_to_string(install_dir.join("config.json")).expect(
+                    "read the saved config"
+                )
+            )
+            .expect("the saved config must be valid JSON");
+        assert_eq!(
+            saved.get("id").and_then(|v| v.as_str()),
+            Some("custom-sound-pack-77777732"),
+            "the saved config must carry the ID the folder is named after"
         );
     }
 
     #[test]
     fn a_refused_import_leaves_the_installed_pack_alone() {
         let base = scratch_dir();
-        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
+        // The ZIP carries an `audio.ogg` of its own, so a guard that let the
+        // import through would overwrite the installed one.
+        let pack_zip = zip_with_config_and_audio(&base, "pack.zip", MOUSE_CONFIG);
         let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
         std::fs::create_dir_all(&install_dir).expect("existing pack dir");
         let installed = install_dir.join("audio.ogg");
@@ -637,10 +663,41 @@ mod tests {
             b"original",
             "a refused import must not rewrite the pack that is already installed"
         );
-        assert!(
-            !install_dir.join("config.json").exists(),
-            "a refused import must not write anything into the existing folder"
+        assert_eq!(
+            file_names(&install_dir),
+            vec!["audio.ogg".to_string()],
+            "a refused import must not add or remove anything in the folder"
         );
+    }
+
+    /// The file names inside `dir`, sorted, so a test can state exactly what a
+    /// folder holds.
+    fn file_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs
+            ::read_dir(dir)
+            .expect("read dir")
+            .map(|entry| entry.expect("dir entry").file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// A ZIP with a config plus one audio file, so an import into a pack that
+    /// already has an `audio.ogg` would overwrite it.
+    fn zip_with_config_and_audio(dir: &Path, name: &str, config: &str) -> String {
+        let zip_path = dir.join(name);
+        let file = File::create(&zip_path).expect("zip file");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .start_file("config.json", zip::write::SimpleFileOptions::default())
+            .expect("start config entry");
+        writer.write_all(config.as_bytes()).expect("write config");
+        writer
+            .start_file("audio.ogg", zip::write::SimpleFileOptions::default())
+            .expect("start audio entry");
+        writer.write_all(b"from the zip").expect("write audio");
+        writer.finish().expect("finish zip");
+        zip_path.to_string_lossy().to_string()
     }
 
     /// A ZIP with a valid config plus one entry the extractor refuses, so the
