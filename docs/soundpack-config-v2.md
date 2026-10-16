@@ -227,11 +227,11 @@ Three limits are worth knowing before you build a pack around these codes:
   X11 buttons 4 to 7 as wheel axes, so the side buttons reach it as unknown
   codes: Back is reported as `Mouse8` and Forward is dropped. The `Mouse4` and
   `Mouse5` pair comes from Wayland only.
-- **The wheel is Linux under Wayland only.** The X11 listener does not report
-  wheel events, and the rdev branch that would report them on Windows and macOS
-  is commented out, so those platforms ignore the wheel: on macOS rdev does see
-  it, the app just does not act on it. Touchpad scrolling is not covered either:
-  two-finger scrolling is synthesized by the compositor and produces no
+- **The wheel is Linux under Wayland only.** The Windows Raw Input listener maps
+  buttons only, and on X11 and macOS the rdev branch that would report the wheel
+  is commented out, so none of those platforms forward it: on macOS rdev does see
+  the wheel, the app just does not act on it. Touchpad scrolling is not covered
+  either: two-finger scrolling is synthesized by the compositor and produces no
   `REL_WHEEL` delta, so it makes no sound.
 
 **A mouse code a pack does not define produces no sound.** The app deliberately
