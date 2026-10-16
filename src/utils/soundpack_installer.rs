@@ -1,4 +1,3 @@
-use crate::utils::path;
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
@@ -161,37 +160,54 @@ fn already_installed_message(soundpack_id: &str) -> String {
     )
 }
 
-/// Refuse an install whose destination is already taken.
-///
-/// Extraction writes into the pack's own folder, so an existing one means
-/// replacing the installed pack file by file. The import dialog checks this
-/// first, to show a friendly message before anything is written; the guard
-/// lives here as well so that every caller is covered, not only the dialog.
-fn guard_install_dir_is_free(install_dir: &Path, soundpack_id: &str) -> Result<(), String> {
-    if install_dir.exists() {
-        return Err(already_installed_message(soundpack_id));
-    }
-    Ok(())
-}
-
-/// The collision installing `file_path` would hit, or `None` when it is safe.
+/// The collision an install into `install_dir` would hit, or `None` when it is
+/// safe.
 ///
 /// Two collisions count. An existing directory at the resolved install path:
 /// extraction writes into the pack's own folder, so it would replace the
 /// installed pack file by file. And an ID that belongs to a built-in pack: the
 /// import lands in the custom folder and succeeds, but the built-in one shadows
 /// it in the list, so the imported pack never plays and the user cannot tell
-/// why. A built-in pack is not on disk under `base`, so an existence check
-/// alone can never see it.
+/// why. A built-in pack is not on disk under the install base, so an existence
+/// check alone can never see it.
+///
+/// Both callers ask this one function because they need the same answer: the
+/// dialog needs to tell the two cases apart for its own message, and the
+/// installer only needs to refuse. Two copies of these conditions would drift.
+fn soundpack_conflict_at(install_dir: &Path, folder_path: &str) -> Option<SoundpackConflict> {
+    if install_dir.exists() {
+        return Some(SoundpackConflict::AlreadyInstalled(install_dir.to_path_buf()));
+    }
+    if crate::state::paths::soundpacks::is_builtin_soundpack(folder_path) {
+        return Some(SoundpackConflict::ShadowsBuiltin {
+            folder_path: folder_path.to_string(),
+        });
+    }
+    None
+}
+
+/// What to tell the user when an import has to be refused.
+fn conflict_message(conflict: &SoundpackConflict, soundpack_id: &str) -> String {
+    match conflict {
+        SoundpackConflict::AlreadyInstalled(_) => already_installed_message(soundpack_id),
+        SoundpackConflict::ShadowsBuiltin { folder_path } => {
+            let builtin_id = folder_path.rsplit('/').next().unwrap_or(folder_path);
+            format!(
+                "The ID '{}' belongs to a sound pack that ships with MechvibesDX ({}).\nImporting it would install a pack that never plays.\nPlease use a different ID.",
+                builtin_id,
+                folder_path
+            )
+        }
+    }
+}
+
+/// The collision installing `file_path` would hit, or `None` when it is safe.
 pub fn check_soundpack_conflict(
     file_path: &str,
     target_type: Option<crate::state::soundpack::SoundpackType>,
     base: &Path
 ) -> Result<Option<SoundpackConflict>, String> {
     let install_dir = resolve_soundpack_install_dir(file_path, target_type, base)?;
-    if install_dir.exists() {
-        return Ok(Some(SoundpackConflict::AlreadyInstalled(install_dir)));
-    }
 
     let config = read_config_from_zip(file_path)?;
     let folder_path = format!(
@@ -199,11 +215,8 @@ pub fn check_soundpack_conflict(
         resolve_soundpack_type(&config, target_type),
         soundpack_id_from_config(&config)
     );
-    if crate::state::paths::soundpacks::is_builtin_soundpack(&folder_path) {
-        return Ok(Some(SoundpackConflict::ShadowsBuiltin { folder_path }));
-    }
 
-    Ok(None)
+    Ok(soundpack_conflict_at(&install_dir, &folder_path))
 }
 
 /// Extract and install soundpack from ZIP file with specified target type
@@ -217,6 +230,24 @@ pub struct SoundpackInfo {
 pub fn extract_and_install_soundpack_with_type(
     file_path: &str,
     target_type: Option<crate::state::soundpack::SoundpackType>
+) -> Result<SoundpackInfo, String> {
+    extract_and_install_into(
+        file_path,
+        target_type,
+        &crate::state::paths::soundpacks::get_custom_soundpacks_dir()
+    )
+}
+
+/// Extract and install into `soundpacks_dir`.
+///
+/// Split from the public entry point so the install path can be exercised
+/// against a scratch directory: what may be overwritten, and what has to be
+/// taken back out when an import fails, is only observable where the files are
+/// written, and the real data directory must not be the only place to see it.
+fn extract_and_install_into(
+    file_path: &str,
+    target_type: Option<crate::state::soundpack::SoundpackType>,
+    soundpacks_dir: &Path
 ) -> Result<SoundpackInfo, String> {
     // Open ZIP file
     let file = File::open(file_path).map_err(|e| format!("Failed to open ZIP file: {}", e))?;
@@ -277,19 +308,60 @@ pub fn extract_and_install_soundpack_with_type(
 
     // Determine installation directory using soundpack type and ID
     // Custom soundpacks go to system app data directory
-    let soundpacks_dir = crate::state::paths::soundpacks::get_custom_soundpacks_dir();
     let install_dir = soundpacks_dir.join(soundpack_type).join(&soundpack_id);
 
-    // Refuse before touching the filesystem: the dialog checks first for its own
-    // message, but a second caller would otherwise bring the silent overwrite
-    // of an installed pack back.
-    guard_install_dir_is_free(&install_dir, &soundpack_id)?;
+    // The key the scanner records for a pack, and the same string a built-in
+    // pack is registered under. The dialog asks this before anything is written
+    // so it can show its own message; asking it here as well is what covers
+    // every other caller, including the built-in collision, which no existence
+    // check can see.
+    let folder_path = format!("{}/{}", soundpack_type, soundpack_id);
+    if let Some(conflict) = soundpack_conflict_at(&install_dir, &folder_path) {
+        return Err(conflict_message(&conflict, &soundpack_id));
+    }
 
-    // Create installation directory
-    path
-        ::ensure_directory_exists(&install_dir)
-        .map_err(|e| format!("Failed to create soundpack directory: {}", e))?;
+    // Create the parent, then the leaf: the leaf's own creation is the step that
+    // settles the conflict, so an import that raced past the check above still
+    // cannot write into a folder it does not own.
+    if let Some(parent) = install_dir.parent() {
+        std::fs::create_dir_all(parent).map_err(|e|
+            format!("Failed to create soundpack directory: {}", e)
+        )?;
+    }
+    match std::fs::create_dir(&install_dir) {
+        Ok(()) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            return Err(already_installed_message(&soundpack_id));
+        }
+        Err(e) => return Err(format!("Failed to create soundpack directory: {}", e)),
+    }
 
+    // Everything below writes into a folder this call created, so a failure has
+    // to take it back out: a half-made folder would make the next import report
+    // "already exists" for a pack that never shows up in the list. Removing it
+    // is safe precisely because the checks above proved it was not there.
+    if let Err(error) = extract_files_into(&install_dir, file_path, &config) {
+        let _ = std::fs::remove_dir_all(&install_dir);
+        return Err(error);
+    }
+
+    // Stamp the arrival so the lists can sort by it and badge it as new. The
+    // key is `{type}/{id}`, the same folder_path the scanner records.
+    crate::state::config_writer::apply(|config| {
+        crate::state::soundpack_library::mark_added(&mut config.soundpack_added_at, &folder_path);
+    });
+
+    Ok(SoundpackInfo {
+        name: soundpack_name,
+        id: soundpack_id,
+    })
+}
+
+/// Write every file of `file_path` into `install_dir`, then the saved config.
+///
+/// Split out so the caller can take the folder back out when any part of it
+/// fails, instead of leaving a half-made pack behind.
+fn extract_files_into(install_dir: &Path, file_path: &str, config: &Value) -> Result<(), String> {
     // Extract all files
     let mut archive = ZipArchive::new(
         File::open(file_path).map_err(|e| format!("Failed to reopen ZIP: {}", e))?
@@ -299,10 +371,10 @@ pub fn extract_and_install_soundpack_with_type(
         let mut file = archive
             .by_index(i)
             .map_err(|e| format!("Failed to read archive entry: {}", e))?;
-        let file_path = file.name().to_string();
+        let entry_name = file.name().to_string();
 
         // Skip directories; place every file at the root of the install folder
-        let Some(filename) = entry_file_name(&file_path)? else {
+        let Some(filename) = entry_file_name(&entry_name)? else {
             continue;
         };
         let output_path = install_dir.join(filename);
@@ -319,23 +391,13 @@ pub fn extract_and_install_soundpack_with_type(
     // Write updated config.json with ID if it was generated
     let config_path = install_dir.join("config.json");
     let updated_config = serde_json
-        ::to_string_pretty(&config)
+        ::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize updated config: {}", e))?;
     std::fs
         ::write(&config_path, updated_config)
         .map_err(|e| format!("Failed to write updated config.json: {}", e))?;
 
-    // Stamp the arrival so the lists can sort by it and badge it as new. The
-    // key is `{type}/{id}`, the same folder_path the scanner records.
-    let folder_path = format!("{}/{}", soundpack_type, soundpack_id);
-    crate::state::config_writer::apply(|config| {
-        crate::state::soundpack_library::mark_added(&mut config.soundpack_added_at, &folder_path);
-    });
-
-    Ok(SoundpackInfo {
-        name: soundpack_name,
-        id: soundpack_id,
-    })
+    Ok(())
 }
 
 fn determine_soundpack_type(config: &serde_json::Value) -> bool {
@@ -483,20 +545,78 @@ mod tests {
     #[test]
     fn the_installer_refuses_a_destination_that_is_already_taken() {
         let base = scratch_dir();
+        let pack_zip = zip_with_config(&base, "pack.zip", MOUSE_CONFIG);
         let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
 
-        assert!(
-            guard_install_dir_is_free(&install_dir, "custom-sound-pack-77777732").is_ok(),
-            "a free destination must be allowed through"
-        );
-
         std::fs::create_dir_all(&install_dir).expect("existing pack dir");
-        let error = guard_install_dir_is_free(&install_dir, "custom-sound-pack-77777732")
-            .expect_err("an existing destination must be refused");
+        let error = extract_and_install_into(&pack_zip, None, &base).expect_err(
+            "an existing destination must be refused"
+        );
         assert!(
             error.contains("custom-sound-pack-77777732"),
             "the error must name the ID so the user can find the pack, got: {error}"
         );
+    }
+
+    #[test]
+    fn the_installer_refuses_an_id_a_builtin_pack_shadows() {
+        let base = scratch_dir();
+        // `mouse/ping` ships with the app, so the custom folder is free and an
+        // existence check alone lets the import through: the built-in pack then
+        // shadows the imported one in the list and the user cannot tell why.
+        let pack_zip = zip_with_config(
+            &base,
+            "pack.zip",
+            r#"{"id":"ping","type":"mouse","defs":{"MouseLeft":{"type":"single","file":"a.ogg"}}}"#
+        );
+
+        let error = extract_and_install_into(&pack_zip, None, &base).expect_err(
+            "an ID a built-in pack owns must be refused"
+        );
+        assert!(
+            error.contains("ping"),
+            "the error must name the pack it collided with, got: {error}"
+        );
+        assert!(
+            !base.join("mouse").join("ping").exists(),
+            "a refused import must not leave a folder behind"
+        );
+    }
+
+    #[test]
+    fn a_failed_extraction_takes_the_half_made_folder_back_out() {
+        let base = scratch_dir();
+        // A name the extractor refuses fails the import after the folder was
+        // created, which is what used to leave it behind: the next import then
+        // reported "already exists" for a pack that never appeared in the list.
+        let pack_zip = zip_with_a_refused_entry(&base, "pack.zip", MOUSE_CONFIG);
+        let install_dir = base.join("mouse").join("custom-sound-pack-77777732");
+
+        extract_and_install_into(&pack_zip, None, &base).expect_err(
+            "a refused entry name must fail the import"
+        );
+        assert!(
+            !install_dir.exists(),
+            "the folder this import created must be removed when it fails"
+        );
+    }
+
+    /// A ZIP with a valid config plus one entry the extractor refuses, so the
+    /// import fails after the install folder has been created.
+    fn zip_with_a_refused_entry(dir: &Path, name: &str, config: &str) -> String {
+        let zip_path = dir.join(name);
+        let file = File::create(&zip_path).expect("zip file");
+        let mut writer = zip::ZipWriter::new(file);
+        writer
+            .start_file("config.json", zip::write::SimpleFileOptions::default())
+            .expect("start config entry");
+        writer.write_all(config.as_bytes()).expect("write config");
+        writer
+            .start_file("C:evil.dll", zip::write::SimpleFileOptions::default())
+            .expect("start refused entry");
+        writer.write_all(b"x").expect("write refused entry");
+        writer.finish().expect("finish zip");
+        zip_path.to_string_lossy().to_string()
     }
 
     #[test]
