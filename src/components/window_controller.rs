@@ -119,9 +119,12 @@ pub fn WindowController() -> Element {
     // titlebar or after an update install. Releasing it here covers every one of
     // those paths.
     //
-    // The explicit release in the Exit item stays: exit goes through
-    // `std::process::exit`, which runs no destructors, so this hook never gets
-    // the chance to run on that path.
+    // The explicit release in the Exit item stays as well, so that path
+    // releases the icon before the window closes rather than after; the second
+    // attempt finds nothing left to release.
+    //
+    // Hiding the window does not reach this: the component stays mounted, which
+    // is what keeps the tray available to bring the window back.
     use_drop(|| {
         drop(take_tray());
     });
@@ -239,11 +242,11 @@ pub fn WindowController() -> Element {
                     }
                     TrayMessage::Exit => {
                         crate::always_print!("📢 Tray: Exit requested - closing application");
-                        // The tray lives in a thread-local and exit goes through
-                        // `std::process::exit`, which runs no destructors, so
-                        // the icon would be left to the OS. Dropping it here
-                        // removes it from the notification area first, which is
-                        // what Windows needs to not keep a ghost icon.
+                        // The tray lives in a thread-local. Dropping it here
+                        // removes it from the notification area before the
+                        // window closes, which is what Windows needs to not
+                        // keep a ghost icon; the release on teardown would
+                        // otherwise only happen once the window is gone.
                         drop(take_tray());
                         // Close the window which will trigger app exit
                         window_clone.close();
@@ -334,7 +337,7 @@ mod tests {
         );
         assert!(
             runtime.contains("TrayMessage::Exit"),
-            "the tray's own Exit item must keep its release: exit goes through process::exit, which runs no destructors"
+            "the tray's own Exit item must keep its release, which takes the icon out before the window closes"
         );
     }
 
