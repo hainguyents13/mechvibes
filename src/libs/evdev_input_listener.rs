@@ -1,14 +1,9 @@
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use crossbeam_channel::Sender;
-
-// One definition for every source: the engine owns the window and throttles
-// with it again on the way in.
-#[cfg(target_os = "linux")]
-use crate::libs::audio::engine::WHEEL_DEBOUNCE_MS;
 
 #[cfg(target_os = "linux")]
 pub fn start_evdev_keyboard_listener(
@@ -83,10 +78,6 @@ pub fn start_evdev_keyboard_listener(
 
         let mut event_count = 0;
         let mut first_event_logged = false;
-
-        // One timestamp for the whole listener, shared across devices, so a
-        // scroll on one pointer cannot bypass the limit applied to another.
-        let mut last_wheel: Option<Instant> = None;
 
         // Monitor all keyboards in a loop
         loop {
@@ -180,22 +171,15 @@ pub fn start_evdev_keyboard_listener(
                                 }
                             } else if event.event_type() == EventType::RELATIVE {
                                 // Vertical scrolls arrive as REL_WHEEL axis
-                                // deltas, not key events. They have no release
-                                // counterpart, so the limit lives here rather
-                                // than in a press/release state machine.
+                                // deltas, not key events, and have no release
+                                // counterpart. The engine rate-limits them,
+                                // because it is the last gate every source
+                                // passes through; a second limit here would use
+                                // its own timestamp and drop a scroll the engine
+                                // would have played.
                                 if event.code() == RelativeAxisCode::REL_WHEEL.0 {
                                     if let Some(wheel_code) = map_wheel_delta(event.value()) {
-                                        let now = Instant::now();
-                                        let allowed = match last_wheel {
-                                            Some(previous) =>
-                                                now.duration_since(previous) >
-                                                Duration::from_millis(WHEEL_DEBOUNCE_MS),
-                                            None => true,
-                                        };
-                                        if allowed {
-                                            last_wheel = Some(now);
-                                            let _ = mouse_tx.send(wheel_code.to_string());
-                                        }
+                                        let _ = mouse_tx.send(wheel_code.to_string());
                                     }
                                 }
                             }

@@ -13,12 +13,12 @@ const EVICT_RAMP_MS: u64 = 10;
 const MAX_VOICES: usize = 32;
 
 /// Wheel scrolls have no release event and can repeat much faster than a human
-/// clicks, so the engine rate-limits them as impulses. This is the single
-/// definition of that window: the Wayland listener throttles with the same
-/// value before the event reaches the engine, and the engine throttles again
-/// because it is the last gate every source passes through. Nothing else uses
-/// it today - the X11 listener reports no wheel events, because the rdev branch
-/// that would do it is commented out.
+/// clicks, so the engine rate-limits them as impulses. This is the only place
+/// that window is applied: the Wayland listener forwards every wheel delta and
+/// lets the engine decide, because a second limit in the listener would use its
+/// own timestamp and drop a scroll the engine would have played. Nothing else
+/// uses it today - the X11 listener reports no wheel events, because the rdev
+/// branch that would do it is commented out.
 pub(crate) const WHEEL_DEBOUNCE_MS: u64 = 120;
 
 /// (samples, channels, sample_rate) for a decoded/resampled audio buffer.
