@@ -110,6 +110,22 @@ pub fn WindowController() -> Element {
         }
     });
 
+    // Release the tray when this component goes away.
+    //
+    // The tray lives in a thread-local, so nothing in the virtual DOM owns it
+    // any more and closing the window is not enough to release it. Only the
+    // tray's own Exit item used to, which left the icon behind in the
+    // notification area on Windows whenever the window was closed from the
+    // titlebar or after an update install. Releasing it here covers every one of
+    // those paths.
+    //
+    // The explicit release in the Exit item stays: exit goes through
+    // `std::process::exit`, which runs no destructors, so this hook never gets
+    // the chance to run on that path.
+    use_drop(|| {
+        drop(take_tray());
+    });
+
     // Use effect to listen for both window actions and tray events
     use_effect(move || {
         let window_clone = window.clone();
@@ -268,8 +284,10 @@ pub fn WindowController() -> Element {
 
         // Windows and macOS keep the async timer they always had. Windows never
         // unmaps the window, so the runtime keeps polling. macOS does unmap it
-        // (see #113), but its tray menu items are handled by AppKit on the main
-        // thread now, so a click no longer depends on this loop being polled.
+        // (see #113), and only some of its tray items are handled by AppKit on
+        // the main thread: Show and the two permission items. Mute, Exit and
+        // the two links still wait for this loop to be polled, so on macOS they
+        // keep exactly the dependency the Linux driver above exists to remove.
         #[cfg(not(target_os = "linux"))]
         {
             spawn(async move {
@@ -289,6 +307,37 @@ pub fn WindowController() -> Element {
 
 #[cfg(test)]
 mod tests {
+    /// The tray release, checked against the source that ships.
+    ///
+    /// The tray lives in a thread-local, so the virtual DOM no longer owns it:
+    /// closing the window from the titlebar, or after an update install, goes
+    /// through the window's own close rather than through the tray's Exit item.
+    /// Losing the release on the way out leaves the icon behind in the
+    /// notification area on Windows, and no other test can see that.
+    #[test]
+    fn the_window_releases_the_tray_when_it_goes_away() {
+        const SOURCE: &str = include_str!("window_controller.rs");
+        let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes the tests");
+
+        let release_hook = runtime
+            .split("use_drop(")
+            .nth(1)
+            .expect(
+                "the window must release the tray when the component goes away, which is what covers closing from the titlebar and closing after an update install"
+            )
+            .split("});")
+            .next()
+            .expect("the release hook must be closed");
+        assert!(
+            release_hook.contains("take_tray()"),
+            "the release hook must drop the tray the thread-local holds"
+        );
+        assert!(
+            runtime.contains("TrayMessage::Exit"),
+            "the tray's own Exit item must keep its release: exit goes through process::exit, which runs no destructors"
+        );
+    }
+
     /// The tray loop's driver on Linux, checked against the source that ships.
     ///
     /// The failure this guards is invisible to every other test: the Dioxus
