@@ -322,10 +322,10 @@ mod tests {
     use evdev::KeyCode;
 
     /// Pointer buttons ride the keyboard event path, so their translation has
-    /// to land on the exact codes `map_button_to_code` emits: the soundpack
-    /// configs key off those strings, not off evdev's BTN_* names.
+    /// to land on the names the soundpack configs key off, which are the ones
+    /// the Windows listener publishes, not off evdev's BTN_* names.
     #[test]
-    fn pointer_buttons_map_to_the_same_codes_rdev_produces() {
+    fn pointer_buttons_map_to_the_names_the_soundpacks_use() {
         let cases = [
             (KeyCode::BTN_LEFT, "MouseLeft"),
             (KeyCode::BTN_RIGHT, "MouseRight"),
