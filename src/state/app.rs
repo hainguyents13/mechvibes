@@ -44,6 +44,14 @@ impl AppState {
 // Global state instance
 static GLOBAL_APP_STATE: OnceCell<Mutex<AppState>> = OnceCell::new();
 
+/// The cached soundpack list, for code outside components (the tray menu).
+pub fn soundpacks() -> Vec<crate::state::soundpack::SoundpackMetadata> {
+    GLOBAL_APP_STATE.get()
+        .and_then(|state| state.lock().ok())
+        .map(|state| state.get_soundpacks())
+        .unwrap_or_default()
+}
+
 // Simple hook for read-only access
 pub fn use_app_state() -> AppState {
     let update_signal: Signal<u32> = use_context();

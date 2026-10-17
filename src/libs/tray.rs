@@ -1,19 +1,33 @@
 use tray_icon::{
     Icon,
-    menu::{ CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, MenuId },
+    menu::{ CheckMenuItem, Menu, MenuEvent, MenuItem, PredefinedMenuItem, MenuId, Submenu },
     TrayIcon,
     TrayIconBuilder,
     TrayIconEvent,
 };
+use crate::components::soundpack_selector::SelectorType;
+use crate::state::soundpack::{ SoundpackMetadata, SoundpackType };
 use crate::utils::constants::APP_NAME;
+use std::cell::RefCell;
 use std::sync::Mutex;
 use std::time::Instant;
 
 // Track last click time for double-click detection
 static LAST_CLICK_TIME: Mutex<Option<Instant>> = Mutex::new(None);
 
-// Embed the icon at compile time for cross-platform reliability
+// Embed the icon at compile time for cross-platform reliability.
+//
+// macOS gets a black-on-transparent keycap drawn for the menu bar and shown as
+// a template image, so the system tints it to match a light or dark menu bar.
+// Elsewhere that would be invisible on a dark taskbar, so they keep the logo.
+#[cfg(target_os = "macos")]
+const EMBEDDED_ICON: &[u8] = include_bytes!("../../assets/tray-icon-macos.png");
+#[cfg(target_os = "macos")]
+const EMBEDDED_ICON_FORMAT: image::ImageFormat = image::ImageFormat::Png;
+#[cfg(not(target_os = "macos"))]
 const EMBEDDED_ICON: &[u8] = include_bytes!("../../assets/icon.ico");
+#[cfg(not(target_os = "macos"))]
+const EMBEDDED_ICON_FORMAT: image::ImageFormat = image::ImageFormat::Ico;
 
 /// Alpha multiplier applied to the normal icon to produce the muted variant.
 /// Low enough to read as clearly "off" at 16x16 tray size, high enough that the
@@ -24,9 +38,136 @@ pub enum TrayMessage {
     Show,
     Exit,
     ToggleMute,
-    OpenGitHub,
-    OpenDiscord,
-    OpenWebsite,
+}
+
+const TOGGLE_KEYBOARD_ID: &str = "toggle_keyboard";
+const TOGGLE_MOUSE_ID: &str = "toggle_mouse";
+/// Soundpack lines are `<prefix><folder_path>`, the same value the config stores.
+const KEYBOARD_PACK_PREFIX: &str = "keyboard_pack:";
+const MOUSE_PACK_PREFIX: &str = "mouse_pack:";
+
+/// One input's lines in the tray menu: an on/off check, then a submenu listing
+/// its soundpacks with the selected one checked.
+struct SoundSection {
+    toggle: CheckMenuItem,
+    packs_menu: Submenu,
+    /// (folder_path, item) per pack.
+    packs: Vec<(String, CheckMenuItem)>,
+}
+
+impl SoundSection {
+    // ponytail: the pack list is read once when the tray is built, so a pack
+    // imported later shows up here after a restart. Rebuild the submenu in
+    // `sync` if that matters.
+    fn new(
+        all_packs: &[SoundpackMetadata],
+        kind: SoundpackType,
+        label: &'static str,
+        toggle_id: &str,
+        prefix: &str
+    ) -> Result<Self, Box<dyn std::error::Error>> {
+        let toggle = CheckMenuItem::with_id(
+            MenuId::new(toggle_id),
+            format!("{} sounds", label),
+            true,
+            false,
+            None
+        );
+        let packs_menu = Submenu::new(format!("{} pack", label), true);
+
+        let mut of_kind: Vec<_> = all_packs
+            .iter()
+            .filter(|pack| pack.soundpack_type == kind)
+            .collect();
+        of_kind.sort_by_key(|pack| pack.name.to_lowercase());
+
+        let mut packs = Vec::new();
+        for pack in of_kind {
+            let item = CheckMenuItem::with_id(
+                MenuId::new(format!("{}{}", prefix, pack.folder_path)),
+                &pack.name,
+                true,
+                false,
+                None
+            );
+            packs_menu.append(&item)?;
+            packs.push((pack.folder_path.clone(), item));
+        }
+
+        Ok(Self { toggle, packs_menu, packs })
+    }
+
+    /// Sets every check from the config. Also undoes the check the menu
+    /// itself toggles on click, so clicking the selected pack keeps it checked.
+    fn sync(&self, enabled: bool, current_pack: &str) {
+        self.toggle.set_checked(enabled);
+        for (folder_path, item) in &self.packs {
+            item.set_checked(folder_path == current_pack);
+        }
+    }
+}
+
+thread_local! {
+    /// The keyboard and mouse sections. Main thread only: the tray is built
+    /// there, and AppKit delivers menu actions there, which is what lets the
+    /// macOS handler update them while the web view (and the tray loop in it)
+    /// is frozen.
+    static SOUND_SECTIONS: RefCell<Option<(SoundSection, SoundSection)>> = const {
+        RefCell::new(None)
+    };
+}
+
+fn sync_sound_sections() {
+    let config = crate::state::config_writer::current();
+    SOUND_SECTIONS.with_borrow(|sections| {
+        if let Some((keyboard, mouse)) = sections {
+            keyboard.sync(config.enable_keyboard_sound, &config.keyboard_soundpack);
+            mouse.sync(config.enable_mouse_sound, &config.mouse_soundpack);
+        }
+    });
+}
+
+fn is_sound_action(id: &str) -> bool {
+    id == TOGGLE_KEYBOARD_ID ||
+        id == TOGGLE_MOUSE_ID ||
+        id.starts_with(KEYBOARD_PACK_PREFIX) ||
+        id.starts_with(MOUSE_PACK_PREFIX)
+}
+
+/// Acts on a line of the keyboard or mouse section. Returns whether `id` was one.
+///
+/// Talks to the audio engine and the config writer directly rather than going
+/// through the web view, so it works while the window is hidden. The window
+/// picks the change up from the config writer like any other.
+fn apply_sound_action(id: &str) -> bool {
+    use crate::components::soundpack_selector::set_soundpack;
+    use crate::libs::audio::{ load_keyboard_soundpack, load_mouse_soundpack, AudioContext };
+
+    if !is_sound_action(id) {
+        return false;
+    }
+    let audio = AudioContext::new();
+    let result = if id == TOGGLE_KEYBOARD_ID {
+        audio.set_keyboard_sound_enabled(!audio.is_keyboard_sound_enabled());
+        Ok(())
+    } else if id == TOGGLE_MOUSE_ID {
+        audio.set_mouse_sound_enabled(!audio.is_mouse_sound_enabled());
+        Ok(())
+    } else if let Some(pack) = id.strip_prefix(KEYBOARD_PACK_PREFIX) {
+        crate::state::config_writer::apply(|config| set_soundpack(config, SelectorType::Keyboard, pack));
+        load_keyboard_soundpack(&audio, pack)
+    } else if let Some(pack) = id.strip_prefix(MOUSE_PACK_PREFIX) {
+        crate::state::config_writer::apply(|config| set_soundpack(config, SelectorType::Mouse, pack));
+        load_mouse_soundpack(&audio, pack)
+    } else {
+        Ok(())
+    };
+    if let Err(e) = result {
+        crate::always_eprint!("❌ Tray menu: {}", e);
+    }
+    crate::always_print!("🎛️ Tray menu: {}", id);
+    sync_sound_sections();
+    true
 }
 
 /// The two macOS permission lines in the tray menu.
@@ -115,7 +256,7 @@ impl TrayIcons {
     fn load() -> Result<Self, Box<dyn std::error::Error>> {
         let img = image::load_from_memory_with_format(
             EMBEDDED_ICON,
-            image::ImageFormat::Ico
+            EMBEDDED_ICON_FORMAT
         ).map_err(|e| {
             crate::always_eprint!("❌ Failed to load embedded tray icon data: {}", e);
             std::io::Error::new(
@@ -175,6 +316,7 @@ fn handling(id: &str) -> Handling {
     match id {
         "show" => Handling::NowAndQueue,
         "perm_accessibility" | "perm_input_monitoring" => Handling::NowOnly,
+        id if is_sound_action(id) => Handling::NowOnly,
         _ => Handling::QueueOnly,
     }
 }
@@ -233,7 +375,9 @@ fn install_menu_event_handler() {
                         crate::always_print!("🔐 Tray menu: Grant Input Monitoring clicked");
                         crate::libs::permissions::open_input_monitoring_settings();
                     }
-                    _ => {}
+                    id => {
+                        apply_sound_action(id);
+                    }
                 },
                 |event| {
                     let _ = sender.send(event);
@@ -292,21 +436,24 @@ impl TrayManager {
         );
         let separator2 = PredefinedMenuItem::separator();
 
-        // External links section
-        let github_item = MenuItem::with_id(MenuId::new("github"), "GitHub Repository", true, None);
-        let discord_item = MenuItem::with_id(
-            MenuId::new("discord"),
-            "Discord Community",
-            true,
-            None
-        );
-        let website_item = MenuItem::with_id(
-            MenuId::new("website"),
-            "Official Website",
-            true,
-            None
-        );
-        let separator = PredefinedMenuItem::separator();
+        // Keyboard and mouse: each can be muted on its own, and has its
+        // soundpack picker.
+        let all_packs = crate::state::app::soundpacks();
+        let keyboard = SoundSection::new(
+            &all_packs,
+            SoundpackType::Keyboard,
+            "Keyboard",
+            TOGGLE_KEYBOARD_ID,
+            KEYBOARD_PACK_PREFIX
+        )?;
+        let mouse = SoundSection::new(
+            &all_packs,
+            SoundpackType::Mouse,
+            "Mouse",
+            TOGGLE_MOUSE_ID,
+            MOUSE_PACK_PREFIX
+        )?;
+        let separator3 = PredefinedMenuItem::separator();
 
         let exit_item = MenuItem::with_id(MenuId::new("exit"), "Exit", true, None);
 
@@ -317,19 +464,22 @@ impl TrayManager {
                 &separator1,
                 &mute_item,
                 &separator2,
-                &github_item,
-                &discord_item,
-                &website_item,
-                &separator,
+                &keyboard.toggle,
+                &keyboard.packs_menu,
+                &mouse.toggle,
+                &mouse.packs_menu,
+                &separator3,
                 &exit_item,
             ]
         )?;
+        SOUND_SECTIONS.set(Some((keyboard, mouse)));
+        sync_sound_sections();
 
         // macOS: show whether Accessibility and Input Monitoring are granted,
-        // just after the mute item and its separator. Inserted rather than listed
-        // above so the menu on Windows and Linux is built exactly as before, and
-        // placed relative to the mute item so it stays right if items are added
-        // above it.
+        // just after the sound sections and their separator. Inserted rather
+        // than listed above so the menu on Windows and Linux is built without
+        // them, and placed relative to that separator so it stays right if
+        // items are added above it.
         #[cfg(target_os = "macos")]
         {
             use crate::libs::permissions::{ self, ACCESSIBILITY_TAG, INPUT_MONITORING_TAG };
@@ -339,12 +489,12 @@ impl TrayManager {
             let status = permissions::current();
             let items = PermissionItems::new(status, ns_menu);
 
-            let mute_position = menu
+            let separator_position = menu
                 .items()
                 .iter()
-                .position(|item| item.id() == mute_item.id())
-                .ok_or("the mute item is missing from the tray menu")?;
-            let first = mute_position + 2; // after the mute item and its separator
+                .position(|item| item.id() == separator3.id())
+                .ok_or("the sound sections' separator is missing from the tray menu")?;
+            let first = separator_position + 1;
             menu.insert(&items.accessibility, first)?;
             menu.insert(&items.input_monitoring, first + 1)?;
             menu.insert(&PredefinedMenuItem::separator(), first + 2)?;
@@ -380,6 +530,7 @@ impl TrayManager {
             .with_menu(Box::new(menu))
             .with_tooltip(APP_NAME)
             .with_icon(icons.for_sound_enabled(!muted))
+            .with_icon_as_template(cfg!(target_os = "macos"))
             .build()?;
 
         Ok(TrayManager {
@@ -402,6 +553,11 @@ impl TrayManager {
         // fixed, only the checkmark moves.
         self.mute_item.set_checked(!enabled);
         self.tray_icon.set_icon(Some(self.icons.for_sound_enabled(enabled)))?;
+        // tray-icon 0.14's `set_icon` on macOS always clears the template flag,
+        // which left the black icon invisible on a dark menu bar after muting.
+        #[cfg(target_os = "macos")]
+        self.tray_icon.set_icon_as_template(true);
+        sync_sound_sections();
 
         crate::always_print!("🔄 Tray updated: sounds {}", if enabled { "on" } else { "muted" });
 
@@ -459,22 +615,13 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
                 crate::always_print!("🔇 Tray menu: Toggle Mute clicked");
                 return Some(TrayMessage::ToggleMute);
             }
-            "github" => {
-                crate::always_print!("🐙 Tray menu: GitHub Repository clicked");
-                return Some(TrayMessage::OpenGitHub);
-            }
-            "discord" => {
-                crate::always_print!("💬 Tray menu: Discord Community clicked");
-                return Some(TrayMessage::OpenDiscord);
-            }
-            "website" => {
-                crate::always_print!("🌐 Tray menu: Official Website clicked");
-                return Some(TrayMessage::OpenWebsite);
-            }
             "exit" => {
                 crate::always_print!("❌ Tray menu: Exit clicked");
                 return Some(TrayMessage::Exit);
             }
+            // Windows and Linux: the keyboard and mouse lines arrive here.
+            // macOS already acted on them in its handler and never queues them.
+            id if apply_sound_action(id) => {}
             _ => {
                 crate::always_print!("❓ Tray menu: Unknown menu item: {}", event.id.0);
             }
@@ -515,9 +662,27 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn other_menu_items_are_only_queued() {
-        for id in ["toggle_mute", "github", "discord", "website", "exit"] {
+        for id in ["toggle_mute", "exit"] {
             assert_eq!(route(id), (false, vec![id]), "{id} must reach the tray loop unchanged");
         }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn sound_lines_are_acted_on_at_once_and_not_queued() {
+        // They must work while the window is hidden and the tray loop is
+        // frozen, and queuing them too would toggle twice.
+        for id in ["toggle_keyboard", "toggle_mouse", "keyboard_pack:keyboard/eg-oreo", "mouse_pack:mouse/ping"] {
+            assert_eq!(route(id), (true, vec![]), "{id}");
+        }
+    }
+
+    #[test]
+    fn only_sound_lines_count_as_sound_actions() {
+        assert!(is_sound_action("keyboard_pack:keyboard/Some Pack"));
+        assert!(is_sound_action("mouse_pack:mouse/ping"));
+        assert!(!is_sound_action("toggle_mute"));
+        assert!(!is_sound_action("show"));
     }
 
     #[test]

@@ -32,6 +32,24 @@ pub fn SoundpackSelector(props: SoundpackSelectorProps) -> Element {
     }
 }
 
+/// Records `pack_id` as the chosen keyboard or mouse soundpack. Shared by the
+/// dropdown list, the randomize button and the tray menu.
+pub fn set_soundpack(config: &mut AppConfig, soundpack_type: SelectorType, pack_id: &str) {
+    // Selecting a pack is what clears its New badge. Doing it here, the one
+    // path every selector goes through, is what makes the badge disappear
+    // everywhere at once.
+    crate::state::soundpack_library::mark_seen(&mut config.soundpacks_seen, pack_id);
+
+    match soundpack_type {
+        SelectorType::Keyboard => {
+            config.keyboard_soundpack = pack_id.to_string();
+        }
+        SelectorType::Mouse => {
+            config.mouse_soundpack = pack_id.to_string();
+        }
+    }
+}
+
 /// Persists the chosen soundpack to config, then loads it into the audio
 /// engine asynchronously. Shared by the dropdown list and the randomize button.
 fn activate_soundpack(
@@ -44,26 +62,7 @@ fn activate_soundpack(
 ) {
     error.set(String::new());
     let pack_id_config = pack_id.clone();
-    update_config(
-        Box::new(move |config| {
-            // Selecting a pack is what clears its New badge. Doing it here,
-            // the one path both the dropdown and the randomize button go
-            // through, is what makes the badge disappear everywhere at once.
-            crate::state::soundpack_library::mark_seen(
-                &mut config.soundpacks_seen,
-                &pack_id_config
-            );
-
-            match soundpack_type {
-                SelectorType::Keyboard => {
-                    config.keyboard_soundpack = pack_id_config;
-                }
-                SelectorType::Mouse => {
-                    config.mouse_soundpack = pack_id_config;
-                }
-            }
-        })
-    );
+    update_config(Box::new(move |config| set_soundpack(config, soundpack_type, &pack_id_config)));
     spawn(async move {
         is_loading.set(true);
         Delay::new(Duration::from_millis(1)).await;

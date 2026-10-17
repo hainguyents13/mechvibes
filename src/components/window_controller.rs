@@ -98,7 +98,15 @@ pub fn WindowController() -> Element {
         let update_config = update_config.clone();
 
         spawn(async move {
+            let mut seen_config_generation = crate::state::config_writer::generation();
             loop {
+                // Keep the tray's keyboard/mouse checks and packs in step with
+                // changes made in the window (or anywhere else).
+                let generation = crate::state::config_writer::generation();
+                if generation != seen_config_generation {
+                    seen_config_generation = generation;
+                    TRAY_UPDATE_SERVICE.request_update();
+                }
                 // Handle window actions from internal sources
                 if let Some(receiver) = window_action_receiver.read().as_ref() {
                     if let Ok(action) = receiver.try_recv() {
@@ -164,30 +172,6 @@ pub fn WindowController() -> Element {
                                     }
                                 }
                             });
-                        }
-                        TrayMessage::OpenGitHub => {
-                            let url = "https://github.com/hainguyents13/mechvibes-dx";
-                            if let Err(e) = open::that(url) {
-                                always_eprint!("❌ Failed to open GitHub URL: {}", e);
-                            } else {
-                                debug_print!("🐙 Opened GitHub repository in browser");
-                            }
-                        }
-                        TrayMessage::OpenDiscord => {
-                            let url = "https://discord.com/invite/MMVrhWxa4w";
-                            if let Err(e) = open::that(url) {
-                                crate::always_eprint!("❌ Failed to open Discord URL: {}", e);
-                            } else {
-                                crate::always_print!("💬 Opened Discord community in browser");
-                            }
-                        }
-                        TrayMessage::OpenWebsite => {
-                            let url = "https://mechvibes.com";
-                            if let Err(e) = open::that(url) {
-                                crate::always_eprint!("❌ Failed to open website URL: {}", e);
-                            } else {
-                                crate::always_print!("🌐 Opened official website in browser");
-                            }
                         }
                         TrayMessage::Exit => {
                             crate::always_print!("📢 Tray: Exit requested - closing application");

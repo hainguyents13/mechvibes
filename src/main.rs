@@ -301,6 +301,19 @@ fn main() {
         .with_window(window_builder)
         .with_menu(None);
 
+    // macOS: run as a menu bar app (no Dock icon, not in Cmd+Tab), like
+    // Caffeine. The tray icon is the way back to the window. tao applies the
+    // policy when the app finishes launching, so it has to be set on the event
+    // loop here rather than on NSApp afterwards.
+    #[cfg(target_os = "macos")]
+    let config = {
+        use dioxus::desktop::tao::event_loop::EventLoopBuilder;
+        use dioxus::desktop::tao::platform::macos::{ ActivationPolicy, EventLoopExtMacOS };
+        let mut event_loop = EventLoopBuilder::with_user_event().build();
+        event_loop.set_activation_policy(ActivationPolicy::Accessory);
+        config.with_event_loop(event_loop)
+    };
+
     // Launch the app with our config
     dioxus::LaunchBuilder::desktop().with_cfg(config).launch(app_with_stylesheets)
 }
