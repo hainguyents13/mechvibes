@@ -1,11 +1,12 @@
 use crate::{
     components::ui::{ ImportStep, ProgressStep },
-    state::app::{ use_app_state, use_state_trigger },
+    state::app::use_state_trigger,
     utils::delay,
     utils::soundpack_installer::{
-        check_soundpack_id_conflict,
+        check_soundpack_conflict,
         extract_and_install_soundpack_with_type,
         get_soundpack_id_from_zip,
+        SoundpackConflict,
     },
     utils::soundpack_validator::{ validate_soundpack_structure, validate_zip_file },
 };
@@ -33,8 +34,6 @@ pub fn SoundpackImportModal(
     let file_selected_message = use_signal(|| String::new());
     let installation_success_message = use_signal(|| String::new());
     let finalization_success_message = use_signal(|| String::new());
-    // Get app state outside the handler
-    let app_state = use_app_state();
     let state_trigger = use_state_trigger();
 
     // Reset function to clear all states
@@ -71,7 +70,6 @@ pub fn SoundpackImportModal(
     }; // File import handler
     let handle_import_click = {
         let audio_ctx = audio_ctx.clone();
-        let app_state = app_state.clone();
         let state_trigger = state_trigger.clone();
         let reset_modal = reset_modal.clone();
         let target_soundpack_type = target_soundpack_type.clone(); // Clone for closure
@@ -84,7 +82,6 @@ pub fn SoundpackImportModal(
         let is_loading = is_loading.clone();
         move |_| {
             let audio_ctx = audio_ctx.clone();
-            let app_state = app_state.clone();
             let on_import_success = on_import_success.clone();
             let state_trigger = state_trigger.clone();
             let reset_modal = reset_modal.clone();
@@ -176,15 +173,45 @@ pub fn SoundpackImportModal(
                 current_step.set(ImportStep::CheckingConflicts);
                 delay::Delay::ms(500).await;
 
-                // Get current soundpacks from app state
-                let soundpacks = app_state.get_soundpacks();
-                if check_soundpack_id_conflict(&soundpack_id, &soundpacks) {
-                    error_step.set(ImportStep::CheckingConflicts);
-                    error_message.set(
-                        format!("A sound pack with ID '{}' already exists.\nPlease remove the existing sound pack and try again.", soundpack_id)
-                    );
-                    is_loading.set(false);
-                    return; // Stop import process on conflict
+                // Resolve the exact directory the install would write to and
+                // refuse the import if a pack already lives there. Previously
+                // this compared a raw ID against prefixed ones and never fired.
+                // A built-in pack is a conflict too, even though its folder is
+                // free: the built-in one would hide the imported pack.
+                let soundpacks_dir =
+                    crate::state::paths::soundpacks::get_custom_soundpacks_dir();
+                match
+                    check_soundpack_conflict(
+                        &file_path,
+                        target_soundpack_type,
+                        &soundpacks_dir
+                    )
+                {
+                    Ok(Some(SoundpackConflict::AlreadyInstalled(_))) => {
+                        error_step.set(ImportStep::CheckingConflicts);
+                        error_message.set(
+                            format!("A sound pack with ID '{}' already exists.\nPlease remove the existing sound pack and try again.", soundpack_id)
+                        );
+                        is_loading.set(false);
+                        return; // Stop import process on conflict
+                    }
+                    Ok(Some(SoundpackConflict::ShadowsBuiltin { folder_path })) => {
+                        // Pointing at the existing pack would be a dead end here:
+                        // a built-in pack cannot be removed by the user.
+                        error_step.set(ImportStep::CheckingConflicts);
+                        error_message.set(
+                            format!("'{}' is the ID of a built-in sound pack, so the built-in one would hide the pack you are importing.\nEdit the pack's config.json to use a different ID and try again.", folder_path)
+                        );
+                        is_loading.set(false);
+                        return; // Stop import process on conflict
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        error_step.set(ImportStep::Validating);
+                        error_message.set(format!("Failed to read soundpack ID: {}", e));
+                        is_loading.set(false);
+                        return; // Stop import process on ID reading error
+                    }
                 }
 
                 // ==============================================
