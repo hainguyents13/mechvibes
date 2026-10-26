@@ -191,8 +191,12 @@ pub fn start_evdev_keyboard_listener(
 /// `BTN_*` codes.
 ///
 /// Deliberately separate from `map_evdev_keycode`: these are not keys. The
-/// strings returned must stay identical to the ones `map_button_to_code`
-/// produces for rdev's buttons, because soundpack configs key off them.
+/// strings returned follow the names the Windows Raw Input listener produces
+/// for the buttons it can report, which is what the soundpack configs were
+/// written against. rdev on X11 is not the reference: there the side buttons
+/// arrive as unknown codes, so Back comes through as `Mouse8` and Forward is
+/// dropped. Mice with more buttons than Raw Input can report keep going in the
+/// same series.
 #[cfg(target_os = "linux")]
 fn map_evdev_mouse_button(key: evdev::KeyCode) -> Option<&'static str> {
     use evdev::KeyCode;
@@ -319,10 +323,11 @@ mod tests {
     use evdev::KeyCode;
 
     /// Pointer buttons ride the keyboard event path, so their translation has
-    /// to land on the exact codes `map_button_to_code` emits: the soundpack
-    /// configs key off those strings, not off evdev's BTN_* names.
+    /// to land on the names the soundpack configs key off. The first five are
+    /// the ones the Windows listener publishes; the rest continue that series
+    /// for mice with more buttons than it can report.
     #[test]
-    fn pointer_buttons_map_to_the_same_codes_rdev_produces() {
+    fn pointer_buttons_map_to_the_names_the_soundpacks_use() {
         let cases = [
             (KeyCode::BTN_LEFT, "MouseLeft"),
             (KeyCode::BTN_RIGHT, "MouseRight"),
