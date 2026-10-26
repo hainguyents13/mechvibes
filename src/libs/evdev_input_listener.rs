@@ -15,7 +15,7 @@ pub fn start_evdev_keyboard_listener(
 ) {
     crate::always_print!("🔍 [evdev] start_evdev_keyboard_listener() called - spawning thread");
     thread::spawn(move || {
-        use evdev::{Device, EventType, KeyCode};
+        use evdev::{Device, EventType, KeyCode, RelativeAxisCode};
 
         crate::always_print!("🔍 [evdev] Thread started - initializing keyboard listener");
         crate::always_print!("🔍 [evdev] Current user: {:?}", std::env::var("USER"));
@@ -169,6 +169,19 @@ pub fn start_evdev_keyboard_listener(
                                         // Ignore key repeat (value == 2)
                                     }
                                 }
+                            } else if event.event_type() == EventType::RELATIVE {
+                                // Vertical scrolls arrive as REL_WHEEL axis
+                                // deltas, not key events, and have no release
+                                // counterpart. The engine rate-limits them,
+                                // because it is the last gate every source
+                                // passes through; a second limit here would use
+                                // its own timestamp and drop a scroll the engine
+                                // would have played.
+                                if event.code() == RelativeAxisCode::REL_WHEEL.0 {
+                                    if let Some(wheel_code) = map_wheel_delta(event.value()) {
+                                        let _ = mouse_tx.send(wheel_code.to_string());
+                                    }
+                                }
                             }
                         }
                     }
@@ -185,6 +198,23 @@ pub fn start_evdev_keyboard_listener(
             thread::sleep(Duration::from_millis(10));
         }
     });
+}
+
+/// Translates a `REL_WHEEL` axis delta into a wheel button code.
+///
+/// Positive is up (away from the user) and negative is down, per the kernel's
+/// `REL_WHEEL` convention; a zero delta carries no direction and is ignored.
+/// The strings are the ones the soundpacks use for these two scrolls, so a
+/// different spelling here would leave them silent until every pack was updated.
+#[cfg(target_os = "linux")]
+fn map_wheel_delta(value: i32) -> Option<&'static str> {
+    if value > 0 {
+        Some("MouseWheelUp")
+    } else if value < 0 {
+        Some("MouseWheelDown")
+    } else {
+        None
+    }
 }
 
 /// Translates the pointer buttons that arrive as `EventType::KEY` events with
@@ -321,6 +351,17 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
 mod tests {
     use super::*;
     use evdev::KeyCode;
+
+    /// REL_WHEEL deltas must land on the wheel codes the soundpacks define;
+    /// positive is up, negative is down, and zero is a no-op, never a sound.
+    #[test]
+    fn relative_wheel_deltas_map_to_the_wheel_codes() {
+        assert_eq!(map_wheel_delta(1), Some("MouseWheelUp"));
+        assert_eq!(map_wheel_delta(3), Some("MouseWheelUp"));
+        assert_eq!(map_wheel_delta(-1), Some("MouseWheelDown"));
+        assert_eq!(map_wheel_delta(-3), Some("MouseWheelDown"));
+        assert_eq!(map_wheel_delta(0), None);
+    }
 
     /// Pointer buttons ride the keyboard event path, so their translation has
     /// to land on the names the soundpack configs key off. The first five are

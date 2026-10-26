@@ -204,16 +204,60 @@ NumpadDecimal, NumpadEnter
 
 ### Mouse Keys
 
-Use these for mouse soundpacks (indicated by including them in `definitions`):
-```
-MouseLeft
-MouseRight
-MouseMiddle (if supported)
-Wheel*     (e.g., WheelUp, WheelDown - prefix for wheel events)
-Button*    (e.g., Button4, Button5 - extra mouse buttons)
+The engine understands these exact code strings, but which of them the app can
+actually capture depends on the platform:
+
+| Code | Emitted when | Captured on |
+|------|--------------|-------------|
+| `MouseLeft` | Left button press/release | Everywhere |
+| `MouseRight` | Right button press/release | Everywhere |
+| `MouseMiddle` | Middle (wheel) button press/release | Windows, Linux |
+| `MouseWheelUp` | Wheel scrolled up | Linux under Wayland |
+| `MouseWheelDown` | Wheel scrolled down | Linux under Wayland |
+| `Mouse4` | First extra button (usually Back) | Windows, and Linux under Wayland |
+| `Mouse5` | Second extra button (usually Forward) | Windows, and Linux under Wayland |
+| `Mouse6`, `Mouse7` | Further extra buttons, on mice that have them | Linux under Wayland |
+| `Mouse8` | Third extra button; on X11, the Back button | Linux |
+
+Three limits are worth knowing before you build a pack around these codes:
+
+- **macOS reports the left and right buttons only.** The other codes never reach
+  the engine there, whatever the pack defines.
+- **On X11 the extra buttons do not arrive as `Mouse4` or `Mouse5`.** rdev reads
+  X11 buttons 4 to 7 as wheel axes, so the side buttons reach it as unknown
+  codes: Back is reported as `Mouse8` and Forward is dropped. The `Mouse4` and
+  `Mouse5` pair comes from Wayland only.
+- **The wheel is Linux under Wayland only.** The Windows Raw Input listener maps
+  buttons only, and on X11 and macOS the rdev branch that would report the wheel
+  is commented out, so none of those platforms forward it: on macOS rdev does see
+  the wheel, the app just does not act on it. Touchpad scrolling is not covered
+  either: two-finger scrolling is synthesized by the compositor and produces no
+  `REL_WHEEL` delta, so it makes no sound.
+
+**A mouse code a pack does not define produces no sound.** The app deliberately
+does not substitute another sound: a wheel that sounds like the left click is
+worse than silence. So a pack that wants wheel, wheel-click or extra-button
+sounds has to define them; a pack that defines only `MouseLeft`/`MouseRight`
+simply stays silent for the rest.
+
+Define a mouse sound by adding its timing entry to `definitions`:
+
+```json
+"definitions": {
+  "MouseLeft": { "timing": [[0, 100], [100, 200]] },
+  "MouseRight": { "timing": [[200, 300], [300, 400]] },
+  "MouseMiddle": { "timing": [[400, 500], [500, 600]] },
+  "MouseWheelUp": { "timing": [[600, 700]] }
+}
 ```
 
-The app auto-detects mouse packs by checking if key names start with `Mouse`, `Button`, or `Wheel`.
+Wheel codes are impulses: a scroll has no release event, so a single
+`[start, end]` pair is enough. The app rate-limits wheel sounds to one per
+120 ms, so a fast scroll cannot machine-gun the sound. Up and down share that
+limit.
+
+The app auto-detects mouse packs by checking if key names start with `Mouse`,
+`Button`, or `Wheel`.
 
 ---
 

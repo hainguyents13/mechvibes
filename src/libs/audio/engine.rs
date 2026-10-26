@@ -3,7 +3,7 @@ use rodio::buffer::SamplesBuffer;
 use rodio::{ OutputStream, OutputStreamHandle, Sink };
 use std::collections::HashMap;
 use std::sync::{ Arc, OnceLock };
-use std::time::Duration;
+use std::time::{ Duration, Instant };
 
 use crate::libs::device_manager::DeviceManager;
 
@@ -11,6 +11,15 @@ const FADE_IN_MS: f32 = 2.0;
 const FADE_OUT_MS: f32 = 5.0;
 const EVICT_RAMP_MS: u64 = 10;
 const MAX_VOICES: usize = 32;
+
+/// Wheel scrolls have no release event and can repeat much faster than a human
+/// clicks, so the engine rate-limits them as impulses. This is the only place
+/// that window is applied: the Wayland listener forwards every wheel delta and
+/// lets the engine decide, because a second limit in the listener would use its
+/// own timestamp and drop a scroll the engine would have played. Nothing else
+/// uses it today - the X11 listener reports no wheel events, because the rdev
+/// branch that would do it is commented out.
+pub(crate) const WHEEL_DEBOUNCE_MS: u64 = 120;
 
 /// (samples, channels, sample_rate) for a decoded/resampled audio buffer.
 type DecodedAudio = (Arc<Vec<f32>>, u16, u32);
@@ -131,6 +140,11 @@ pub(super) struct EngineState {
 
     key_pressed: HashMap<String, bool>,
     mouse_pressed: HashMap<String, bool>,
+    /// Shared last-fire time for both wheel directions. The wheel is an
+    /// impulse with no release, so it is rate-limited here instead of being
+    /// tracked in `mouse_pressed` (one timestamp means a fast up/down wobble
+    /// cannot fire twice).
+    last_wheel: Option<Instant>,
     pub(super) key_sinks: Vec<Sink>,
     pub(super) mouse_sinks: Vec<Sink>,
 
@@ -200,6 +214,7 @@ impl EngineState {
             mouse_map: HashMap::new(),
             key_pressed: HashMap::new(),
             mouse_pressed: HashMap::new(),
+            last_wheel: None,
             key_sinks: Vec::new(),
             mouse_sinks: Vec::new(),
             volume: config.volume,
@@ -234,7 +249,14 @@ impl EngineState {
         if !should_play(self.sound_enabled, self.mouse_sound_enabled) {
             return;
         }
-        if !debounce_press(&mut self.mouse_pressed, code, down) {
+        let now = Instant::now();
+        if !mouse_event_is_playable(
+            &mut self.mouse_pressed,
+            &mut self.last_wheel,
+            code,
+            down,
+            now
+        ) {
             return;
         }
         if let Some((start, end)) = lookup_timing(&self.mouse_map, code, down) {
@@ -296,6 +318,45 @@ impl EngineState {
 /// while the UI shows muted - the mute-button bug this guards against.
 fn should_play(sound_enabled: bool, type_enabled: bool) -> bool {
     sound_enabled && type_enabled
+}
+
+/// True for the impulse mouse codes - the vertical wheel. These have no
+/// release event and so must not go through `debounce_press`: with nothing to
+/// clear it, the first scroll would latch `pressed["MouseWheelUp"] = true` and
+/// every later scroll would be dropped for the rest of the session.
+fn is_wheel_code(code: &str) -> bool {
+    code.starts_with("MouseWheel")
+}
+
+/// Caps wheel sounds at one per `WHEEL_DEBOUNCE_MS`. One timestamp is shared
+/// by both directions so a fast up/down wobble cannot fire two sounds.
+/// Returns `true` when the event is allowed through, recording `now`.
+fn allow_wheel_impulse(last_wheel: &mut Option<Instant>, now: Instant) -> bool {
+    if let Some(previous) = *last_wheel {
+        if now.duration_since(previous) < Duration::from_millis(WHEEL_DEBOUNCE_MS) {
+            return false;
+        }
+    }
+    *last_wheel = Some(now);
+    true
+}
+
+/// Gate for a mouse event. Wheel impulses take their own rate limit and never
+/// touch the press/release map; every other button keeps `debounce_press`.
+/// Split out of `handle_mouse_event` so the gating is testable without an
+/// audio device.
+fn mouse_event_is_playable(
+    pressed: &mut HashMap<String, bool>,
+    last_wheel: &mut Option<Instant>,
+    code: &str,
+    down: bool,
+    now: Instant
+) -> bool {
+    if is_wheel_code(code) {
+        allow_wheel_impulse(last_wheel, now)
+    } else {
+        debounce_press(pressed, code, down)
+    }
 }
 
 /// Marks `code` pressed/released, returning `false` if this event should be
@@ -763,5 +824,179 @@ mod tests {
         assert!(!mouse_sound_enabled);
         assert!(!should_play(sound_enabled, keyboard_sound_enabled));
         assert!(!should_play(sound_enabled, mouse_sound_enabled));
+    }
+
+    #[test]
+    fn two_wheel_events_inside_the_limit_play_once() {
+        // Fast scrolling must not machine-gun the sound: the engine keeps a
+        // single 120 ms window for the wheel.
+        let mut pressed = HashMap::new();
+        let mut last_wheel = None;
+        let t0 = Instant::now();
+
+        assert!(mouse_event_is_playable(&mut pressed, &mut last_wheel, "MouseWheelUp", true, t0));
+        assert!(
+            !mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseWheelUp",
+                true,
+                t0 + Duration::from_millis(WHEEL_DEBOUNCE_MS - 1)
+            ),
+            "a second scroll inside the wheel window must be dropped"
+        );
+    }
+
+    #[test]
+    fn a_wheel_event_after_the_limit_plays_again() {
+        let mut pressed = HashMap::new();
+        let mut last_wheel = None;
+        let t0 = Instant::now();
+
+        assert!(mouse_event_is_playable(&mut pressed, &mut last_wheel, "MouseWheelDown", true, t0));
+        assert!(
+            mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseWheelDown",
+                true,
+                t0 + Duration::from_millis(WHEEL_DEBOUNCE_MS)
+            ),
+            "a scroll at the limit must play"
+        );
+    }
+
+    #[test]
+    fn the_wheel_timestamp_is_shared_by_both_directions() {
+        // One timestamp for both directions, so a quick up/down wobble cannot
+        // produce two sounds inside the same window.
+        let mut pressed = HashMap::new();
+        let mut last_wheel = None;
+        let t0 = Instant::now();
+
+        assert!(mouse_event_is_playable(&mut pressed, &mut last_wheel, "MouseWheelUp", true, t0));
+        assert!(
+            !mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseWheelDown",
+                true,
+                t0 + Duration::from_millis(50)
+            ),
+            "an up/down wobble must not fire twice"
+        );
+    }
+
+    #[test]
+    fn a_wheel_code_never_enters_the_press_release_map() {
+        // The issue #43 regression: `debounce_press` latches the first scroll
+        // as a press and, with no release event to clear it, rejects every
+        // later scroll forever. The wheel must bypass that map entirely.
+        let mut pressed = HashMap::new();
+        let mut last_wheel = None;
+        let t0 = Instant::now();
+
+        assert!(mouse_event_is_playable(&mut pressed, &mut last_wheel, "MouseWheelUp", true, t0));
+        assert!(
+            !pressed.contains_key("MouseWheelUp"),
+            "wheel impulse must not leave a latched press behind"
+        );
+        assert!(
+            mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseWheelUp",
+                true,
+                t0 + Duration::from_millis(WHEEL_DEBOUNCE_MS + 1)
+            ),
+            "a later scroll must still play"
+        );
+        assert!(!pressed.contains_key("MouseWheelUp"));
+    }
+
+    #[test]
+    fn regular_mouse_buttons_keep_their_press_release_gating() {
+        // The wheel bypass must not weaken normal buttons: a repeat down with
+        // no release in between is still rejected, exactly as before.
+        let mut pressed = HashMap::new();
+        let mut last_wheel = None;
+        let t0 = Instant::now();
+
+        assert!(mouse_event_is_playable(&mut pressed, &mut last_wheel, "MouseLeft", true, t0));
+        assert!(
+            !mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseLeft",
+                true,
+                t0 + Duration::from_secs(1)
+            )
+        );
+        assert!(
+            mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseLeft",
+                false,
+                t0 + Duration::from_secs(2)
+            )
+        );
+        assert!(
+            mouse_event_is_playable(
+                &mut pressed,
+                &mut last_wheel,
+                "MouseLeft",
+                true,
+                t0 + Duration::from_secs(3)
+            )
+        );
+    }
+
+    /// Builds a mouse timing map from literal `[start, end]` pairs.
+    fn mouse_map(entries: &[(&str, Vec<[f32; 2]>)]) -> HashMap<String, Vec<[f32; 2]>> {
+        entries.iter().map(|(code, timing)| (code.to_string(), timing.clone())).collect()
+    }
+
+    #[test]
+    fn undefined_mouse_codes_stay_silent() {
+        // Every real pack defines only the two primary buttons, and the engine
+        // deliberately does not substitute another sound for a code a pack
+        // leaves undefined. The wheel, the wheel click and the extra buttons
+        // resolve to nothing - silent, no panic.
+        let map = mouse_map(&[
+            ("MouseLeft", vec![[10.0, 20.0], [30.0, 40.0]]),
+            ("MouseRight", vec![[50.0, 60.0], [70.0, 80.0]]),
+        ]);
+
+        for code in ["MouseMiddle", "MouseWheelUp", "MouseWheelDown", "Mouse4", "Mouse5"] {
+            assert_eq!(lookup_timing(&map, code, true), None, "{code} press");
+            assert_eq!(lookup_timing(&map, code, false), None, "{code} release");
+        }
+    }
+
+    #[test]
+    fn defined_mouse_codes_use_their_own_timing() {
+        // A pack that wants wheel, wheel-click or extra-button sounds has to
+        // define them. When it does, the engine uses exactly those windows,
+        // press and release included.
+        let map = mouse_map(&[
+            ("MouseMiddle", vec![[50.0, 60.0], [70.0, 80.0]]),
+            ("MouseWheelUp", vec![[90.0, 100.0]]),
+        ]);
+
+        assert_eq!(lookup_timing(&map, "MouseMiddle", true), Some((50.0, 60.0)));
+        assert_eq!(lookup_timing(&map, "MouseMiddle", false), Some((70.0, 80.0)));
+        assert_eq!(lookup_timing(&map, "MouseWheelUp", true), Some((90.0, 100.0)));
+    }
+
+    #[test]
+    fn an_undefined_keyboard_key_stays_silent() {
+        // An undefined keyboard key has never borrowed a mouse click, and the
+        // mouse codes are no longer special-cased either: it resolves to
+        // nothing.
+        let map = mouse_map(&[("MouseLeft", vec![[10.0, 20.0]])]);
+
+        assert_eq!(lookup_timing(&map, "KeyA", true), None);
+        assert_eq!(lookup_timing(&map, "KeyA", false), None);
     }
 }
