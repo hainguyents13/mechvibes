@@ -211,15 +211,17 @@ M<TAB>{device_id}<TAB>{code}<TAB>down|up    # mouse
 
 **Key files:** `input_worker.rs:89-119` (injection filter), `rawinput_listener.rs`, `input_worker_host.rs`, `single_instance.rs`.
 
-#### Linux: evdev + X11/Wayland (In-Process)
+#### Linux: evdev on Wayland, rdev + device_query on X11 (In-Process)
 
-**Default (X11):** `rdev` (global hook) + `device_query` (physical device tracking) in `input_listener.rs`.  
-**Wayland:** Also `rdev` (supported as of wayland-protocols).  
-**Fallback:** If user disables evdev or is on X11, uses rdev in-process.
+`bootstrap.rs` picks the listeners from `XDG_SESSION_TYPE`:
 
-**Per-device (X11 only):** `evdev_input_listener.rs` reads from `/dev/input/event*` directly if user adds themselves to the `input` group.
+**Wayland:** `evdev_input_listener.rs` reads `/dev/input/event*` directly, so it needs the user in the `input` group. It reports keys, the Ctrl+Alt+M hotkey, mouse buttons (`BTN_*`) and the wheel (`REL_WHEEL`), whether or not the app window has focus. `rdev` still runs for the mouse, but stays silent once evdev has opened a device with `BTN_LEFT` (`evdev_pointer_active`), so a click is never played twice.
 
-**Key file:** `input_listener.rs`, `focused_input_listener.rs` (falls back to polling on focus change), `evdev_input_listener.rs`.
+**X11:** `rdev` (XRecord) in `input_listener.rs` reports keys while the app is unfocused, plus mouse buttons and the hotkey; `device_query` in `focused_input_listener.rs` reports keys while it is focused. Neither opens `/dev/input`, so X11 works without the `input` group. The wheel is not reported on X11.
+
+No package grants `/dev/input` access (see `deployment-guide.md`), and there is no in-app warning yet when the devices can't be read (#124).
+
+**Key files:** `bootstrap.rs`, `evdev_input_listener.rs`, `input_listener.rs`, `focused_input_listener.rs`.
 
 #### macOS: rdev + device_query (In-Process)
 
