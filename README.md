@@ -92,7 +92,7 @@ Old V1 soundpacks (e.g., from the original Mechvibes) are auto-detected on impor
   sudo usermod -a -G input $USER
   # Log out and log back in for the group change to take effect
   ```
-- **Wayland**: rdev (the input listener) supports Wayland as of recent versions; X11 is also fully supported.
+- **X11 and Wayland**: input is read directly from the kernel's evdev devices (`/dev/input/event*`), not through Xlib/XRecord, so it behaves the same on both, works while the app window is focused, and needs no X server. Keyboards plugged in while the app is running are picked up automatically.
 - **AppImage notes**: The `.AppImage` mounts read-only; writable state goes to `~/.local/share/mechvibes`. No FUSE required to run.
 
 ### macOS
