@@ -1,9 +1,18 @@
 # Codebase Summary — MechvibesDX
 
-**Last Updated:** 2026-08-03 · **Language:** Rust (1.88+) + Dioxus 0.7.10  
-**Build:** `cargo build --release` (Windows); CI via GitHub Actions  
-**Platform targets:** Windows (primary), Linux (X11/Wayland), macOS  
-**Current version:** v0.7.0 (device watchdog removed, input injection filter added, trace facility enabled)
+**Last Updated:** 2026-10-28 · **Language:** Rust (1.88+) + Dioxus 0.7.10
+**Build:** `cargo build --release` (Windows); CI via GitHub Actions
+**Platform targets:** Windows (primary), Linux (X11/Wayland), macOS
+**Current version:** v0.8.x development branch; Linux input now prefers evdev and falls back to X11 rdev/device_query only when startup cannot open event nodes.
+
+## Recent Linux Input Update
+
+The Linux path now does one startup check and chooses exactly one listener source:
+
+- `evdev_input_listener` is preferred on Linux when `/dev/input/event*` can be opened, because it reads directly from the kernel without depending on X or window focus.
+- On X11 only, if the evdev nodes cannot be opened at startup (for example due to input-group permission issues), the app falls back to the older `start_unified_input_listener + start_focused_keyboard_listener` pair once, so it does not play the same input twice.
+- The evdev reader handles `KEY` events, pointer buttons, and `REL_WHEEL` deltas, and clears stuck modifier state when a device disappears so a stale Ctrl does not leak into later hotkeys.
+- This keeps the Linux input design consistent across X11 and Wayland while preserving the legacy X11 fallback as a safety net instead of a second active source.
 
 ## Directory Tree & Module Organization
 

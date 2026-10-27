@@ -1,11 +1,21 @@
 # System Architecture — MechvibesDX
 
-**Last Updated:** 2026-08-03 · **Version:** 0.7.0  
-**Status:** Reflects actual codebase post-Phase 3 (audio engine thread), Phase 6 (Windows input worker process), and Phase 7 (device watchdog removal, input injection filter, trace facility).
+**Last Updated:** 2026-10-28 · **Version:** 0.8.x development branch
+**Status:** Reflects the current Linux path: direct evdev capture is preferred, with an explicit X11 startup fallback to the legacy rdev/device_query pair when event nodes are unreadable.
 
 ## Overview
 
 MechvibesDX is a mechanical keyboard sound simulator (Rust + Dioxus 0.7 desktop). The system captures keyboard and mouse input across three platforms (Windows, Linux, macOS), plays synthesized sounds via audio output, and provides a customizable UI with soundpack/theme management.
+
+### Linux input model (current)
+
+The Linux startup path now decides once, before listener threads begin, which input source is authoritative:
+
+- If `/dev/input/event*` is readable, `evdev_input_listener` starts and handles the entire Linux input path. This is intentionally focus-independent and works the same on X11 and Wayland.
+- If evdev cannot open any event node at startup, and the process is on X11, the app starts the older `start_unified_input_listener + start_focused_keyboard_listener` pair instead. This is a compatibility fallback only, not a second active source.
+- The evdev path maps wheel deltas (`REL_WHEEL`) to `MouseWheelUp` / `MouseWheelDown`, routes mouse button events to the same names the soundpacks already use, and resets held modifiers when a device disappears so stale Ctrl/Alt state does not leak into later input.
+
+This change keeps the project on a single consistent Linux input source for normal operation while preserving the older X11 path as a permission-safe fallback.
 
 The architecture prioritizes:
 1. **Low-latency audio**: Dedicated engine thread owns `OutputStream` (non-`Send` type) exclusively.
