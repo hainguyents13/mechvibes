@@ -1,201 +1,360 @@
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+//! Linux input capture straight from the kernel's evdev nodes (`/dev/input/event*`).
+//!
+//! This is the only Linux input path: it needs no X server, so it behaves the
+//! same on X11, Wayland and a bare VT, and it reports keys and pointer buttons
+//! whether or not the app window has focus. That is why Linux has no
+//! focused/unfocused listener pair like macOS does - XRecord (what rdev uses
+//! on X11) cannot see keys while a GTK/WebKit window holds the keyboard, evdev
+//! can.
+//!
+//! The thread opens every readable event node that reports keys or buttons,
+//! polls them without blocking, and rescans `/dev/input` every few seconds so
+//! devices plugged in after startup are picked up and unplugged ones dropped.
 
 #[cfg(target_os = "linux")]
 use crossbeam_channel::Sender;
-
 #[cfg(target_os = "linux")]
-pub fn start_evdev_keyboard_listener(
+use std::collections::HashSet;
+#[cfg(target_os = "linux")]
+use std::os::fd::AsRawFd;
+#[cfg(target_os = "linux")]
+use std::path::PathBuf;
+#[cfg(target_os = "linux")]
+use std::thread;
+#[cfg(target_os = "linux")]
+use std::time::{ Duration, Instant };
+
+/// Where the kernel exposes input devices.
+#[cfg(target_os = "linux")]
+const INPUT_DIR: &str = "/dev/input";
+
+/// How often `/dev/input` is rescanned for devices that appeared or vanished.
+#[cfg(target_os = "linux")]
+const RESCAN_INTERVAL: Duration = Duration::from_secs(2);
+
+/// Idle sleep between polling passes. Devices are non-blocking, so this is the
+/// worst-case added latency before a keystroke is noticed.
+#[cfg(target_os = "linux")]
+const POLL_INTERVAL: Duration = Duration::from_millis(10);
+
+/// Turns raw evdev `KEY` events into the strings the audio engine expects, and
+/// owns the cross-device hotkey state (Ctrl+Alt+M).
+///
+/// Kept separate from the device plumbing so the routing rules can be tested
+/// without any hardware.
+#[cfg(target_os = "linux")]
+struct EventRouter {
     keyboard_tx: Sender<String>,
     mouse_tx: Sender<String>,
     hotkey_tx: Sender<String>,
-    _is_focused: Arc<Mutex<bool>>,
-    pointer_capture_active: Arc<std::sync::atomic::AtomicBool>,
+    ctrl_pressed: bool,
+    alt_pressed: bool,
+}
+
+#[cfg(target_os = "linux")]
+impl EventRouter {
+    fn new(keyboard_tx: Sender<String>, mouse_tx: Sender<String>, hotkey_tx: Sender<String>) -> Self {
+        Self {
+            keyboard_tx,
+            mouse_tx,
+            hotkey_tx,
+            ctrl_pressed: false,
+            alt_pressed: false,
+        }
+    }
+
+    /// Clears any currently held modifier that came from a device that just
+    /// vanished. That keeps a stale Ctrl from turning a later Alt+M into a
+    /// sound toggle even though the hardware is gone.
+    fn release_held_modifiers(&mut self) {
+        if self.ctrl_pressed {
+            let _ = self.keyboard_tx.send("UP:ControlLeft".to_string());
+            self.ctrl_pressed = false;
+        }
+        if self.alt_pressed {
+            let _ = self.keyboard_tx.send("UP:AltLeft".to_string());
+            self.alt_pressed = false;
+        }
+    }
+
+    /// Routes one `EventType::KEY` event. `value` is 1 for press, 0 for
+    /// release and 2 for auto-repeat, which is ignored.
+    fn handle_key_event(&mut self, code: u16, value: i32) {
+        // Mouse buttons arrive as KEY events carrying BTN_* codes, on the same
+        // devices and path as keystrokes. They are translated first so they
+        // never also travel the keyboard table.
+        if let Some(button_code) = map_evdev_mouse_button(evdev::KeyCode(code)) {
+            match value {
+                1 => {
+                    let _ = self.mouse_tx.send(button_code.to_string());
+                }
+                0 => {
+                    let _ = self.mouse_tx.send(format!("UP:{}", button_code));
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        let key_code = map_evdev_keycode(evdev::KeyCode(code));
+        if key_code.is_empty() {
+            return;
+        }
+
+        match value {
+            1 => {
+                match key_code {
+                    "ControlLeft" | "ControlRight" => {
+                        self.ctrl_pressed = true;
+                    }
+                    "AltLeft" | "AltRight" => {
+                        self.alt_pressed = true;
+                    }
+                    "KeyM" if self.ctrl_pressed && self.alt_pressed => {
+                        crate::always_print!("🔥 [evdev] Hotkey detected: Ctrl+Alt+M - Toggling global sound");
+                        let _ = self.hotkey_tx.send("TOGGLE_SOUND".to_string());
+                        // Not a regular key event.
+                        return;
+                    }
+                    _ => {}
+                }
+                let _ = self.keyboard_tx.send(key_code.to_string());
+            }
+            0 => {
+                match key_code {
+                    "ControlLeft" | "ControlRight" => {
+                        self.ctrl_pressed = false;
+                    }
+                    "AltLeft" | "AltRight" => {
+                        self.alt_pressed = false;
+                    }
+                    _ => {}
+                }
+                let _ = self.keyboard_tx.send(format!("UP:{}", key_code));
+            }
+            // Auto-repeat (value == 2) is not a new keystroke.
+            _ => {}
+        }
+    }
+}
+
+/// An opened, non-blocking evdev node.
+#[cfg(target_os = "linux")]
+struct OpenDevice {
+    path: PathBuf,
+    device: evdev::Device,
+}
+
+/// Which `/dev/input/event*` nodes have been dealt with, so a rescan only
+/// touches new ones.
+#[cfg(target_os = "linux")]
+#[derive(Default)]
+struct DeviceScanState {
+    /// Nodes that were opened, or opened and found to carry no keys/buttons.
+    seen: HashSet<PathBuf>,
+    /// Nodes whose open failed and was already reported, to log each once.
+    warned: HashSet<PathBuf>,
+    /// Set once an unreadable `/dev/input` has been reported, cleared when it
+    /// becomes readable again.
+    dir_error_logged: bool,
+}
+
+/// Lists the `event*` nodes currently under `/dev/input`.
+#[cfg(target_os = "linux")]
+fn list_event_nodes() -> std::io::Result<HashSet<PathBuf>> {
+    let mut nodes = HashSet::new();
+    for entry in std::fs::read_dir(INPUT_DIR)? {
+        let entry = entry?;
+        let is_event_node = entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with("event"));
+        if is_event_node {
+            nodes.insert(entry.path());
+        }
+    }
+    Ok(nodes)
+}
+
+/// Opens every node not seen before and appends the ones that report keys or
+/// buttons to `devices`. Returns how many were added.
+///
+/// A node that fails to open is not marked seen, so it is retried on the next
+/// scan: udev creates a node before it applies the `input` group permissions,
+/// so a hot-plugged keyboard is usually unreadable for a moment.
+#[cfg(target_os = "linux")]
+fn scan_devices(state: &mut DeviceScanState, devices: &mut Vec<OpenDevice>) -> usize {
+    let nodes = match list_event_nodes() {
+        Ok(nodes) => nodes,
+        Err(error) => {
+            if !state.dir_error_logged {
+                state.dir_error_logged = true;
+                crate::always_eprint!("❌ [evdev] Cannot read {}: {}", INPUT_DIR, error);
+            }
+            return 0;
+        }
+    };
+    state.dir_error_logged = false;
+
+    // Forget nodes that went away, so the same path is picked up again if the
+    // device is plugged back in.
+    state.seen.retain(|path| nodes.contains(path));
+    state.warned.retain(|path| nodes.contains(path));
+
+    let mut added = 0;
+    let mut fresh: Vec<PathBuf> = nodes.into_iter().filter(|path| !state.seen.contains(path)).collect();
+    fresh.sort();
+
+    for path in fresh {
+        match evdev::Device::open(&path) {
+            Ok(mut device) => {
+                state.warned.remove(&path);
+
+                // Keyboards and mice both report keys/buttons; anything else
+                // (accelerometers, lid switches) has nothing to play a sound for.
+                if device.supported_keys().is_none() {
+                    state.seen.insert(path.clone());
+                    continue;
+                }
+
+                // Non-blocking so one idle device never stalls the others. If
+                // this fails, leave the node unmarked so the next scan can retry.
+                if let Err(error) = device.set_nonblocking(true) {
+                    crate::always_eprint!("⚠️ [evdev] Failed to set non-blocking mode for {:?}: {}", path.display(), error);
+                    continue;
+                }
+
+                state.seen.insert(path.clone());
+                crate::always_print!(
+                    "🔍 [evdev] Opened input device {:?} - {}",
+                    path.display(),
+                    device.name().unwrap_or("Unknown")
+                );
+                devices.push(OpenDevice { path, device });
+                added += 1;
+            }
+            Err(error) => {
+                if state.warned.insert(path.clone()) {
+                    crate::always_eprint!("⚠️ [evdev] Cannot open {:?}: {}", path.display(), error);
+                }
+            }
+        }
+    }
+
+    added
+}
+
+/// Starts reading keyboard and pointer-button events from `/dev/input`.
+///
+/// Returns immediately; the reader runs on its own thread for the life of the
+/// process. Needs read access to the event nodes, i.e. membership in the
+/// `input` group.
+#[cfg(target_os = "linux")]
+pub fn start_evdev_input_listener(
+    keyboard_tx: Sender<String>,
+    mouse_tx: Sender<String>,
+    hotkey_tx: Sender<String>
 ) {
-    crate::always_print!("🔍 [evdev] start_evdev_keyboard_listener() called - spawning thread");
+    crate::always_print!("🔍 [evdev] start_evdev_input_listener() called - spawning thread");
     thread::spawn(move || {
-        use evdev::{Device, EventType, KeyCode, RelativeAxisCode};
+        crate::always_print!("🔍 [evdev] Starting Linux input listener (reads /dev/input directly, X11 and Wayland)");
 
-        crate::always_print!("🔍 [evdev] Thread started - initializing keyboard listener");
-        crate::always_print!("🔍 [evdev] Current user: {:?}", std::env::var("USER"));
-        crate::always_print!("🔍 [evdev] Starting Linux keyboard listener (Wayland/X11 compatible)");
+        let mut router = EventRouter::new(keyboard_tx, mouse_tx, hotkey_tx);
+        let mut state = DeviceScanState::default();
+        let mut devices: Vec<OpenDevice> = Vec::new();
 
-        // Track modifier keys for hotkey detection
-        let mut ctrl_pressed = false;
-        let mut alt_pressed = false;
-
-        // Find all keyboard devices
-        let mut keyboards = Vec::new();
-
-        crate::always_print!("🔍 [evdev] Enumerating input devices...");
-        let devices: Vec<_> = evdev::enumerate().collect();
-        let device_count = devices.len();
-        crate::always_print!("🔍 [evdev] Found {} total input devices", device_count);
-
-        if device_count == 0 {
-            crate::always_eprint!("❌ [evdev] No devices found - cannot access /dev/input/event* devices");
+        scan_devices(&mut state, &mut devices);
+        if devices.is_empty() {
+            crate::always_eprint!("❌ [evdev] No readable keyboard devices found under {}", INPUT_DIR);
             crate::always_eprint!("💡 [evdev] Troubleshooting steps:");
             crate::always_eprint!("   1. Check if you're in the 'input' group: groups $USER");
             crate::always_eprint!("   2. Add yourself to input group: sudo usermod -a -G input $USER");
             crate::always_eprint!("   3. Log out and log back in for group changes to take effect");
             crate::always_eprint!("   4. Check /dev/input permissions: ls -la /dev/input/event*");
-            return;
+            crate::always_eprint!("   Still watching for devices that appear later.");
+        } else {
+            crate::always_print!("✅ [evdev] Successfully initialized {} input device(s)", devices.len());
         }
 
-        for (path, mut device) in devices {
-            // Check if device has keyboard capabilities
-            if device.supported_keys().is_some() {
-                crate::always_print!("🔍 [evdev] Found keyboard device: {:?} - {}", path.display(), device.name().unwrap_or("Unknown"));
-
-                // A device advertising BTN_LEFT is where pointer clicks come
-                // from, so evdev now covers the mouse and the rdev mouse path
-                // must stay silent to avoid reporting the same click twice.
-                if device.supported_keys().is_some_and(|keys| keys.contains(KeyCode::BTN_LEFT)) {
-                    crate::always_print!("🖱️ [evdev] Pointer buttons available on {:?} - gating the rdev mouse path", path.display());
-                    pointer_capture_active.store(true, std::sync::atomic::Ordering::Relaxed);
-                }
-
-                // Set device to non-blocking mode to prevent blocking on idle devices
-                if let Err(e) = device.set_nonblocking(true) {
-                    crate::always_eprint!("⚠️ [evdev] Failed to set non-blocking mode for {:?}: {}", path.display(), e);
-                }
-
-                keyboards.push(device);
-            } else {
-                crate::always_print!("🔍 [evdev] Skipping non-keyboard device: {:?}", path.display());
-            }
-        }
-
-        if keyboards.is_empty() {
-            crate::always_eprint!("❌ [evdev] No keyboard devices found among the {} input devices!", device_count);
-            crate::always_eprint!("💡 [evdev] This might indicate a permission issue or unusual hardware setup");
-            return;
-        }
-
-        crate::always_print!("✅ [evdev] Successfully initialized {} keyboard device(s)", keyboards.len());
-        crate::always_print!("🔍 [evdev] Starting event monitoring loop...");
-
-        let mut event_count = 0;
         let mut first_event_logged = false;
+        let mut last_scan = Instant::now();
 
-        // Monitor all keyboards in a loop
         loop {
-            for device in &mut keyboards {
-                // Fetch events (non-blocking)
-                match device.fetch_events() {
+            if last_scan.elapsed() >= RESCAN_INTERVAL {
+                last_scan = Instant::now();
+                let added = scan_devices(&mut state, &mut devices);
+                if added > 0 {
+                    crate::always_print!("🔍 [evdev] {} new input device(s), {} total", added, devices.len());
+                }
+            }
+
+            let mut gone: Vec<usize> = Vec::new();
+
+            for (index, open) in devices.iter_mut().enumerate() {
+                match open.device.fetch_events() {
                     Ok(events) => {
                         for event in events {
-                            if event.event_type() == EventType::KEY {
-                                event_count += 1;
+                            if event.event_type() == evdev::EventType::KEY {
                                 if !first_event_logged {
                                     crate::always_print!("✅ [evdev] First keyboard event detected!");
                                     first_event_logged = true;
                                 }
-
-                                let key_value = event.value();
-
-                                // Mouse buttons arrive as KEY events carrying
-                                // BTN_* codes, on the same devices and path as
-                                // keystrokes. They are translated first so they
-                                // never also travel the keyboard table.
-                                if let Some(button_code) = map_evdev_mouse_button(KeyCode(event.code())) {
-                                    match key_value {
-                                        // Button press (value == 1)
-                                        1 => {
-                                            if event_count <= 5 {
-                                                crate::always_print!("🔍 [evdev] Sending mouse press: {}", button_code);
-                                            }
-                                            let _ = mouse_tx.send(button_code.to_string());
-                                        }
-                                        // Button release (value == 0)
-                                        0 => {
-                                            let _ = mouse_tx.send(format!("UP:{}", button_code));
-                                        }
-                                        // Ignore auto-repeat (value == 2)
-                                        _ => {}
-                                    }
-                                    continue;
-                                }
-
-                                // Convert event code to KeyCode
-                                let key = KeyCode(event.code());
-                                {
-                                    let key_code = map_evdev_keycode(key);
-                                    if !key_code.is_empty() {
-                                        // Handle key press (value == 1)
-                                        if key_value == 1 {
-                                            // Track modifier keys for hotkey detection
-                                            match key_code {
-                                                "ControlLeft" | "ControlRight" => {
-                                                    ctrl_pressed = true;
-                                                }
-                                                "AltLeft" | "AltRight" => {
-                                                    alt_pressed = true;
-                                                }
-                                                "KeyM" => {
-                                                    // Check for Ctrl+Alt+M hotkey combination
-                                                    if ctrl_pressed && alt_pressed {
-                                                        crate::always_print!("🔥 [evdev] Hotkey detected: Ctrl+Alt+M - Toggling global sound");
-                                                        let _ = hotkey_tx.send("TOGGLE_SOUND".to_string());
-                                                        continue; // Don't process this as a regular key event
-                                                    }
-                                                }
-                                                _ => {}
-                                            }
-
-                                            // Send key press event
-                                            if event_count <= 5 {
-                                                crate::always_print!("🔍 [evdev] Sending key press: {}", key_code);
-                                            }
-                                            let _ = keyboard_tx.send(key_code.to_string());
-                                        }
-                                        // Handle key release (value == 0)
-                                        else if key_value == 0 {
-                                            // Track modifier key releases for hotkey detection
-                                            match key_code {
-                                                "ControlLeft" | "ControlRight" => {
-                                                    ctrl_pressed = false;
-                                                }
-                                                "AltLeft" | "AltRight" => {
-                                                    alt_pressed = false;
-                                                }
-                                                _ => {}
-                                            }
-
-                                            // Send key release event
-                                            let _ = keyboard_tx.send(format!("UP:{}", key_code));
-                                        }
-                                        // Ignore key repeat (value == 2)
-                                    }
-                                }
-                            } else if event.event_type() == EventType::RELATIVE {
-                                // Vertical scrolls arrive as REL_WHEEL axis
-                                // deltas, not key events, and have no release
-                                // counterpart. The engine rate-limits them,
-                                // because it is the last gate every source
-                                // passes through; a second limit here would use
-                                // its own timestamp and drop a scroll the engine
-                                // would have played.
-                                if event.code() == RelativeAxisCode::REL_WHEEL.0 {
+                                router.handle_key_event(event.code(), event.value());
+                            } else if event.event_type() == evdev::EventType::RELATIVE {
+                                if event.code() == evdev::RelativeAxisCode::REL_WHEEL.0 {
                                     if let Some(wheel_code) = map_wheel_delta(event.value()) {
-                                        let _ = mouse_tx.send(wheel_code.to_string());
+                                        let _ = router.mouse_tx.send(wheel_code.to_string());
                                     }
                                 }
                             }
                         }
                     }
-                    Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                         // No events available, this is normal
                     }
-                    Err(e) => {
-                        crate::always_eprint!("⚠️ [evdev] Error fetching events: {}", e);
+                    Err(error) if error.raw_os_error() == Some(libc::ENODEV) => {
+                        // Unplugged.
+                        gone.push(index);
+                    }
+                    Err(error) => {
+                        crate::always_eprint!("⚠️ [evdev] Error fetching events from {:?}: {}", open.path.display(), error);
+                        gone.push(index);
                     }
                 }
             }
-            
-            // Small sleep to prevent busy-waiting
-            thread::sleep(Duration::from_millis(10));
+
+            for index in gone.into_iter().rev() {
+                let removed = devices.swap_remove(index);
+                router.release_held_modifiers();
+                crate::always_print!("🔍 [evdev] Input device {:?} went away", removed.path.display());
+                state.seen.remove(&removed.path);
+            }
+
+            // Wait for an event with poll(2) instead of spinning on a 10ms sleep.
+            let mut poll_fds: Vec<libc::pollfd> = devices
+                .iter()
+                .map(|open| libc::pollfd {
+                    fd: open.device.as_raw_fd(),
+                    events: libc::POLLIN,
+                    revents: 0,
+                })
+                .collect();
+
+            let timeout_ms = if devices.is_empty() {
+                100
+            } else {
+                POLL_INTERVAL.as_millis() as i32
+            };
+
+            let ready = if poll_fds.is_empty() {
+                unsafe { libc::poll(std::ptr::null_mut(), 0, timeout_ms) }
+            } else {
+                unsafe { libc::poll(poll_fds.as_mut_ptr(), poll_fds.len() as libc::nfds_t, timeout_ms) }
+            };
+
+            if ready < 0 && std::io::Error::last_os_error().raw_os_error() != Some(libc::EINTR) {
+                crate::always_eprint!("⚠️ [evdev] poll() failed: {}", std::io::Error::last_os_error());
+            }
         }
     });
 }
@@ -312,7 +471,7 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
         KeyCode::KEY_COMMA => "Comma",
         KeyCode::KEY_DOT => "Period",
         KeyCode::KEY_SLASH => "Slash",
-        
+
         // Numpad and the system/edition keys around it.
         //
         // The strings are copied from `map_key_to_code` in `input_listener.rs`
@@ -350,6 +509,7 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
 #[cfg(all(test, target_os = "linux"))]
 mod tests {
     use super::*;
+    use crossbeam_channel::{unbounded, Receiver};
     use evdev::KeyCode;
 
     /// REL_WHEEL deltas must land on the wheel codes the soundpacks define;
