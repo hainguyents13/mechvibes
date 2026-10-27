@@ -19,80 +19,96 @@ use crossbeam_channel::Sender;
 /// up. Must be called after `spawn_engine`, so nothing sends into a channel
 /// with no receiver.
 ///
-/// `window_focused` is the shared focus flag the X11/macOS hybrid listeners
-/// consult to decide which of the two is authoritative. Headless has no
-/// window, so it passes a flag that is permanently false - "never focused" is
-/// exactly right there: it is the state in which the unfocused listener, the
-/// one that works without a window, is the one that reports.
+/// `window_focused` is the shared focus flag the macOS (and Windows fallback)
+/// hybrid listeners consult to decide which of the two is authoritative.
+/// Headless has no window, so it passes a flag that is permanently false -
+/// "never focused" is exactly right there: it is the state in which the
+/// unfocused listener, the one that works without a window, is the one that
+/// reports.
 #[cfg_attr(
-    target_os = "windows",
-    allow(unused_variables, reason = "the Raw Input worker is focus-independent")
+    any(target_os = "windows", target_os = "linux"),
+    allow(
+        unused_variables,
+        reason = "the Raw Input worker and the evdev listener are focus-independent"
+    )
 )]
+#[cfg(target_os = "linux")]
+fn linux_evdev_is_available() -> bool {
+    let input_dir = std::path::Path::new("/dev/input");
+    let Ok(entries) = std::fs::read_dir(input_dir) else {
+        return false;
+    };
+
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Some(name) = path.file_name().and_then(|file| file.to_str()) else {
+            continue;
+        };
+
+        if name.starts_with("event") && std::fs::File::open(&path).is_ok() {
+            return true;
+        }
+    }
+
+    false
+}
+
+#[cfg(target_os = "linux")]
+fn linux_on_x11() -> bool {
+    std::env::var_os("DISPLAY").is_some() && std::env::var_os("WAYLAND_DISPLAY").is_none()
+}
+
 pub fn start_input_capture_with_focus(
     keyboard_tx: Sender<String>,
     mouse_tx: Sender<String>,
     hotkey_tx: Sender<String>,
     window_focused: std::sync::Arc<std::sync::Mutex<bool>>
 ) {
+    // Linux: evdev reads /dev/input directly, so it does not depend on X or on
+    // whether the app window has focus. On X11 only, if that device path cannot
+    // be opened at startup (for example a permission problem), we fall back to
+    // the older rdev + device_query pair and choose exactly one source so nothing
+    // is played twice. Pointer buttons and the Ctrl+Alt+M hotkey come from the
+    // same reader in either path.
     #[cfg(target_os = "linux")]
     {
-        use crate::libs::input_listener::start_unified_input_listener;
-        use crate::libs::focused_input_listener::start_focused_keyboard_listener;
-
-        let display_server = std::env
-            ::var("XDG_SESSION_TYPE")
-            .unwrap_or_else(|_| "x11".to_string());
-        crate::debug_print!("🔍 Detected display server: {}", display_server);
-
-        if display_server == "wayland" {
-            // On Wayland, evdev reads the device nodes directly, so it works
-            // focused or not, and it carries hotkey detection with it. It
-            // owns the pointer too: rdev's Linux listen() is X11 XRecord, and
-            // XWayland only delivers input while one of its windows is under
-            // the pointer, so clicks over Wayland-native windows never arrive
-            // that way - but their BTN_* events do show up on these devices.
-            crate::debug_print!("🎮 Starting evdev keyboard listener (Wayland mode)...");
-            // Flips true once evdev has opened a device advertising BTN_LEFT.
-            // Until then rdev is the only mouse source, so it stays ungated.
-            let evdev_pointer_active = std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false)
-            );
-            crate::libs::evdev_input_listener::start_evdev_keyboard_listener(
-                keyboard_tx.clone(),
-                mouse_tx.clone(),
-                hotkey_tx.clone(),
-                window_focused.clone(),
-                evdev_pointer_active.clone()
-            );
-
-            // rdev covers mouse only here, and only while evdev found no
-            // pointer device to read. It is handed a permanently-focused
-            // flag so its keyboard branch stays quiet and cannot double every
-            // keystroke evdev already reported.
-            crate::debug_print!("🎮 Starting unified input listener for mouse events (Wayland mode)...");
-            let always_focused = std::sync::Arc::new(std::sync::Mutex::new(true));
-            start_unified_input_listener(
+        if linux_evdev_is_available() {
+            crate::debug_print!("🎮 Starting evdev input listener (X11 and Wayland)...");
+            crate::libs::evdev_input_listener::start_evdev_input_listener(
                 keyboard_tx,
                 mouse_tx,
-                hotkey_tx,
-                Some(always_focused),
-                Some(evdev_pointer_active)
+                hotkey_tx
             );
-        } else {
-            // X11: the hybrid. rdev handles keyboard while unfocused,
-            // device_query while focused.
-            crate::debug_print!("🎮 Starting unified input listener (X11 mode - unfocused)...");
+            return;
+        }
+
+        if linux_on_x11() {
+            use crate::libs::focused_input_listener::start_focused_keyboard_listener;
+            use crate::libs::input_listener::start_unified_input_listener;
+
+            let fallback_keyboard_tx = keyboard_tx.clone();
+            let fallback_mouse_tx = mouse_tx.clone();
+            let fallback_hotkey_tx = hotkey_tx.clone();
+            let fallback_focus = window_focused;
+
+            crate::debug_print!("🎮 Starting X11 fallback listener pair (rdev + device_query)...");
             start_unified_input_listener(
-                keyboard_tx.clone(),
-                mouse_tx,
-                hotkey_tx,
-                Some(window_focused.clone()),
+                fallback_keyboard_tx.clone(),
+                fallback_mouse_tx,
+                fallback_hotkey_tx,
+                Some(fallback_focus.clone()),
                 None
             );
-
-            crate::debug_print!("🎮 Starting focused keyboard listener (X11 mode - focused)...");
-            start_focused_keyboard_listener(keyboard_tx, window_focused);
+            start_focused_keyboard_listener(fallback_keyboard_tx, fallback_focus);
+            return;
         }
+
+        crate::debug_print!("🎮 Starting evdev input listener (X11 and Wayland)...");
+        crate::libs::evdev_input_listener::start_evdev_input_listener(
+            keyboard_tx,
+            mouse_tx,
+            hotkey_tx
+        );
     }
 
     // Windows: capture runs in a separate worker process using Raw Input, so
@@ -247,38 +263,29 @@ mod tests {
         );
     }
 
-    /// Wayland clicks must come from evdev: rdev's XRecord path never sees
-    /// them over Wayland-native windows. That needs the mouse sender and the
-    /// coverage gate on the evdev call, and the same gate on the unified
-    /// listener so an XWayland click evdev already reported is not doubled.
+    /// Linux chooses a single input source at startup: evdev when it can open
+    /// the event nodes, otherwise X11 falls back to the older rdev +
+    /// device_query pair. The key is one choice only, so the same key never
+    /// reaches both listeners and the audio engine never hears it twice.
     #[test]
-    fn wayland_gives_evdev_the_mouse_sender_and_the_pointer_gate() {
+    fn linux_capture_chooses_evdev_or_the_x11_fallback_once() {
         const SOURCE: &str = include_str!("bootstrap.rs");
-        let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes tests");
 
-        let wayland_block = runtime
-            .split("if display_server == \"wayland\" {")
-            .nth(1)
-            .expect("the Wayland branch must exist");
-        let wayland_block = wayland_block
-            .split("} else {")
-            .next()
-            .expect("the Wayland branch must end before the X11 branch");
-
-        let evdev_arguments = call_arguments(wayland_block, "start_evdev_keyboard_listener");
         assert!(
-            evdev_arguments.contains("mouse_tx.clone()"),
-            "evdev must be handed the mouse channel it reports clicks on, got: {evdev_arguments}"
+            SOURCE.contains("linux_evdev_is_available()"),
+            "Linux startup must choose evdev only after checking the event nodes"
         );
         assert!(
-            evdev_arguments.contains("evdev_pointer_active.clone()"),
-            "evdev must be handed the pointer coverage gate, got: {evdev_arguments}"
+            SOURCE.contains("linux_on_x11()"),
+            "Linux startup must detect X11 before falling back"
         );
-
-        let unified_arguments = call_arguments(wayland_block, "start_unified_input_listener");
         assert!(
-            unified_arguments.contains("Some(evdev_pointer_active)"),
-            "the rdev mouse path must be gated by evdev pointer coverage, got: {unified_arguments}"
+            SOURCE.contains("start_unified_input_listener"),
+            "Linux X11 fallback must still start the old pair when evdev is blocked"
+        );
+        assert!(
+            SOURCE.contains("start_focused_keyboard_listener"),
+            "the focused keyboard listener must stay in the Linux X11 fallback"
         );
     }
 
@@ -292,8 +299,7 @@ mod tests {
     /// Both must hand the unified listener `None` for the pointer gate. Neither
     /// platform has /dev/input, so rdev is the mouse source there and there is no
     /// evdev listener to hand the gate to - passing one by accident would either
-    /// silence the mouse or need a listener that does not exist. The X11 branch
-    /// says the same thing and is compiled here, so it needs no guard.
+    /// silence the mouse or need a listener that does not exist.
     #[test]
     fn the_platforms_without_evdev_must_pass_no_pointer_gate() {
         const SOURCE: &str = include_str!("bootstrap.rs");
