@@ -2,6 +2,8 @@ pub mod audio;
 pub mod bootstrap;
 pub mod cli_args;
 pub mod device_manager;
+// rdev/device_query listeners are still kept on Linux for the X11 fallback,
+// when evdev cannot open /dev/input/event* nodes because of permissions.
 pub mod focused_input_listener;
 pub mod headless;
 pub mod input_device_manager;
