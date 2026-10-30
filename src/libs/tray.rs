@@ -12,6 +12,40 @@ use std::time::Instant;
 // Track last click time for double-click detection
 static LAST_CLICK_TIME: Mutex<Option<Instant>> = Mutex::new(None);
 
+// The tray lives on the GTK main thread.
+//
+// `TrayManager` owns GTK objects, which are `!Send`: they may only ever be
+// touched from the thread running the GTK main loop. A thread-local is the
+// correct home for it - `unsafe impl Send` would let another thread reach into
+// GTK, and a `static Mutex` would need `TrayManager: Send` before it could
+// even be stored. The component that builds it, the glib timeout source that
+// drives the tray loop and the Dioxus runtime all run on that same main
+// thread, so both ends can reach it without any synchronisation.
+thread_local! {
+    static TRAY: std::cell::RefCell<Option<TrayManager>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Stores the tray, replacing any previous value.
+pub fn store_tray(tray: TrayManager) {
+    TRAY.with(|slot| *slot.borrow_mut() = Some(tray));
+}
+
+/// Runs `f` against the stored tray, or returns `None` when none is stored yet.
+pub fn with_tray<R>(f: impl FnOnce(&mut TrayManager) -> R) -> Option<R> {
+    TRAY.with(|slot| slot.borrow_mut().as_mut().map(f))
+}
+
+/// Takes the tray out of its store, for teardown.
+///
+/// The tray lives here rather than in the window, so nothing releases it by
+/// itself: whoever closes the window has to take it out, or the icon stays
+/// behind in the notification area. It is called twice on the way out, once by
+/// the Exit item before it closes the window and once when the window is torn
+/// down; the second call finds an empty store and does nothing.
+pub fn take_tray() -> Option<TrayManager> {
+    TRAY.with(|slot| slot.borrow_mut().take())
+}
+
 // Embed the icon at compile time for cross-platform reliability
 const EMBEDDED_ICON: &[u8] = include_bytes!("../../assets/icon.ico");
 
