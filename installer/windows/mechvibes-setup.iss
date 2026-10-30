@@ -136,6 +136,87 @@ Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsile
 Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
 
 [Code]
+const
+  UninstallKeyRoot = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+
+// The original Electron Mechvibes (2.x) is a separate install. Left in place
+// it keeps running alongside this app, and every key plays twice. Its
+// electron-builder installer registers an uninstall entry whose
+// QuietUninstallString is '"<dir>\Uninstall Mechvibes.exe" /currentuser /S'
+// (or /allusers), under HKCU or HKLM depending on how it was installed.
+function FindElectronMechvibes(var RootKey: Integer; var SubKey, Command: String): Boolean;
+var
+  Roots: array[0..1] of Integer;
+  Names: TArrayOfString;
+  R, I: Integer;
+  Version, Quiet: String;
+begin
+  Result := False;
+  Roots[0] := HKCU;
+  Roots[1] := HKLM;
+  for R := 0 to 1 do
+    if RegGetSubkeyNames(Roots[R], UninstallKeyRoot, Names) then
+      for I := 0 to GetArrayLength(Names) - 1 do
+      begin
+        SubKey := UninstallKeyRoot + '\' + Names[I];
+        if RegQueryStringValue(Roots[R], SubKey, 'DisplayVersion', Version) and
+           (Copy(Version, 1, 2) = '2.') and
+           RegQueryStringValue(Roots[R], SubKey, 'QuietUninstallString', Quiet) and
+           (Pos('\uninstall mechvibes.exe"', Lowercase(Quiet)) > 0) then
+        begin
+          RootKey := Roots[R];
+          Command := Quiet;
+          Result := True;
+          Exit;
+        end;
+      end;
+end;
+
+// Runs the Electron app's own silent uninstaller, which keeps its user data
+// (electron-builder's default). ShellExec rather than Exec so an all-users
+// install can ask for elevation. An NSIS uninstaller hands off to a copy of
+// itself and returns at once, so success is its uninstall entry going away.
+function RemoveElectronMechvibes(RootKey: Integer; SubKey, Command: String): Boolean;
+var
+  ExePath, Params: String;
+  ErrorCode, Attempt: Integer;
+begin
+  ExePath := Copy(Command, 2, Pos('"', Copy(Command, 2, Length(Command))) - 1);
+  Params := Trim(Copy(Command, Length(ExePath) + 3, Length(Command)));
+  if not ShellExec('', ExePath, Params, '', SW_HIDE, ewWaitUntilTerminated, ErrorCode) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Attempt := 0;
+  while RegKeyExists(RootKey, SubKey) and (Attempt < 60) do
+  begin
+    Sleep(500);
+    Attempt := Attempt + 1;
+  end;
+  Result := not RegKeyExists(RootKey, SubKey);
+end;
+
+// Offered before anything is installed: the Electron uninstaller removes a
+// desktop shortcut named Mechvibes.lnk, which is also this app's.
+// Interactive installs only; an auto-update never asks anything.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  RootKey: Integer;
+  SubKey, Command: String;
+begin
+  Result := '';
+  if WizardSilent or not FindElectronMechvibes(RootKey, SubKey, Command) then
+    Exit;
+  if MsgBox('The previous Mechvibes (version 2) is still installed. With both installed, ' +
+      'every key plays twice.' + #13#10#13#10 +
+      'Remove version 2 now? Only the old app is removed, nothing else.',
+      mbConfirmation, MB_YESNO) = IDYES then
+    if not RemoveElectronMechvibes(RootKey, SubKey, Command) then
+      MsgBox('Mechvibes 2 could not be removed automatically. You can remove it ' +
+        'later in Windows Settings > Apps.', mbInformation, MB_OK);
+end;
+
 procedure RefreshIconCache();
 var
   ResultCode: Integer;
