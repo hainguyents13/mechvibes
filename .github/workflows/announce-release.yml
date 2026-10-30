@@ -139,7 +139,7 @@ jobs:
             '
             (if $role == "" then "everyone" else "<@&\($role)>" end) as $who |
             ("Hi \($who), Mechvibes \($name) is out! 🎉\n\nHere is what’s new:\n\n") as $head |
-            ("\n\n**Download & full changelog:**\n- GitHub release – \($url)\n- Or just open the app and click *Download & install* (Settings → Updates)") as $foot |
+            ("\n\n**Download & full changelog:**\n- GitHub release: \($url)\n- Or just open the app and click *Update now* (Settings → Updates)") as $foot |
             (2000 - ($head | length) - ($foot | length) - 10) as $room |
             {
               content: ($head + (if ($body | length) > $room then ($body | .[:$room]) + "\n…" else $body end) + $foot),
