@@ -190,7 +190,9 @@ One exception: converting a V1 pack rebuilds the config from a fixed list of fie
 
 ### Editor behavior
 
-The web editor does not invent an `id` for a new pack. It keeps the `id` only when it opens a pack that already has one, or when it is opened through `?pack=`. This is an editor rule, not app code: a pack exported without an `id` is given `imported-<uuid>` by the app on import (`src/utils/soundpack_installer.rs:79-83`), and the library server issues the `mv-` id when the pack is published.
+The web editor does not invent an `id` for a new pack. It keeps the `id` only when it imports a zip that already has one, so a published pack's zip still carries its `mv-` id after editing. This is an editor rule, not app code: a pack exported without an `id` is given `imported-<uuid>` by the app on import (`src/utils/soundpack_installer.rs:79-83`).
+
+A library pack is created on the website from a zip the editor exported. The website issues the `mv-` id and, on every publish, writes the pack's `id`, `version`, `name`, `description` and `author` into `config.json`, so those fields in an uploaded zip are only a starting point.
 
 ---
 
