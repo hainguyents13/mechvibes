@@ -1,77 +1,36 @@
+use crate::utils::soundpack_validator::{
+    entry_file_name,
+    is_portable_name,
+    locate_pack_config,
+    read_pack_config,
+};
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
-use std::path::{ Component, Path, PathBuf };
+use std::path::{ Path, PathBuf };
 use uuid::Uuid;
 use zip::ZipArchive;
 
-/// True when `name` is exactly one ordinary path component: no separators, no
-/// `.` or `..`, no root and no Windows drive prefix. Anything else would let a
-/// value from the ZIP point outside the folder it is joined onto.
-fn is_single_path_component(name: &str) -> bool {
-    let mut components = Path::new(name).components();
-    matches!((components.next(), components.next()), (Some(Component::Normal(_)), None)) &&
-        !name.contains(['/', '\\', ':'])
-}
-
 /// The ID becomes a folder name under the custom sound packs directory, so it
-/// has to stay a single folder name.
+/// has to stay a single folder name that every system can store.
 fn validate_soundpack_id(id: &str) -> Result<(), String> {
-    if is_single_path_component(id) {
+    if is_portable_name(id) {
         Ok(())
     } else {
         Err(format!("The sound pack ID '{}' is not a valid folder name.", id))
     }
 }
 
-/// Every file is placed at the root of the install folder, so only the last
-/// segment of the entry name is used. ZIPs made on Windows can separate folders
-/// with `\`, so both separators count. `Ok(None)` means a folder entry.
-fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
-    let name = entry_name.rsplit(['/', '\\']).next().unwrap_or_default();
-    if name.is_empty() {
-        return Ok(None);
-    }
-    if is_single_path_component(name) {
-        Ok(Some(name))
-    } else {
-        Err(format!("The ZIP contains a file with an unsafe name: '{}'", entry_name))
-    }
-}
-
-/// Read and parse the `config.json` inside a soundpack ZIP.
+/// Read and parse the `config.json` inside a soundpack ZIP: the one entry
+/// `locate_pack_config` allows, the same one the validator checked.
 fn read_config_from_zip(file_path: &str) -> Result<Value, String> {
     let file = File::open(file_path).map_err(|e| format!("Failed to open ZIP file: {}", e))?;
     let mut archive = ZipArchive::new(file).map_err(|e|
         format!("Failed to read ZIP archive: {}", e)
     )?;
-
-    // Find config.json to determine soundpack ID
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| format!("Failed to read archive entry: {}", e))?;
-        let file_path = file.name().to_string();
-
-        if file_path.ends_with("config.json") {
-            let mut config_content = String::new();
-            (&mut file)
-                .take(MAX_CONFIG_BYTES + 1)
-                .read_to_string(&mut config_content)
-                .map_err(|e| format!("Failed to read config.json: {}", e))?;
-            if (config_content.len() as u64) > MAX_CONFIG_BYTES {
-                return Err("The sound pack's config.json is too large.".to_string());
-            }
-
-            let config: Value = serde_json
-                ::from_str(&config_content)
-                .map_err(|e| format!("Failed to parse config.json: {}", e))?;
-
-            return Ok(config);
-        }
-    }
-
-    Err("No config.json found in ZIP file".to_string())
+    let index = locate_pack_config(&mut archive)?;
+    let content = read_pack_config(&mut archive, index)?;
+    serde_json::from_str(&content).map_err(|e| format!("Failed to parse config.json: {}", e))
 }
 
 /// The raw ID stored in `config.json`, and whether it had to be minted here.
@@ -561,9 +520,6 @@ fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String>
     Ok(())
 }
 
-/// Far above any real config, which is a few hundred kilobytes at most.
-const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
-
 /// Far above any real pack: the library takes 5 MB of audio per pack.
 const MAX_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
 
@@ -1027,7 +983,7 @@ mod tests {
     #[test]
     fn an_oversized_config_is_refused() {
         let base = scratch_dir();
-        let padding = " ".repeat((MAX_CONFIG_BYTES as usize) + 1);
+        let padding = " ".repeat((crate::utils::soundpack_validator::MAX_CONFIG_BYTES as usize) + 1);
         let pack_zip = zip_with_config(&base, "big.zip", &format!("{{\"id\":\"big\"{}}}", padding));
         let error = get_soundpack_id_from_zip(&pack_zip).expect_err("an oversized config must be refused");
         assert!(error.contains("too large"), "got: {}", error);

@@ -16,6 +16,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The Sound pack editor links open the new editor at [editor.mechvibes.com](https://editor.mechvibes.com).**
 - **Linux: opening Mechvibes again brings the running window back instead of starting a second copy**, which played every key twice. Windows already worked this way, including that a `--headless` run now refuses to start while the app is open.
 - **ZIP imports stop at a size limit.** A pack whose `config.json` unpacks past 1 MB, or whose files unpack past 200 MB in total, is refused instead of filling the disk. Real packs are far below both.
+- **A ZIP whose files would clash is refused with a clear message.** Every file of a pack lands in one folder, so two files that end up with the same name, even if they differ only in capital letters or sit in different subfolders, made the installed pack depend on which one was unpacked last. The config is now the file named exactly `config.json` (`myconfig.json` used to count too), and there can be only one. File names Windows cannot store, such as `NUL.ogg` or one ending in a dot, are refused on every system, so a pack made on Linux installs on Windows too. macOS clutter such as `__MACOSX` and `.DS_Store` is skipped.
+
+### Fixed
+
+- **Importing a ZIP works when Mechvibes is installed for all users.** The check wrote a temporary file into the app's own folder, which is read-only under Program Files, so the import failed there.
 
 ### Removed
 

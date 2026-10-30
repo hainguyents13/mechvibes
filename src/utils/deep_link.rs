@@ -18,7 +18,9 @@ use std::sync::{ Mutex, OnceLock };
 
 /// The library id in an install link, or `None` for anything else.
 ///
-/// A trailing `/` is allowed because some browsers add one. The scheme is
+/// A query or fragment is ignored, so the website can tag its links
+/// (`?utm_source=...`) without breaking them; nothing in it is read. A
+/// trailing `/` is allowed because some browsers add one. The scheme is
 /// matched without regard to case, as URL schemes are; the id is not, since
 /// library ids are lowercase hex.
 pub fn install_id(link: &str) -> Option<String> {
@@ -27,6 +29,7 @@ pub fn install_id(link: &str) -> Option<String> {
     if !scheme.eq_ignore_ascii_case(APP_PROTOCOL) {
         return None;
     }
+    let rest = rest.split(['?', '#']).next().unwrap_or_default();
     let id = rest.strip_prefix("install/")?;
     let id = id.strip_suffix('/').unwrap_or(id);
     is_library_id(id).then(|| id.to_string())
@@ -139,6 +142,18 @@ mod tests {
         assert_eq!(install_id(&format!("MechVibes://install/{}/", ID)).as_deref(), Some(ID));
     }
 
+    /// The website may tag its links; the tags are dropped, never read.
+    #[test]
+    fn a_query_or_fragment_is_ignored() {
+        for link in [
+            format!("mechvibes://install/{}?utm_source=library&utm_medium=web", ID),
+            format!("mechvibes://install/{}/?ref=pack-page", ID),
+            format!("mechvibes://install/{}#install", ID),
+        ] {
+            assert_eq!(install_id(&link).as_deref(), Some(ID), "{} must give the id", link);
+        }
+    }
+
     #[test]
     fn anything_else_is_refused() {
         for link in [
@@ -146,7 +161,8 @@ mod tests {
             format!("mechvibes://open/{}", ID),
             format!("mechvibes://install/{}/extra", ID),
             format!("mechvibes://install/../{}", ID),
-            format!("mechvibes://install/{}?x=1", ID),
+            format!("mechvibes://install/?id={}", ID),
+            format!("mechvibes://install/{}x?y=1", ID),
             "mechvibes://install/mv-0123456789ABCDEF0123456789ABCDEF".to_string(),
             "mechvibes://install/mv-0123".to_string(),
             "mechvibes://install/default-keyboard-eg-oreo".to_string(),
