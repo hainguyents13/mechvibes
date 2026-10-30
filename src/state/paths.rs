@@ -489,6 +489,17 @@ pub mod data {
         get_writable_data_dir().join("soundpack_cache.json")
     }
 
+    /// Present once the packs added to Mechvibes 2 have been brought over
+    pub fn mechvibes2_import_marker() -> PathBuf {
+        get_writable_data_dir().join("mechvibes2-packs-imported")
+    }
+
+    /// Present once the user has been asked about the old MechvibesDX.app
+    #[cfg(target_os = "macos")]
+    pub fn mechvibesdx_app_marker() -> PathBuf {
+        get_writable_data_dir().join("mechvibesdx-app-asked")
+    }
+
     /// Custom images directory for user-uploaded images
     /// Uses system app data directory (e.g., %APPDATA%/Mechvibes/custom_images on Windows)
     pub fn custom_images_dir() -> PathBuf {

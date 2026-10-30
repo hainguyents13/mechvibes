@@ -188,6 +188,10 @@ fn main() {
     let should_start_minimized =
         cli.minimized || (startup_config.auto_start && startup_config.start_minimized);
 
+    // Before the app state loads the sound pack list, so the packs brought over
+    // from Mechvibes 2 are in it from the first frame.
+    utils::legacy_migration::import_mechvibes2_packs();
+
     // Register protocol on first run
     // if let Err(e) = protocol::register_protocol() {
     //     crate::always_eprint!("Warning: Failed to register mechvibes:// protocol: {}", e);

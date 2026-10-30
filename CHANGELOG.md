@@ -4,6 +4,13 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Sound packs you added to Mechvibes 2 come over by themselves.** The first time Mechvibes starts, it copies them into its own list, marked New, so there is no need to zip and import them again. The originals stay where they were. A pack you already have in Mechvibes is left as it is. This happens once, so a pack you delete afterwards does not come back.
+- **macOS: Mechvibes offers to move the old MechvibesDX app to the Trash.** If MechvibesDX is still in your Applications folder, Mechvibes asks once and moves it to the Trash when you click Yes. Your settings and sound packs stay. It does not ask while Mechvibes runs straight from the disk image.
+
 ## [3.0.0] - 2026-10-30
 
 ### Changed
