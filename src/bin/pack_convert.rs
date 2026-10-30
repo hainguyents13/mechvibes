@@ -200,9 +200,14 @@ fn convert(
 /// pack the file each key names. Sorted, without repeats.
 fn audio_files(config: &Value) -> Vec<&str> {
     let mut files: Vec<&str> = config.get("audio_file").and_then(Value::as_str).into_iter().collect();
-    if let Some(definitions) = config.get("definitions").and_then(Value::as_object) {
+    // Only a multi pack plays from the file a key names; the app ignores it in
+    // a single pack, so a stale one there must not be required.
+    let is_multi = config.get("definition_method").and_then(Value::as_str) == Some("multi");
+    if let Some(definitions) = config.get("definitions").and_then(Value::as_object).filter(|_| is_multi) {
         files.extend(definitions.values().filter_map(|d| d.get("audio_file").and_then(Value::as_str)));
     }
+    // An empty name means "no file", as it does in the app.
+    files.retain(|file| !file.trim().is_empty());
     files.sort_unstable();
     files.dedup();
     files
@@ -309,8 +314,13 @@ fn pack(config_path: &Path, pack_dir: &Path, output: &Path) -> Result<(), String
         let relative = safe_relative(name.trim_start_matches("./"))
             .ok_or_else(|| format!("'{}' is not a safe relative path", name))?;
         let source = pack_dir.join(&relative);
+        let member = relative.to_string_lossy().replace('\\', "/");
+        // `a.wav` and `./a.wav` are one file, and a zip refuses a name twice.
+        if members.iter().any(|(existing, _)| *existing == member) {
+            continue;
+        }
         if source.is_file() {
-            members.push((relative.to_string_lossy().replace('\\', "/"), source));
+            members.push((member, source));
         } else if required {
             return Err(format!("audio file '{}' is missing from the pack", name));
         }
@@ -477,5 +487,48 @@ mod tests {
         let out: Value = serde_json::from_str(&text).expect("json");
         assert_eq!(out["definition_method"], "multi");
         assert_eq!(out["definitions"]["KeyB"]["audio_file"], "b.wav");
+    }
+
+    /// Two spellings of one file are zipped once, and an empty name is no file.
+    #[test]
+    fn one_file_named_two_ways_is_zipped_once() {
+        let dir = scratch("same-file");
+        let a = dir.join("a.wav");
+        write_wav(&a);
+        let config = dir.join("config.json");
+        fs::write(
+            &config,
+            r#"{"name":"M","author":"A","config_version":"2","definition_method":"multi","definitions":{"KeyA":{"audio_file":"a.wav","timing":[[0,50]]},"KeyB":{"audio_file":"./a.wav","timing":[[0,50]]},"KeyC":{"audio_file":"","timing":[[0,50]]}}}"#,
+        )
+        .expect("config");
+
+        let output = dir.join("out.zip");
+        pack(&config, &dir, &output).expect("pack");
+        let archive = zip::ZipArchive::new(File::open(&output).expect("open")).expect("zip");
+        let mut names: Vec<&str> = archive.file_names().collect();
+        names.sort();
+        assert_eq!(names, ["a.wav", "config.json"]);
+    }
+
+    /// A single pack plays from its own `audio_file` only, so a leftover
+    /// key-level file name that is not in the pack does not stop it.
+    #[test]
+    fn a_single_pack_ignores_key_level_file_names() {
+        let dir = scratch("single-stale");
+        let sound = dir.join("sound.wav");
+        write_wav(&sound);
+        let config = dir.join("config.json");
+        fs::write(
+            &config,
+            r#"{"name":"S","author":"A","config_version":"2","definition_method":"single","audio_file":"sound.wav","definitions":{"KeyA":{"audio_file":"gone.wav","timing":[[0,50]]}}}"#,
+        )
+        .expect("config");
+
+        let output = dir.join("out.zip");
+        pack(&config, &dir, &output).expect("pack");
+        let archive = zip::ZipArchive::new(File::open(&output).expect("open")).expect("zip");
+        let mut names: Vec<&str> = archive.file_names().collect();
+        names.sort();
+        assert_eq!(names, ["config.json", "sound.wav"]);
     }
 }

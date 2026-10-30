@@ -51,6 +51,8 @@ impl Default for SoundpackOptions {
 // Key definition structure for V2 format
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct KeyDefinition {
+    // Optional only in a "multi" pack, where a key without it plays its whole file.
+    #[serde(default)]
     pub timing: Vec<[f32; 2]>, // Array of [start_ms, end_ms] pairs
     #[serde(default)]
     pub audio_file: Option<String>, // For "multi" definition method

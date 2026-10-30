@@ -64,7 +64,7 @@ Each key maps to an object with timing data:
 `timing` is an array of `[start_ms, end_ms]` pairs within the audio file (for `"multi"`, within the key's own file):
 - One segment, `[[45750.0, 45832.0]]`, plays when the key goes down. Releasing the key is silent.
 - Two segments, `[[45750.0, 45832.0], [45832.0, 45914.0]]`, play the first when the key goes down and the second when it comes up.
-- More than two segments are not played (`lookup_timing` in `src/libs/audio/engine.rs`).
+- A key with more than two segments plays nothing (`lookup_timing` in `src/libs/audio/engine.rs`).
 - Milliseconds can be floats (e.g., `45750.0`)
 
 A pack converted from the original Mechvibes (V1) gets one segment per key, because its clips were recorded as a single press. The app never cuts a clip into a press half and a release half. The bundled packs have two segments because their files were written that way.
@@ -514,7 +514,7 @@ If timing values seem out of range:
 - **Too large:** Check if the audio file duration is actually shorter than the timing values. Use a media player to confirm file duration in milliseconds.
 - **Too small:** Timing values can be very precise (fractional milliseconds). This is normal.
 
-The app validates timing during load and logs warnings if a key's timing exceeds the audio file duration.
+In a `"single"` pack, a segment that runs past the end of the file is cut at the end of the file. In a `"multi"` pack it is cut at the end of the key's own file (see [Multi packs](#multi-packs)).
 
 ### No Sound on Certain Keys
 
@@ -584,8 +584,10 @@ A pack with `"definition_method": "multi"` gives each key its own file:
 ```
 
 - Each key's `timing` is measured within its own file, and one or two segments work as described under [`timing`](#definitions-or-defs-object-required).
-- A key without `audio_file` plays from the pack's `audio_file`.
-- The app plays the pack as it is and never rewrites it: when the pack loads, it decodes each file, brings them all to the first file's channel layout and sample rate, and joins them in memory (`decode_multi_pack` in `src/libs/audio/soundpack_loader.rs`).
+- `timing` is optional here: a key without it plays its whole file.
+- A segment is cut at the end of the key's own file, so an end rounded up (or written as a large number to mean "the whole clip") never plays into the next file. A segment that starts past the end is dropped.
+- A key without `audio_file`, or with an empty one, plays from the pack's `audio_file`.
+- The app plays the pack as it is and never rewrites it. When the pack loads, it decodes each file and joins them in memory, using the most channels any file has and the output device's sample rate, so no file is downmixed or downsampled to match another (`decode_multi_pack` in `src/libs/audio/soundpack_loader.rs`).
 - A file that cannot be read is logged, and only the keys that use it stay silent.
 
 This is transparent; you do not need to do anything.
