@@ -18,7 +18,7 @@ use tokio::time::{ interval, Duration as TokioDuration };
 
 // Fixed repository information
 const REPO_OWNER: &str = "hainguyents13";
-const REPO_NAME: &str = "mechvibes-dx";
+const REPO_NAME: &str = "mechvibes";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UpdateInfo {
@@ -965,7 +965,7 @@ mod tests {
     fn releases_page_url_points_at_the_tag() {
         assert_eq!(
             AutoUpdater::releases_page_url("0.7.0"),
-            "https://github.com/hainguyents13/mechvibes-dx/releases/tag/v0.7.0"
+            "https://github.com/hainguyents13/mechvibes/releases/tag/v0.7.0"
         );
     }
 

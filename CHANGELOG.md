@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Linux: mouse wheel scrolling now reaches the engine under Wayland.** Scrolling was ignored because the input-device listener only looked at keys and buttons. Wheel up and wheel down now arrive as `MouseWheelUp` and `MouseWheelDown`, limited to one sound per 120 ms so a fast scroll does not machine-gun the samples. This is the mouse wheel only: two-finger scrolling on a touchpad is synthesized by the compositor and produces no wheel delta, so it stays silent. Whether you hear anything depends on your pack defining those two codes: as with every other key, a pack that does not define them stays silent rather than falling back to the left click. X11 is unchanged: its listener does not report the wheel yet.
 
+### Changed
+
+- **The project now lives at [github.com/hainguyents13/mechvibes](https://github.com/hainguyents13/mechvibes).** The links in Settings and the tray menu, and the update check, point to the new address. The old `mechvibes-dx` address still redirects there, so earlier versions keep finding updates. The original Electron app moved to [mechvibes-electron](https://github.com/hainguyents13/mechvibes-electron).
+
 ### Fixed
 
 - **Importing a sound pack whose ID is already taken no longer replaces the installed pack.** The check compared the bare ID from the ZIP against the prefixed IDs the app stores (`mouse/…`), so it could never match and the import went ahead, writing over the installed pack file by file. It now resolves the folder the import would write into and refuses when that folder already exists. An ID that belongs to a built-in pack is refused too: that import would have installed and then been hidden by the built-in pack, so it never played.

@@ -8,12 +8,12 @@ Play rich keyboard and mouse sounds with every keystroke and click. A polyphonic
 
 | Platform | Installer | Notes |
 |----------|-----------|-------|
-| **Windows** | [`MechvibesDX-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes-dx/releases/latest) | One-click installer with automatic in-app updates (SHA-256 verified). |
-| **Linux (Debian/Ubuntu)** | [`mechvibes-dx_*_amd64.deb`](https://github.com/hainguyents13/mechvibes-dx/releases/latest) | `sudo dpkg -i`. Requires: `sudo usermod -a -G input $USER` + re-log. |
-| **Linux (any distro)** | [`mechvibes-dx-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes-dx/releases/latest) | Portable (no install). Requires: `chmod +x` + same input group setup. |
-| **macOS** | [`mechvibes-dx-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes-dx/releases/latest) | Experimental, unsigned. Right-click the app, then Open to bypass Gatekeeper. |
+| **Windows** | [`MechvibesDX-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | One-click installer with automatic in-app updates (SHA-256 verified). |
+| **Linux (Debian/Ubuntu)** | [`mechvibes-dx_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Requires: `sudo usermod -a -G input $USER` + re-log. |
+| **Linux (any distro)** | [`mechvibes-dx-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable (no install). Requires: `chmod +x` + same input group setup. |
+| **macOS** | [`mechvibes-dx-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, unsigned. Right-click the app, then Open to bypass Gatekeeper. |
 
-All links point to the [latest release](https://github.com/hainguyents13/mechvibes-dx/releases/latest); every release also ships a `SHA256SUMS.txt` covering all assets.
+All links point to the [latest release](https://github.com/hainguyents13/mechvibes/releases/latest); every release also ships a `SHA256SUMS.txt` covering all assets.
 
 ## Features
 
@@ -180,8 +180,8 @@ xcode-select --install
 
 **Development (all platforms):**
 ```bash
-git clone https://github.com/hainguyents13/mechvibes-dx.git
-cd mechvibes-dx
+git clone https://github.com/hainguyents13/mechvibes.git
+cd mechvibes
 dx serve
 ```
 
@@ -256,7 +256,7 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 
 MechvibesDX is built in Rust using [Dioxus](https://dioxuslabs.com/) (0.7), [rodio](https://github.com/RustAudio/rodio) (audio), and [rdev](https://github.com/enigo-rs/rdev) (input capture).
 
-Based on the original [Mechvibes](https://github.com/hainguyents13/mechvibes) by hainguyents13. Distributed under the MIT License.
+Based on the original [Mechvibes](https://github.com/hainguyents13/mechvibes-electron) by hainguyents13. Distributed under the MIT License.
 
 ## License
 
