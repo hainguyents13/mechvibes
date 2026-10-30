@@ -1297,6 +1297,47 @@ mod tests {
         }
     }
 
+    /// A V1 keyboard pack has one clip per key, recorded as a single press.
+    /// It converts to exactly that one segment, which the engine plays on
+    /// keydown only, as Mechvibes 2 did. Cutting it into a press half and a
+    /// release half would sound wrong, since nobody recorded a release. Only
+    /// the bundled packs carry two segments, written into their files.
+    #[test]
+    fn a_v1_keyboard_pack_keeps_one_segment_per_key() {
+        let dir = temp_dir("v1-keyboard-pack");
+        let config_path = dir.join("config.json");
+        write_tone_wav(&dir.join("sound.wav"), 44100, 2, 1000);
+
+        std::fs
+            ::write(
+                &config_path,
+                r#"{
+  "id": "sound-pack-1",
+  "name": "Old pack",
+  "key_define_type": "single",
+  "includes_numpad": false,
+  "sound": "sound.wav",
+  "defines": { "30": [100, 80], "48": [300, 60] }
+}"#
+            )
+            .expect("write v1 config");
+
+        super::convert_v1_to_v2(
+            config_path.to_str().unwrap(),
+            config_path.to_str().unwrap(),
+            Some(dir.to_str().unwrap()),
+            false
+        ).expect("conversion must succeed");
+
+        let converted: serde_json::Value = serde_json
+            ::from_str(&std::fs::read_to_string(&config_path).expect("read converted"))
+            .expect("converted config must be valid JSON");
+        let definitions = converted["definitions"].as_object().expect("definitions");
+
+        assert_eq!(definitions["KeyA"]["timing"], serde_json::json!([[100.0, 180.0]]));
+        assert_eq!(definitions["KeyB"]["timing"], serde_json::json!([[300.0, 360.0]]));
+    }
+
     #[test]
     fn a_v1_mouse_pack_converts_onto_buttons_not_keyboard_keys() {
         // V1 mouse packs were authored in the keyboard editor, so their
