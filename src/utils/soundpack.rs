@@ -75,37 +75,12 @@ pub fn load_soundpack_metadata(soundpack_id: &str) -> Result<SoundpackMetadata, 
         ::read_to_string(&config_path)
         .map_err(|e| format!("Failed to read config: {}", e))?;
 
-    let mut config: serde_json::Value = serde_json
+    // A "multi" pack (one file per key) is kept as it is: the engine combines
+    // its files in memory when it loads (`soundpack_loader::decode_multi_pack`),
+    // so the pack on disk stays one the editor can open again.
+    let config: serde_json::Value = serde_json
         ::from_str(&content)
         .map_err(|e| format!("Failed to parse config: {}", e))?;
-
-    // Check if this is V2 config with multi method and convert to single method
-    if let Some(definition_method) = config.get("definition_method").and_then(|v| v.as_str()) {
-        if definition_method == "multi" {
-            crate::always_print!("🔄 [CACHE DEBUG] Found V2 multi method config, converting to single method");
-            let soundpack_dir = paths::soundpacks::soundpack_dir(soundpack_id);
-
-            if
-                let Err(e) = config_converter::convert_v2_multi_to_single(
-                    &config_path,
-                    &soundpack_dir
-                )
-            {
-                crate::always_print!("❌ [CACHE DEBUG] Failed to convert multi to single: {}", e);
-                return Err(format!("Failed to convert multi to single method: {}", e));
-            }
-
-            // Re-read the converted config
-            let new_content = fs
-                ::read_to_string(&config_path)
-                .map_err(|e| format!("Failed to re-read converted config: {}", e))?;
-            config = serde_json
-                ::from_str(&new_content)
-                .map_err(|e| format!("Failed to parse converted config: {}", e))?;
-
-            crate::always_print!("✅ [CACHE DEBUG] Successfully converted to single method");
-        }
-    }
 
     // Debug: Check if config has audio_file field
     let audio_file = config.get("audio_file").and_then(|v| v.as_str());

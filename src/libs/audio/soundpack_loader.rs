@@ -98,24 +98,31 @@ type DecodedAudio = (Vec<f32>, u16, u32);
 /// failed at startup) means skip resampling and keep the file's native rate,
 /// same as pre-resample baseline behavior - guessing a rate would risk
 /// resampling twice (once here, once again by rodio realtime).
+///
+/// A "multi" pack's timings are moved to where each key's file lands in the
+/// combined buffer, which is why `soundpack` is taken mutably.
 fn load_audio_file(
     soundpack_path: &str,
-    soundpack: &SoundPack,
+    soundpack: &mut SoundPack,
     device_rate: Option<u32>
 ) -> Result<(DecodedAudio, DecodedAudio), String> {
-    let sound_file_path = soundpack.audio_file
-        .as_ref()
-        .map(|src| format!("{}/{}", soundpack_path, src.trim_start_matches("./")))
-        .ok_or_else(|| "No audio_file field in soundpack config".to_string())?;
+    let (samples, channels, file_rate) = if soundpack.definition_method == "multi" {
+        decode_multi_pack(soundpack_path, soundpack, device_rate)?
+    } else {
+        let sound_file_path = soundpack.audio_file
+            .as_ref()
+            .map(|src| pack_file_path(soundpack_path, src))
+            .ok_or_else(|| "No audio_file field in soundpack config".to_string())?;
 
-    if !std::path::Path::new(&sound_file_path).exists() {
-        return Err(format!("Sound file not found: {}", sound_file_path));
-    }
+        if !std::path::Path::new(&sound_file_path).exists() {
+            return Err(format!("Sound file not found: {}", sound_file_path));
+        }
 
-    // Use Symphonia for audio loading instead of Rodio
-    let (samples, channels, file_rate) = load_audio_with_symphonia(&sound_file_path).map_err(
-        |e| format!("Failed to load audio: {}", e)
-    )?;
+        // Use Symphonia for audio loading instead of Rodio
+        load_audio_with_symphonia(&sound_file_path).map_err(|e|
+            format!("Failed to load audio: {}", e)
+        )?
+    };
 
     match device_rate {
         Some(device_rate) if device_rate != file_rate => {
@@ -144,6 +151,141 @@ fn load_audio_file(
             Ok((decoded.clone(), decoded))
         }
     }
+}
+
+/// A file named in a pack's config, as a path inside the pack's folder.
+fn pack_file_path(soundpack_path: &str, file: &str) -> String {
+    format!("{}/{}", soundpack_path, file.trim_start_matches("./"))
+}
+
+/// The file a key of a "multi" pack plays from: its own, or the pack's
+/// `audio_file` when it names none. An empty name counts as none.
+fn multi_key_file<'a>(key_file: Option<&'a String>, pack_file: Option<&'a String>) -> Option<&'a String> {
+    let named = |file: &&String| !file.trim().is_empty();
+    key_file.filter(named).or(pack_file.filter(named))
+}
+
+/// Where one file of a "multi" pack sits in the combined buffer, in ms.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Placement {
+    offset: f32,
+    duration: f32,
+}
+
+/// Decode a "multi" pack, where each key names its own file, into one buffer.
+///
+/// The pack on disk is left as it is, so it stays a multi pack that the editor
+/// can open again. Every file is decoded and appended, and each key's timing
+/// is moved to where its file sits. A file that cannot be read is logged and
+/// its keys stay silent; the rest of the pack still plays.
+fn decode_multi_pack(
+    soundpack_path: &str,
+    soundpack: &mut SoundPack,
+    device_rate: Option<u32>
+) -> Result<DecodedAudio, String> {
+    let mut files: Vec<String> = soundpack.definitions
+        .values()
+        .filter_map(|key_def| {
+            multi_key_file(key_def.audio_file.as_ref(), soundpack.audio_file.as_ref()).cloned()
+        })
+        .collect();
+    files.sort();
+    files.dedup();
+    if files.is_empty() {
+        return Err("The pack names no audio file".to_string());
+    }
+
+    let mut decoded = Vec::new();
+    for file in files {
+        match load_audio_with_symphonia(&pack_file_path(soundpack_path, &file)) {
+            Ok(audio) => decoded.push((file, audio)),
+            Err(e) => crate::always_eprint!("⚠️  {}: could not load {}: {}", soundpack.name, file, e),
+        }
+    }
+
+    let (combined, placements) = combine_decoded(decoded, device_rate).ok_or_else(||
+        "None of the pack's audio files could be loaded".to_string()
+    )?;
+    place_multi_timings(soundpack, &placements);
+    Ok(combined)
+}
+
+/// Append decoded files into one buffer and return where each one sits.
+///
+/// The buffer takes the most channels any file has and the device's rate
+/// (the highest file rate when that is unknown), so no file is downmixed or
+/// downsampled to match another, and the resample to the device that follows
+/// has nothing left to do.
+fn combine_decoded(
+    files: Vec<(String, DecodedAudio)>,
+    device_rate: Option<u32>
+) -> Option<(DecodedAudio, std::collections::HashMap<String, Placement>)> {
+    let channels = files
+        .iter()
+        .map(|(_, (_, channels, _))| *channels)
+        .max()?
+        .max(1);
+    let rate = device_rate.unwrap_or_else(|| {
+        files
+            .iter()
+            .map(|(_, (_, _, rate))| *rate)
+            .max()
+            .unwrap_or(44100)
+    });
+    let to_ms = |frames: usize| ((frames as f64) * 1000.0 / (rate as f64)) as f32;
+
+    let mut combined = Vec::new();
+    let mut placements = std::collections::HashMap::new();
+    for (file, (samples, from_channels, from_rate)) in files {
+        let start = combined.len() / (channels as usize);
+        combined.extend(
+            crate::utils::config_converter::convert_audio_format(
+                &samples,
+                from_channels,
+                from_rate,
+                channels,
+                rate
+            )
+        );
+        let end = combined.len() / (channels as usize);
+        placements.insert(file, Placement { offset: to_ms(start), duration: to_ms(end - start) });
+    }
+    Some(((combined, channels, rate), placements))
+}
+
+/// Move each key's timing to where its file sits in the combined buffer.
+///
+/// - A key with no timing plays its whole file.
+/// - A segment is cut at the end of the key's own file, so an end rounded up,
+///   or written as "the whole clip", never runs into the next file; one that
+///   starts past the end is dropped.
+/// - A key whose file did not load, or that is left with no segment, is
+///   dropped, so it stays silent instead of playing some other key's sound.
+fn place_multi_timings(
+    soundpack: &mut SoundPack,
+    placements: &std::collections::HashMap<String, Placement>
+) {
+    let pack_file = soundpack.audio_file.clone();
+    soundpack.definitions.retain(|_, key_def| {
+        let Some(place) = multi_key_file(key_def.audio_file.as_ref(), pack_file.as_ref()).and_then(
+            |file| placements.get(file)
+        ) else {
+            return false;
+        };
+        if key_def.timing.is_empty() {
+            key_def.timing = vec![[0.0, place.duration]];
+        }
+        key_def.timing.retain_mut(|segment| {
+            if segment[0] >= place.duration {
+                return false;
+            }
+            segment[1] = segment[1].min(place.duration);
+            segment[0] += place.offset;
+            segment[1] += place.offset;
+            true
+        });
+        !key_def.timing.is_empty()
+    });
 }
 
 /// Load audio file using Symphonia for consistent duration detection
@@ -686,7 +828,7 @@ fn load_keyboard_pack_into_engine_inner(
         return Err("This is a mouse soundpack, not a keyboard soundpack".to_string());
     }
 
-    let (original, resampled) = load_audio_file(&soundpack_path, &soundpack, state.device_rate)?;
+    let (original, resampled) = load_audio_file(&soundpack_path, &mut soundpack, state.device_rate)?;
     let key_mappings = create_key_mappings(&soundpack, &resampled.0);
 
     let (audio_samples, channels, sample_rate) = resampled;
@@ -749,7 +891,7 @@ fn load_mouse_pack_into_engine_inner(
         return Err("This is a keyboard soundpack, not a mouse soundpack".to_string());
     }
 
-    let (original, resampled) = load_audio_file(&soundpack_path, &soundpack, state.device_rate)?;
+    let (original, resampled) = load_audio_file(&soundpack_path, &mut soundpack, state.device_rate)?;
     let mouse_mappings = create_mouse_mappings(&soundpack, &resampled.0);
 
     let (audio_samples, channels, sample_rate) = resampled;
@@ -911,5 +1053,203 @@ mod tests {
         for button in ["MouseLeft", "MouseRight", "MouseMiddle"] {
             assert_eq!(mouse_button_for_definition(button), button);
         }
+    }
+
+    fn multi_pack(json: &str) -> crate::state::soundpack::SoundPack {
+        serde_json::from_str(json).expect("valid multi pack")
+    }
+
+    /// Two files of 100 ms and 50 ms at 1 kHz mono: the second starts at 100 ms.
+    fn two_files() -> Vec<(String, super::DecodedAudio)> {
+        vec![
+            ("a.ogg".to_string(), (vec![0.1; 100], 1, 1000)),
+            ("b.ogg".to_string(), (vec![0.2; 50], 1, 1000))
+        ]
+    }
+
+    fn placed(pack: &mut crate::state::soundpack::SoundPack) {
+        let (_, placements) = super::combine_decoded(two_files(), None).expect("combined");
+        super::place_multi_timings(pack, &placements);
+    }
+
+    #[test]
+    fn files_are_appended_and_each_one_records_where_it_sits() {
+        let ((samples, channels, rate), placements) = super::combine_decoded(two_files(), None).expect(
+            "combined"
+        );
+        assert_eq!((samples.len(), channels, rate), (150, 1, 1000));
+        assert_eq!(placements["a.ogg"], super::Placement { offset: 0.0, duration: 100.0 });
+        assert_eq!(placements["b.ogg"], super::Placement { offset: 100.0, duration: 50.0 });
+    }
+
+    /// A mono file first must not pull the whole pack down to mono, nor a low
+    /// rate file down to its rate: the buffer takes the widest layout and the
+    /// highest rate.
+    #[test]
+    fn the_buffer_takes_the_most_channels_and_the_highest_rate() {
+        let files = vec![
+            ("a.ogg".to_string(), (vec![0.1; 50], 1, 500)),
+            ("b.ogg".to_string(), (vec![0.2; 200], 2, 1000))
+        ];
+        let ((samples, channels, rate), placements) = super::combine_decoded(files, None).expect(
+            "combined"
+        );
+        assert_eq!((channels, rate), (2, 1000));
+        assert_eq!(placements["a.ogg"].duration, 100.0);
+        assert_eq!(placements["b.ogg"], super::Placement { offset: 100.0, duration: 100.0 });
+        assert_eq!(samples.len(), 400);
+    }
+
+    #[test]
+    fn a_known_device_rate_is_used_directly() {
+        let ((_, _, rate), placements) = super::combine_decoded(two_files(), Some(2000)).expect(
+            "combined"
+        );
+        assert_eq!(rate, 2000);
+        assert_eq!(placements["b.ogg"].offset, 100.0);
+    }
+
+    #[test]
+    fn nothing_to_combine_is_none() {
+        assert!(super::combine_decoded(Vec::new(), None).is_none());
+    }
+
+    /// Timings in a multi pack are within each key's own file, so they move by
+    /// where that file landed. Both segments move, so a key with a press and a
+    /// release keeps both, and a key with one segment keeps one.
+    #[test]
+    fn each_key_moves_by_its_own_files_offset() {
+        let mut pack = multi_pack(
+            r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi",
+  "definitions": {
+    "KeyA": { "audio_file": "a.ogg", "timing": [[0, 40]] },
+    "KeyB": { "audio_file": "b.ogg", "timing": [[0, 20], [20, 50]] }
+  }
+}"#
+        );
+        placed(&mut pack);
+        assert_eq!(pack.definitions["KeyA"].timing, vec![[0.0, 40.0]]);
+        assert_eq!(pack.definitions["KeyB"].timing, vec![[100.0, 120.0], [120.0, 150.0]]);
+    }
+
+    /// An end past the key's own file is cut there instead of running into the
+    /// next file, and a segment that starts past it is dropped.
+    #[test]
+    fn a_segment_never_runs_into_the_next_file() {
+        let mut pack = multi_pack(
+            r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi",
+  "definitions": {
+    "KeyA": { "audio_file": "a.ogg", "timing": [[0, 1000]] },
+    "KeyB": { "audio_file": "a.ogg", "timing": [[0, 30], [120, 160]] },
+    "KeyC": { "audio_file": "a.ogg", "timing": [[150, 200]] }
+  }
+}"#
+        );
+        placed(&mut pack);
+        assert_eq!(pack.definitions["KeyA"].timing, vec![[0.0, 100.0]]);
+        assert_eq!(pack.definitions["KeyB"].timing, vec![[0.0, 30.0]]);
+        assert!(!pack.definitions.contains_key("KeyC"), "nothing left to play");
+    }
+
+    #[test]
+    fn a_key_without_timing_plays_its_whole_file() {
+        let mut pack = multi_pack(
+            r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi",
+  "definitions": { "KeyB": { "audio_file": "b.ogg" } }
+}"#
+        );
+        placed(&mut pack);
+        assert_eq!(pack.definitions["KeyB"].timing, vec![[100.0, 150.0]]);
+    }
+
+    #[test]
+    fn a_key_without_its_own_file_uses_the_packs_file() {
+        let mut pack = multi_pack(
+            r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi", "audio_file": "b.ogg",
+  "definitions": {
+    "Space": { "timing": [[5, 45]] },
+    "Enter": { "audio_file": "", "timing": [[0, 10]] }
+  }
+}"#
+        );
+        placed(&mut pack);
+        assert_eq!(pack.definitions["Space"].timing, vec![[105.0, 145.0]]);
+        assert_eq!(pack.definitions["Enter"].timing, vec![[100.0, 110.0]], "an empty name counts as none");
+    }
+
+    /// A key whose file did not load stays silent rather than playing a slice
+    /// of whichever file happens to sit at that position.
+    #[test]
+    fn a_key_whose_file_did_not_load_is_dropped() {
+        let mut pack = multi_pack(
+            r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi",
+  "definitions": {
+    "KeyA": { "audio_file": "a.ogg", "timing": [[0, 40]] },
+    "KeyC": { "audio_file": "missing.ogg", "timing": [[0, 40]] }
+  }
+}"#
+        );
+        placed(&mut pack);
+        assert!(pack.definitions.contains_key("KeyA"));
+        assert!(!pack.definitions.contains_key("KeyC"));
+    }
+
+    #[test]
+    fn a_pack_that_names_no_file_says_so() {
+        let mut pack = multi_pack(
+            r#"{ "id": "multi", "name": "Multi", "definition_method": "multi", "definitions": { "KeyA": { "timing": [[0, 40]] } } }"#
+        );
+        let error = super::decode_multi_pack("nowhere", &mut pack, None).expect_err("no file");
+        assert_eq!(error, "The pack names no audio file");
+    }
+
+    fn write_silence_wav(path: &std::path::Path, sample_rate: u32, channels: u16, duration_ms: u32) {
+        let spec = hound::WavSpec {
+            channels,
+            sample_rate,
+            bits_per_sample: 16,
+            sample_format: hound::SampleFormat::Int,
+        };
+        let mut writer = hound::WavWriter::create(path, spec).expect("create wav");
+        for _ in 0..((sample_rate * duration_ms) / 1000) * (channels as u32) {
+            writer.write_sample(0i16).expect("write sample");
+        }
+        writer.finalize().expect("finalize wav");
+    }
+
+    /// The whole path from disk: real files are decoded, combined and the
+    /// timings moved, and the pack's config.json is not touched.
+    #[test]
+    fn a_multi_pack_on_disk_loads_without_being_rewritten() {
+        let dir = std::env::temp_dir().join(format!("mechvibes-multi-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("pack dir");
+        write_silence_wav(&dir.join("a.wav"), 44100, 2, 200);
+        write_silence_wav(&dir.join("b.wav"), 22050, 1, 100);
+        let config = r#"{
+  "id": "multi", "name": "Multi", "definition_method": "multi",
+  "definitions": {
+    "KeyA": { "audio_file": "a.wav", "timing": [[0, 50]] },
+    "KeyB": { "audio_file": "b.wav", "timing": [[10, 60]] }
+  }
+}"#;
+        std::fs::write(dir.join("config.json"), config).expect("config");
+
+        let mut pack = multi_pack(config);
+        let (samples, channels, rate) = super::decode_multi_pack(
+            dir.to_str().unwrap(),
+            &mut pack,
+            None
+        ).expect("decode");
+
+        assert_eq!((channels, rate), (2, 44100));
+        let ms = ((samples.len() as f64) / 2.0 / 44.1).round();
+        assert_eq!(ms, 300.0, "200 ms of a.wav, then 100 ms of b.wav at the shared rate");
+        assert_eq!(pack.definitions["KeyB"].timing, vec![[210.0, 260.0]]);
+        assert_eq!(std::fs::read_to_string(dir.join("config.json")).expect("config"), config);
     }
 }

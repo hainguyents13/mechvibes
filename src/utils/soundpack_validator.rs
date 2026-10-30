@@ -187,6 +187,10 @@ fn validate_v2_structure(
         missing_fields.push("definitions".to_string());
     }
 
+    // In a "multi" pack a key that names its own file may leave out its
+    // timing, and then plays the whole file.
+    let is_multi = config.get("definition_method").and_then(Value::as_str) == Some("multi");
+
     // Validate the key-definition structure
     if let Some(defs) = definitions {
         if let Some(defs_obj) = defs.as_object() {
@@ -196,6 +200,7 @@ fn validate_v2_structure(
                 // directly to the timing array itself.
                 let timings = match value.get("timing") {
                     Some(timing) => timing,
+                    None if is_multi && value.get("audio_file").is_some() => continue,
                     None => value,
                 };
 
@@ -597,5 +602,20 @@ mod tests {
             }
             other => panic!("expected missing required fields, got {:?}", other),
         }
+    }
+
+    /// A key of a multi pack that names its own file may leave out its timing
+    /// and play the whole file. Without a file of its own it still needs one,
+    /// and a single pack always does.
+    #[test]
+    fn only_a_multi_key_with_its_own_file_may_leave_out_timing() {
+        let multi = r#"{"name":"M","author":"A","config_version":"2","definition_method":"multi","definitions":{"KeyA":{"audio_file":"a.ogg"}}}"#;
+        assert_eq!(validate_json(multi).status, SoundpackValidationStatus::Valid);
+
+        let multi_without_file = r#"{"name":"M","author":"A","config_version":"2","definition_method":"multi","definitions":{"KeyA":{}}}"#;
+        assert_ne!(validate_json(multi_without_file).status, SoundpackValidationStatus::Valid);
+
+        let single = r#"{"name":"S","author":"A","config_version":"2","definition_method":"single","audio_file":"a.ogg","definitions":{"KeyA":{"audio_file":"a.ogg"}}}"#;
+        assert_ne!(validate_json(single).status, SoundpackValidationStatus::Valid);
     }
 }

@@ -410,8 +410,11 @@ fn play_segment(
         return;
     }
 
-    let start_sample = ((start_ms / 1000.0) * (sample_rate as f32) * (channels as f32)) as usize;
-    let end_sample = ((end_ms / 1000.0) * (sample_rate as f32) * (channels as f32)) as usize;
+    // Whole frames first, then samples: rounding a sample index directly can
+    // land between a frame's channels and swap left and right.
+    let frame_at = |ms: f32| (((ms as f64) / 1000.0) * (sample_rate as f64)) as usize;
+    let start_sample = frame_at(start_ms) * (channels as usize);
+    let end_sample = frame_at(end_ms) * (channels as usize);
     let end_sample = end_sample.min(samples.len());
     if start_sample >= end_sample {
         crate::always_eprint!(

@@ -82,7 +82,7 @@ my-keyboard-pack/
 }
 ```
 
-Timing values are `[start_ms, end_ms]` within the audio file: every key plays its own slice of the same file. Use `"single"`. A pack that uses `"multi"` (one file per key) is converted to `"single"` automatically the first time it loads.
+Timing values are `[start_ms, end_ms]` within the audio file: every key plays its own slice of the same file. One segment plays when the key goes down; with two, the second plays when the key comes up. A pack can also give each key its own file with `"multi"`, and Mechvibes plays it as it is.
 
 For every config.json field, key names, templates and troubleshooting, see [Sound pack config.json V2 format](docs/soundpack-config-v2.md).
 

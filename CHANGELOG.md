@@ -11,6 +11,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Sound packs you added to Mechvibes 2 come over by themselves.** The first time Mechvibes starts, it copies them into its own list, marked New, so there is no need to zip and import them again. The originals stay where they were. A pack you already have in Mechvibes is left as it is. This happens once, so a pack you delete afterwards does not come back.
 - **macOS: Mechvibes offers to move the old MechvibesDX app to the Trash.** If MechvibesDX is still in your Applications folder, Mechvibes asks once and moves it to the Trash when you click Yes. Your settings and sound packs stay. It does not ask while Mechvibes runs straight from the disk image.
 
+### Fixed
+
+- **Sound packs with one file per key ("multi") play every key and stay as they are.** Mechvibes used to rewrite such a pack to use a single file the first time it loaded, keeping only the keys that shared the most common file: every other key went silent, and the pack could no longer be opened as a multi pack. The pack is now left untouched on disk, and its files are joined in memory when it loads, so every key plays, with its press and release sounds if it has both. Packs made for the original Mechvibes still convert as before, with one sound per key played when the key goes down.
+- **Stereo sounds no longer play with left and right swapped on some keys.** A key whose timing fell between two samples, such as the `.5` ms values in some bundled packs, could start in the middle of a stereo frame, so that key played with its channels reversed. Playback now always starts and ends on a whole frame.
+
 ## [3.0.0] - 2026-10-30
 
 ### Changed
