@@ -122,8 +122,9 @@ section = "sound"
 priority = "optional"
 # The package was called mechvibes-dx until 0.8.x. Conflicts + Replaces lets
 # dpkg remove that package when this one is installed, instead of keeping both.
-# The Electron app's package was also called `mechvibes` (2.3.4): the version
-# gets an epoch in scripts/build-linux-appimage.sh so this one upgrades it.
+# The Electron app's package was also called `mechvibes`, last at 2.3.4. This
+# app's versions continue from 3.0.0, so installing it upgrades that package;
+# a version below 2.3.4 here would read as a downgrade.
 conflicts = "mechvibes-dx"
 replaces = "mechvibes-dx"
 # `usr/lib/mechvibes/assets` is not a free choice. dioxus-asset-resolver's

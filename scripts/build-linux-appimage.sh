@@ -109,13 +109,7 @@ if [ "$BUILD_DEB" -eq 1 ]; then
     exit 1
   fi
   echo "=== Building .deb ==="
-  # Epoch 1: the original Electron Mechvibes shipped a `mechvibes` package at
-  # 2.3.4, and 0.x would read as a downgrade of it. With the epoch, installing
-  # this package upgrades that one in place. The output path is set by hand
-  # because cargo-deb would put the `1:` into the file name.
-  mkdir -p target/debian
-  cargo deb --no-build --deb-version "1:${VERSION}-1" \
-    --output "target/debian/${APP_NAME}_${VERSION}_amd64.deb"
+  cargo deb --no-build
   DEB_SOURCE=$(ls target/debian/"${APP_NAME}"_"${VERSION}"*.deb 2>/dev/null | head -1 || true)
   if [ -z "$DEB_SOURCE" ] || [ ! -f "$DEB_SOURCE" ]; then
     echo "::error::No .deb produced for version ${VERSION} in target/debian/"
