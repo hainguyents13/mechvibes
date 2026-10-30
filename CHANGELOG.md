@@ -14,7 +14,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **The Sound pack editor links open the new editor at [editor.mechvibes.com](https://editor.mechvibes.com).**
-- **Linux: opening Mechvibes again brings the running window back instead of starting a second copy**, which played every key twice. Windows already worked this way.
+- **Linux: opening Mechvibes again brings the running window back instead of starting a second copy**, which played every key twice. Windows already worked this way, including that a `--headless` run now refuses to start while the app is open.
+- **ZIP imports stop at a size limit.** A pack whose `config.json` unpacks past 1 MB, or whose files unpack past 200 MB in total, is refused instead of filling the disk. Real packs are far below both.
 
 ### Removed
 

@@ -55,9 +55,13 @@ fn read_config_from_zip(file_path: &str) -> Result<Value, String> {
 
         if file_path.ends_with("config.json") {
             let mut config_content = String::new();
-            file
+            (&mut file)
+                .take(MAX_CONFIG_BYTES + 1)
                 .read_to_string(&mut config_content)
                 .map_err(|e| format!("Failed to read config.json: {}", e))?;
+            if (config_content.len() as u64) > MAX_CONFIG_BYTES {
+                return Err("The sound pack's config.json is too large.".to_string());
+            }
 
             let config: Value = serde_json
                 ::from_str(&config_content)
@@ -352,21 +356,52 @@ fn install_library_pack_into(
     // staging folder sits outside the keyboard and mouse folders, so a scan
     // that runs meanwhile never lists it.
     let staging = soundpacks_dir.join(format!(".staging-{}", Uuid::new_v4()));
+    let previous = staging.join("previous");
+    let mut keep_staging = false;
     let result = (|| {
         let info = extract_and_install_into(zip_path, target_type, &staging)?;
         let fresh = staging.join(soundpack_type).join(id);
-        let previous = staging.join("previous");
-        std::fs
-            ::rename(&install_dir, &previous)
-            .map_err(|e| format!("Could not replace the installed sound pack: {}", e))?;
-        if let Err(e) = std::fs::rename(&fresh, &install_dir) {
-            let _ = std::fs::rename(&previous, &install_dir);
+        rename_with_retry(&install_dir, &previous).map_err(|e|
+            format!("Could not replace the installed sound pack: {}", e)
+        )?;
+        if let Err(e) = rename_with_retry(&fresh, &install_dir) {
+            if rename_with_retry(&previous, &install_dir).is_err() {
+                // The installed copy now only exists inside the staging
+                // folder, so that folder must not be removed below.
+                keep_staging = true;
+                return Err(
+                    format!(
+                        "Could not replace the installed sound pack ({}). Your previous copy is in {}.",
+                        e,
+                        previous.display()
+                    )
+                );
+            }
             return Err(format!("Could not replace the installed sound pack: {}", e));
         }
         Ok(info)
     })();
-    let _ = std::fs::remove_dir_all(&staging);
+    if !keep_staging {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
     result
+}
+
+/// Rename `from` to `to`, retrying briefly. On Windows a folder whose files
+/// were just written is often held for a moment by the virus scanner or the
+/// search indexer, and the rename fails with "access denied" until it lets go.
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt >= 5 => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100 * attempt));
+            }
+        }
+    }
 }
 
 /// Extract and install into `soundpacks_dir`.
@@ -487,12 +522,17 @@ fn install_into(
 }
 
 /// Write every file of `file_path` into `install_dir`.
+///
+/// What is unpacked is counted rather than trusted from the ZIP's own sizes,
+/// so a small archive that expands to gigabytes stops at the limit instead of
+/// filling the disk.
 fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String> {
     // Extract all files
     let mut archive = ZipArchive::new(
         File::open(file_path).map_err(|e| format!("Failed to reopen ZIP: {}", e))?
     ).map_err(|e| format!("Failed to reread ZIP archive: {}", e))?;
 
+    let mut unpacked: u64 = 0;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -509,13 +549,23 @@ fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String>
         let mut output_file = File::create(&output_path).map_err(|e|
             format!("Failed to create output file: {}", e)
         )?;
-        std::io
-            ::copy(&mut file, &mut output_file)
+        let room = MAX_UNPACKED_BYTES - unpacked;
+        unpacked += std::io
+            ::copy(&mut (&mut file).take(room + 1), &mut output_file)
             .map_err(|e| format!("Failed to extract file: {}", e))?;
+        if unpacked > MAX_UNPACKED_BYTES {
+            return Err("The sound pack is too large once unpacked.".to_string());
+        }
     }
 
     Ok(())
 }
+
+/// Far above any real config, which is a few hundred kilobytes at most.
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+
+/// Far above any real pack: the library takes 5 MB of audio per pack.
+const MAX_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
 
 /// Copy everything in `from` into `to`, keeping subfolders. The pack's own
 /// `config.json` is left out at the top level, because the installer writes
@@ -970,5 +1020,16 @@ mod tests {
     fn a_pack_that_is_not_installed_is_new() {
         let base = scratch_dir();
         assert_eq!(library_install_at(&base.join("keyboard").join(LIBRARY_ID), 1), LibraryInstall::New);
+    }
+
+    /// A config.json that unpacks past the limit is refused rather than read
+    /// into memory whole.
+    #[test]
+    fn an_oversized_config_is_refused() {
+        let base = scratch_dir();
+        let padding = " ".repeat((MAX_CONFIG_BYTES as usize) + 1);
+        let pack_zip = zip_with_config(&base, "big.zip", &format!("{{\"id\":\"big\"{}}}", padding));
+        let error = get_soundpack_id_from_zip(&pack_zip).expect_err("an oversized config must be refused");
+        assert!(error.contains("too large"), "got: {}", error);
     }
 }

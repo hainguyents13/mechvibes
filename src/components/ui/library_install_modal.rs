@@ -54,16 +54,22 @@ pub fn LibraryInstallModal() -> Element {
     let state_trigger = use_state_trigger();
     let mut stage = use_signal(|| Stage::Hidden);
 
-    // Each link that arrives opens the dialog, unless a download is already
-    // running: that one finishes first and a later link waits for the next
-    // click on it.
+    // Each link that arrives opens the dialog, unless one is already asking
+    // or installing. A page could otherwise swap the pack under the user's
+    // cursor just before they click Install. Clicking the link again after
+    // closing the dialog works as usual.
     use_hook(move || {
         spawn(async move {
             let Some(mut ids) = crate::utils::deep_link::take_receiver() else {
                 return;
             };
             while let Some(id) = ids.recv().await {
-                if matches!(*stage.peek(), Stage::Working { .. }) {
+                if
+                    matches!(
+                        *stage.peek(),
+                        Stage::Loading | Stage::Confirm { .. } | Stage::Working { .. }
+                    )
+                {
                     continue;
                 }
                 stage.set(Stage::Loading);
@@ -96,11 +102,29 @@ pub fn LibraryInstallModal() -> Element {
         spawn(async move {
             let result = match library_client::download_pack(&pack).await {
                 Ok(zip) => {
-                    let installed = soundpack_installer::install_library_pack(
-                        &zip.to_string_lossy(),
-                        &pack.id,
-                        pack.soundpack_type()
-                    );
+                    let zip_path = zip.to_string_lossy().to_string();
+                    // The same structure check a ZIP import runs, then the
+                    // unpacking off the UI thread.
+                    let installed = match
+                        crate::utils::soundpack_validator::validate_soundpack_structure(
+                            &zip_path
+                        ).await
+                    {
+                        Ok(_) => {
+                            let (id, soundpack_type) = (pack.id.clone(), pack.soundpack_type());
+                            let zip_path = zip_path.clone();
+                            tokio::task
+                                ::spawn_blocking(move || {
+                                    soundpack_installer::install_library_pack(
+                                        &zip_path,
+                                        &id,
+                                        soundpack_type
+                                    )
+                                }).await
+                                .unwrap_or_else(|_| Err("The install stopped unexpectedly.".to_string()))
+                        }
+                        Err(e) => Err(e),
+                    };
                     let _ = std::fs::remove_file(&zip);
                     installed
                 }

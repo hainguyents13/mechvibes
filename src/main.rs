@@ -155,7 +155,9 @@ fn main() {
 
     // A link that started this launch, and any left over from a launch that
     // handed one over just as the last copy was closing.
-    if let Some(link) = deep_link.or_else(utils::deep_link::take_handed_over) {
+    let pending_link = deep_link.or_else(utils::deep_link::take_handed_over);
+    let opened_by_link = pending_link.is_some();
+    if let Some(link) = pending_link {
         utils::deep_link::deliver_link(&link);
     }
 
@@ -204,8 +206,11 @@ fn main() {
     // `auto_start` against the registry) - every later read and write in the
     // process goes to that same in-memory state rather than re-parsing.
     let startup_config = state::config_writer::current();
+    // A sound pack link always opens the window: its dialog is the point of
+    // the launch, even when "start minimized" is on.
     let should_start_minimized =
-        cli.minimized || (startup_config.auto_start && startup_config.start_minimized);
+        !opened_by_link &&
+        (cli.minimized || (startup_config.auto_start && startup_config.start_minimized));
 
     // Before the app state loads the sound pack list, so the packs brought over
     // from Mechvibes 2 are in it from the first frame.

@@ -45,7 +45,10 @@ fn client() -> Result<reqwest::Client, String> {
     reqwest::Client
         ::builder()
         .user_agent(format!("{}/{}", APP_NAME, APP_VERSION))
-        .timeout(std::time::Duration::from_secs(60))
+        // Per step rather than for the whole request, so a slow connection
+        // still finishes a large pack as long as data keeps arriving.
+        .connect_timeout(std::time::Duration::from_secs(15))
+        .read_timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| format!("Could not start the download: {}", e))
 }
@@ -96,10 +99,15 @@ pub async fn download_pack(pack: &LibraryPack) -> Result<PathBuf, String> {
         return Err(format!("Could not download the sound pack ({}).", response.status()));
     }
 
-    let path = std::env::temp_dir().join(format!("mechvibes-{}-r{}.zip", pack.id, pack.revision));
+    let dir = crate::state::paths::data::library_downloads_dir();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("Could not save the download: {}", e))?;
+    let path = dir.join(format!("{}-{}.zip", pack.id, uuid::Uuid::new_v4()));
     let result = async {
         let mut file = std::fs::File
-            ::create(&path)
+            ::options()
+            .write(true)
+            .create_new(true)
+            .open(&path)
             .map_err(|e| format!("Could not save the download: {}", e))?;
         let mut written: u64 = 0;
         while

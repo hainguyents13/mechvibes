@@ -46,26 +46,43 @@ pub fn link_from_args<I>(args: I) -> Option<String> where I: IntoIterator<Item =
     args.into_iter()
         .skip(1)
         .filter_map(|arg| arg.into_string().ok())
-        .find(|arg| arg.len() >= prefix.len() && arg[..prefix.len()].eq_ignore_ascii_case(&prefix))
+        // Compared as bytes: slicing the string at the prefix length would
+        // panic on an argument with a multi-byte character there, such as a
+        // Vietnamese pack name passed to --soundpack.
+        .find(|arg| {
+            arg.as_bytes()
+                .get(..prefix.len())
+                .is_some_and(|head| head.eq_ignore_ascii_case(prefix.as_bytes()))
+        })
 }
+
+/// How long a handed-over link stays good. One the running copy never picked
+/// up, because it was closing just then, must not pop up days later.
+const HAND_OVER_LIFETIME: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Leave `link` for the copy that is already running. Written to a temporary
 /// file and renamed into place, so the running copy never reads half of it.
 pub fn hand_over(link: &str) -> Result<(), String> {
     let path = paths::data::pending_deep_link();
-    let partial = path.with_extension("partial");
+    let partial = path.with_extension(format!("{}.partial", std::process::id()));
     std::fs
         ::write(&partial, link)
         .and_then(|()| std::fs::rename(&partial, &path))
         .map_err(|e| format!("Could not hand the link over: {}", e))
 }
 
-/// Take a link a second launch left behind, if there is one.
+/// Take a link a second launch left behind, if there is one and it is recent.
 pub fn take_handed_over() -> Option<String> {
     let path = paths::data::pending_deep_link();
-    let link = std::fs::read_to_string(&path).ok()?;
+    let fresh = std::fs
+        ::metadata(&path)
+        .and_then(|meta| meta.modified())
+        .ok()
+        .and_then(|modified| modified.elapsed().ok())
+        .is_some_and(|age| age <= HAND_OVER_LIFETIME);
+    let link = std::fs::read_to_string(&path).ok();
     let _ = std::fs::remove_file(&path);
-    Some(link)
+    link.filter(|_| fresh)
 }
 
 type Links = (
@@ -92,7 +109,16 @@ pub fn deliver(id: String) {
 pub fn deliver_link(link: &str) {
     match install_id(link) {
         Some(id) => deliver(id),
-        None => crate::always_eprint!("⚠️  Ignoring a link that is not a sound pack install link: {}", link),
+        None => {
+            // Shortened and stripped of control characters: it came from
+            // whatever page opened it.
+            let shown: String = link
+                .chars()
+                .filter(|c| !c.is_control())
+                .take(120)
+                .collect();
+            crate::always_eprint!("⚠️  Ignoring a link that is not a sound pack install link: {}", shown);
+        }
     }
 }
 
@@ -141,6 +167,13 @@ mod tests {
 
         // argv[0] is the program, never a link.
         let args = ["mechvibes://install/x"].map(OsString::from);
+        assert_eq!(link_from_args(args), None);
+    }
+
+    /// A multi-byte character where the prefix ends used to panic at startup.
+    #[test]
+    fn an_argument_with_accented_letters_is_not_a_link_and_does_not_panic() {
+        let args = ["mechvibes.exe", "--soundpack", "Âm thanh cơ học", "ơơơơơơơơơơơơơ"].map(OsString::from);
         assert_eq!(link_from_args(args), None);
     }
 }

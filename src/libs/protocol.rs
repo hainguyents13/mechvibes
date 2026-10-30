@@ -67,7 +67,46 @@ pub fn register_protocol() -> Result<(), Box<dyn std::error::Error>> {
 /// AppImage, since every other Linux install comes with its desktop file.
 #[cfg(target_os = "linux")]
 pub fn should_self_register() -> bool {
-    env::var_os("APPIMAGE").is_some()
+    appimage_file().is_some()
+}
+
+/// The AppImage this process runs from. `$APPIMAGE` alone is not enough:
+/// every child process inherits it, so the `.deb` started from a terminal
+/// inside some other AppImage would see that one's path. It only counts when
+/// this executable really runs from an AppImage mount, and names a real file.
+#[cfg(target_os = "linux")]
+pub fn appimage_file() -> Option<std::path::PathBuf> {
+    if !crate::state::paths::is_running_from_appimage() {
+        return None;
+    }
+    env::var_os("APPIMAGE")
+        .map(std::path::PathBuf::from)
+        .filter(|path| path.is_file())
+}
+
+/// Quote `path` for a desktop file's `Exec` key, per the Desktop Entry spec:
+/// `"`, `` ` ``, `$` and `\` are escaped inside the quotes, then every `\` is
+/// doubled again by the string escaping of the value, and `%` becomes `%%`.
+/// `None` for a path with a line break, which would start a new key.
+#[cfg(any(target_os = "linux", test))]
+fn desktop_exec_quote(path: &str) -> Option<String> {
+    if path.contains(['\n', '\r']) {
+        return None;
+    }
+    let mut quoted = String::from("\"");
+    for c in path.chars() {
+        match c {
+            '"' | '`' | '$' => {
+                quoted.push_str("\\\\");
+                quoted.push(c);
+            }
+            '\\' => quoted.push_str("\\\\\\\\"),
+            '%' => quoted.push_str("%%"),
+            c => quoted.push(c),
+        }
+    }
+    quoted.push('"');
+    Some(quoted)
 }
 
 /// Make an AppImage the handler for `mechvibes://` links.
@@ -85,20 +124,23 @@ pub fn register_protocol() -> Result<(), Box<dyn std::error::Error>> {
     let entry_name = format!("{}-url-handler.desktop", APP_NAME_LOWERCASE);
     let apps_dir = format!("{}/.local/share/applications", home);
     let desktop_file_path = format!("{}/{}", apps_dir, entry_name);
-    let exe_path = env::var_os("APPIMAGE").map(std::path::PathBuf::from).ok_or("not an AppImage")?;
+    let exe_path = appimage_file().ok_or("not an AppImage")?;
+    let exec = desktop_exec_quote(&exe_path.to_string_lossy()).ok_or(
+        "the AppImage path has a line break in it"
+    )?;
 
     let desktop_content = format!(
         r#"[Desktop Entry]
 Name={}
 Comment=Mechanical keyboard sound simulator
-Exec="{}" %u
+Exec={} %u
 Icon={}
 Type=Application
 NoDisplay=true
 MimeType=x-scheme-handler/{};
 "#,
         APP_NAME,
-        exe_path.to_string_lossy(),
+        exec,
         APP_NAME_LOWERCASE,
         APP_PROTOCOL
     );
@@ -121,3 +163,18 @@ MimeType=x-scheme-handler/{};
     Ok(())
 }
 
+
+#[cfg(test)]
+mod tests {
+    use super::desktop_exec_quote;
+
+    #[test]
+    fn an_exec_path_is_quoted_and_escaped_for_a_desktop_file() {
+        assert_eq!(desktop_exec_quote("/home/me/Mechvibes.AppImage").as_deref(), Some("\"/home/me/Mechvibes.AppImage\""));
+        // `$` `"` `` ` `` take a backslash inside the quotes, which the value's
+        // own escaping doubles; `%` is doubled; `\` ends up as four.
+        assert_eq!(desktop_exec_quote("/a b/$x\"`%").as_deref(), Some(r#""/a b/\\$x\\"\\`%%""#));
+        assert_eq!(desktop_exec_quote(r"/a\b").as_deref(), Some(r#""/a\\\\b""#));
+        assert_eq!(desktop_exec_quote("/a\nExec=evil"), None);
+    }
+}
