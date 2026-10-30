@@ -36,25 +36,34 @@ macro_rules! always_eprint {
     };
 }
 
-mod utils {
-    #[path = "../../utils/config_converter.rs"]
-    pub mod config_converter;
-    #[path = "../../utils/soundpack_validator.rs"]
-    pub mod soundpack_validator;
+// Declared at the crate root, where `#[path]` is resolved from `src/bin`, a
+// folder that exists. Inside `mod utils { }` it would be resolved from
+// `src/bin/utils`, which only Windows tolerates: Linux and macOS cannot step
+// out of a folder that is not there with `..`.
+#[path = "../utils/config_converter.rs"]
+pub mod config_converter;
+#[path = "../utils/soundpack_validator.rs"]
+pub mod soundpack_validator;
+#[path = "../libs/audio/resampler.rs"]
+pub mod resampler;
 
-    /// Stands in for `utils::path`, which in the app pulls in the app data
-    /// directory resolution. The converter and validator only need this one.
-    pub mod path {
-        pub fn read_file_contents(path: &str) -> Result<String, String> {
-            std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
-        }
+/// Stands in for `utils::path`, which in the app pulls in the app data
+/// directory resolution. The converter and validator only need this one. It
+/// sits at the root because the converter reaches it as `super::path`.
+pub mod path {
+    pub fn read_file_contents(path: &str) -> Result<String, String> {
+        std::fs::read_to_string(path).map_err(|e| format!("Failed to read file '{}': {}", path, e))
     }
+}
+
+/// The app's module paths, which the shared files use to reach each other.
+mod utils {
+    pub use crate::{config_converter, path, soundpack_validator};
 }
 
 mod libs {
     pub mod audio {
-        #[path = "../../../libs/audio/resampler.rs"]
-        pub mod resampler;
+        pub use crate::resampler;
     }
 }
 
