@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **The project now lives at [github.com/hainguyents13/mechvibes](https://github.com/hainguyents13/mechvibes).** The links in Settings and the tray menu, and the update check, point to the new address. The old `mechvibes-dx` address still redirects there, so earlier versions keep finding updates. The original Electron app moved to [mechvibes-electron](https://github.com/hainguyents13/mechvibes-electron).
+- **MechvibesDX is now called Mechvibes.** It is the successor to the original Electron Mechvibes, so it takes over the name everywhere: the window, the tray menu, the installer, the Start Menu and the downloads (`Mechvibes-<version>-Setup-x64.exe`, `mechvibes_<version>_amd64.deb`, and so on). The version jumps from 0.8 to 3.0 to follow on from the original app's last release, 2.3.4. Your settings and sound packs stay where they are.
+  - **Windows**: the update installs over MechvibesDX and removes its old shortcuts. If you had it start at login, that setting carries over.
+  - **Linux**: installing the new `.deb` replaces the `mechvibes-dx` package, and also the original Electron app's `mechvibes` package if you still have it.
+  - **macOS**: drag Mechvibes to Applications, then delete MechvibesDX from there. If the original Electron app is installed, Finder offers to replace it. As after any update, you may need to grant Accessibility and Input Monitoring again.
 
 ### Fixed
 

@@ -152,6 +152,11 @@ fn main() {
 
     debug_print!("🚀 Initializing {}...", APP_NAME);
 
+    // Ahead of the first config read, which syncs `auto_start` from the
+    // registry and would save "off" for an entry still under the old name.
+    #[cfg(target_os = "windows")]
+    utils::auto_startup::migrate_legacy_run_entry();
+
     // Initialize app manifest first
     let _manifest = state::manifest::AppManifest::load();
 

@@ -1,5 +1,5 @@
 [package]
-name = "mechvibes-dx"
+name = "mechvibes"
 version = "0.8.4"
 authors = ["Hải Nguyễn <hainguyen.ts13@gmail.com>"]
 edition = "2024"
@@ -120,22 +120,29 @@ Plays realistic keyboard sounds as you type with customizable soundpacks."""
 depends = "$auto, libasound2, libevdev2, libxdo3"
 section = "sound"
 priority = "optional"
-# `usr/lib/mechvibes-dx/assets` is not a free choice. dioxus-asset-resolver's
+# The package was called mechvibes-dx until 0.8.x. Conflicts + Replaces lets
+# dpkg remove that package when this one is installed, instead of keeping both.
+# The Electron app's package was also called `mechvibes`, last at 2.3.4. This
+# app's versions continue from 3.0.0, so installing it upgrades that package;
+# a version below 2.3.4 here would read as a downgrade.
+conflicts = "mechvibes-dx"
+replaces = "mechvibes-dx"
+# `usr/lib/mechvibes/assets` is not a free choice. dioxus-asset-resolver's
 # Linux branch (0.7.10 native.rs::get_asset_root) computes
 # `current_exe()/../../lib` - which is `/usr/lib` for a binary at
-# `/usr/bin/mechvibes-dx` - then scans it for the first subdirectory containing
+# `/usr/bin/mechvibes` - then scans it for the first subdirectory containing
 # an `assets/` folder. DIOXUS_PRODUCT_NAME is not baked into a plain
 # `cargo build --release`, so that scan is the path that actually runs. Put the
 # fonts anywhere else and every `asset!()` font silently falls back to a system
 # font. The AppImage places them at the same relative location for the same
 # reason, so one binary serves both packages.
 assets = [
-  ["target/release/mechvibes-dx", "usr/bin/", "755"],
-  ["assets/**/*", "usr/lib/mechvibes-dx/assets/", "644"],
-  ["assets/icon.png", "usr/share/icons/hicolor/512x512/apps/mechvibes-dx.png", "644"],
-  ["mechvibes-dx.desktop", "usr/share/applications/", "644"],
-  ["README.md", "usr/share/doc/mechvibes-dx/", "644"],
-  ["soundpacks/**/*", "usr/share/mechvibes-dx/soundpacks/", "644"],
+  ["target/release/mechvibes", "usr/bin/", "755"],
+  ["assets/**/*", "usr/lib/mechvibes/assets/", "644"],
+  ["assets/icon.png", "usr/share/icons/hicolor/512x512/apps/mechvibes.png", "644"],
+  ["mechvibes.desktop", "usr/share/applications/", "644"],
+  ["README.md", "usr/share/doc/mechvibes/", "644"],
+  ["soundpacks/**/*", "usr/share/mechvibes/soundpacks/", "644"],
 ]
 
 # Local patch: wraps rdev's TIS* API calls in dispatch::Queue::main().exec_sync()

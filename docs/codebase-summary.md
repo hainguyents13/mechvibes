@@ -1,4 +1,4 @@
-# Codebase Summary — MechvibesDX
+# Codebase Summary — Mechvibes
 
 **Last Updated:** 2026-08-03 · **Language:** Rust (1.88+) + Dioxus 0.7.10  
 **Build:** `cargo build --release` (Windows); CI via GitHub Actions  
@@ -8,7 +8,7 @@
 ## Directory Tree & Module Organization
 
 ```
-mechvibes-dx/
+mechvibes/
 ├── src/
 │   ├── main.rs                 # App entry, engine spawn, worker mode check
 │   ├── libs/                   # Platform & subsystem libraries
@@ -115,7 +115,7 @@ mechvibes-dx/
 │   └── lib/common.sh           # shared bash helpers (toolchain check, asset-name check)
 ├── installer/
 │   ├── windows/
-│   │   └── mechvibes-dx-setup.iss # Inno Setup config
+│   │   └── mechvibes-setup.iss # Inno Setup config
 │   └── README.md                # Installer docs
 ├── debian/
 │   ├── postinst             # Post-install hook (add user to input group)
@@ -265,8 +265,8 @@ pub struct AppConfig {
 ```
 
 **Storage:**
-- Linux/macOS: `~/.local/share/mechvibes-dx/config.json`
-- Windows: `HKEY_CURRENT_USER\Software\MechvibesDX` (registry) + JSON fallback
+- Linux/macOS: `~/.local/share/mechvibes/config.json`
+- Windows: `HKEY_CURRENT_USER\Software\Mechvibes` (registry) + JSON fallback
 
 ### `SoundPack` (Soundpack Definition, `src/state/soundpack.rs`)
 

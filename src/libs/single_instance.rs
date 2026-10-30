@@ -25,12 +25,12 @@ use winapi::um::winnt::{ EVENT_MODIFY_STATE, HANDLE };
 /// machine each get their own instance, which is the behavior people expect
 /// from a per-user tray app. A `Global\` name would let one user's running
 /// copy block another's.
-const MUTEX_PREFIX: &str = r"Local\MechvibesDX-SingleInstance-";
+const MUTEX_PREFIX: &str = r"Local\Mechvibes-SingleInstance-";
 
 /// Event a refused second instance sets to raise the running window. Shares
 /// the mutex's session-local scope for the same reason: one user's second
 /// launch must never surface another user's window.
-const WAKE_EVENT_PREFIX: &str = r"Local\MechvibesDX-ShowWindow-";
+const WAKE_EVENT_PREFIX: &str = r"Local\Mechvibes-ShowWindow-";
 
 /// `ERROR_ALREADY_EXISTS`. Defined here rather than pulled from winapi's
 /// `winerror` module, which this crate does not enable as a feature; the

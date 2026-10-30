@@ -193,7 +193,7 @@ fn conflict_message(conflict: &SoundpackConflict, soundpack_id: &str) -> String 
         SoundpackConflict::ShadowsBuiltin { folder_path } => {
             let builtin_id = folder_path.rsplit('/').next().unwrap_or(folder_path);
             format!(
-                "The ID '{}' belongs to a sound pack that ships with MechvibesDX ({}).\nImporting it would install a pack that never plays.\nPlease use a different ID.",
+                "The ID '{}' belongs to a sound pack that ships with Mechvibes ({}).\nImporting it would install a pack that never plays.\nPlease use a different ID.",
                 builtin_id,
                 folder_path
             )

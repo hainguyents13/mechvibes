@@ -1,20 +1,20 @@
-; MechvibesDX Inno Setup Script
+; Mechvibes Inno Setup Script
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 ;
 ; Version is NOT hardcoded here - pass it at compile time:
-;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-dx-setup.iss
+;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-setup.iss
 ; scripts/build-windows-installer.ps1 does this automatically by reading
 ; Cargo.toml, so there is a single source of truth for the version.
 
 #ifndef AppVersion
-  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-dx-setup.iss
+  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-setup.iss
 #endif
 
-#define MyAppName "MechvibesDX"
+#define MyAppName "Mechvibes"
 #define MyAppVersion AppVersion
 #define MyAppPublisher "Hai Nguyen"
 #define MyAppURL "https://github.com/hainguyents13/mechvibes"
-#define MyAppExeName "mechvibes-dx.exe"
+#define MyAppExeName "mechvibes.exe"
 #define MyAppId "{{8B5F5E5E-5E5E-5E5E-5E5E-5E5E5E5E5E5E}"
 
 [Setup]
@@ -26,14 +26,20 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-DefaultDirName={autopf}\{#MyAppName}
+; Not {autopf}\{#MyAppName}: the original Electron Mechvibes installs per-user
+; into %LOCALAPPDATA%\Programs\Mechvibes, and sharing that folder would mix
+; the two apps' files and let either uninstaller delete the other's. Upgrades
+; keep whatever folder they were installed in (UsePreviousAppDir).
+DefaultDirName={autopf}\MechvibesDX
 DefaultGroupName={#MyAppName}
+; Upgrades from MechvibesDX would otherwise reuse its Start Menu folder name.
+UsePreviousGroup=no
 AllowNoIcons=yes
 LicenseFile=..\..\LICENSE
 ; OutputBaseFilename MUST contain "x64" and end in ".exe" to match the
 ; in-app auto-updater's asset filter (src/utils/auto_updater.rs).
 OutputDir=..\..\dist
-OutputBaseFilename=MechvibesDX-{#MyAppVersion}-Setup-x64
+OutputBaseFilename=Mechvibes-{#MyAppVersion}-Setup-x64
 SetupIconFile=..\..\assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -47,6 +53,16 @@ DisableWelcomePage=no
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 RestartApplications=yes
+
+[InstallDelete]
+; Leftovers from when the app was called MechvibesDX (0.8.x and earlier).
+; Listing the old exe here also makes CloseApplications close a copy of it
+; that is still running, since Restart Manager covers [InstallDelete] files.
+Type: files; Name: "{app}\mechvibes-dx.exe"
+Type: filesandordirs; Name: "{autoprograms}\MechvibesDX"
+Type: files; Name: "{autodesktop}\MechvibesDX.lnk"
+; WebView2 cache, named after the exe by Dioxus.
+Type: filesandordirs; Name: "{localappdata}\mechvibes-dx"
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -92,7 +108,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; /LOG trace of a real silent install shows why:
 ;
 ;   Found 1 files to register with RestartManager.
-;   RestartManager found an application using one of our files: MechvibesDX
+;   RestartManager found an application using one of our files: Mechvibes
 ;   Shutting down applications using our files.
 ;   Attempting to restart applications.
 ;

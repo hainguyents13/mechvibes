@@ -1,11 +1,11 @@
-# System Architecture — MechvibesDX
+# System Architecture — Mechvibes
 
 **Last Updated:** 2026-08-03 · **Version:** 0.7.0  
 **Status:** Reflects actual codebase post-Phase 3 (audio engine thread), Phase 6 (Windows input worker process), and Phase 7 (device watchdog removal, input injection filter, trace facility).
 
 ## Overview
 
-MechvibesDX is a mechanical keyboard sound simulator (Rust + Dioxus 0.7 desktop). The system captures keyboard and mouse input across three platforms (Windows, Linux, macOS), plays synthesized sounds via audio output, and provides a customizable UI with soundpack/theme management.
+Mechvibes is a mechanical keyboard sound simulator (Rust + Dioxus 0.7 desktop). The system captures keyboard and mouse input across three platforms (Windows, Linux, macOS), plays synthesized sounds via audio output, and provides a customizable UI with soundpack/theme management.
 
 The architecture prioritizes:
 1. **Low-latency audio**: Dedicated engine thread owns `OutputStream` (non-`Send` type) exclusively.
@@ -293,7 +293,7 @@ For `definition_method: "multi"`, each sound can have its own audio file:
 
 ### AppConfig (Persistent)
 
-**Location:** `src/state/config.rs`, stored at `~/.local/share/mechvibes-dx/config.json` (Linux/macOS) or registry (Windows).
+**Location:** `src/state/config.rs`, stored at `~/.local/share/mechvibes/config.json` (Linux/macOS) or registry (Windows).
 
 **Key fields relevant to audio/input:**
 - `keyboard_soundpack`, `mouse_soundpack` — currently loaded pack IDs.

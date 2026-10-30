@@ -118,7 +118,7 @@ pub fn validate_soundpack_config(config_path: &str) -> SoundpackValidationResult
             detected_version: package_version,
             is_valid_v2: false,
             can_be_converted: false,
-            message: "This soundpack requires a newer version of MechvibesDX".to_string(),
+            message: "This soundpack requires a newer version of Mechvibes".to_string(),
         }
     } else if config_version == Some(2) {
         // Explicitly marked as V2, validate V2 structure
@@ -377,7 +377,7 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
             Err("Invalid or unsupported soundpack version".to_string())
         }
         SoundpackValidationStatus::RequiresNewerAppVersion(_) => {
-            Err("This soundpack requires a newer version of MechvibesDX".to_string())
+            Err("This soundpack requires a newer version of Mechvibes".to_string())
         }
     }
 }
@@ -527,7 +527,7 @@ mod tests {
                 raw,
                 result.status
             );
-            assert_eq!(result.message, "This soundpack requires a newer version of MechvibesDX");
+            assert_eq!(result.message, "This soundpack requires a newer version of Mechvibes");
             assert!(!result.can_be_converted, "a future format cannot be converted by this build");
             assert!(!result.is_valid_v2);
         }

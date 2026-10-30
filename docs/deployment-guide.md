@@ -1,6 +1,6 @@
 # Deployment Guide
 
-How to ship a new release of MechvibesDX, end to end.
+How to ship a new release of Mechvibes, end to end.
 
 Windows is the primary target: it is the only platform with an installer and the only one the in-app auto-updater serves. Linux and macOS binaries ride along on the same tag.
 
@@ -78,8 +78,8 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
 
    - **`build`** — one matrix leg per OS (Windows, Linux, macOS), running in parallel, on every run. Every leg does the same thing: install what a script cannot (the cargo cache, the OS's system libraries, packaging tools), run `scripts/ci-check.sh --release`, then run that OS's packaging script, then upload `dist/` (except for pull requests).
      - **Windows** — `scripts/build-windows-installer.ps1` builds the installer with Inno Setup (installed by the leg).
-     - **Linux** — `scripts/build-linux-appimage.sh` builds the `.deb` (via `cargo-deb`, driven by `[package.metadata.deb]` in `Cargo.toml`, installed by the leg) and the AppImage from one binary. `cargo deb --no-build` leaves `target/release/mechvibes-dx` unstripped and byte-identical, so the same BuildID lands inside the AppImage.
-     - **macOS** — `scripts/build-macos-app.sh` hand-assembles `MechvibesDX.app` and packages it as a DMG.
+     - **Linux** — `scripts/build-linux-appimage.sh` builds the `.deb` (via `cargo-deb`, driven by `[package.metadata.deb]` in `Cargo.toml`, installed by the leg) and the AppImage from one binary. `cargo deb --no-build` leaves `target/release/mechvibes` unstripped and byte-identical, so the same BuildID lands inside the AppImage.
+     - **macOS** — `scripts/build-macos-app.sh` hand-assembles `Mechvibes.app` and packages it as a DMG.
    - **`tag`** (`Find release tag`; not on pull requests) — after every leg passed, runs `resolve_release_tag` from `scripts/lib/common.sh` against the remote. It finds `v<Cargo.toml version>` pointing at the built commit (annotated and lightweight tags both work), finds no tag (an ordinary build, the job just says so), or fails if the commit has a `v*` tag that does not match `Cargo.toml`'s version. You can run the same function locally.
    - **`release`** (`Draft release`; only when `tag` found one) — extracts the CHANGELOG section as the release notes (`scripts/extract-changelog.ps1`, so a build that is not a release never needs one), downloads this run's packages, generates `SHA256SUMS.txt`, checks once more that no release exists for the tag, and creates one **draft** release with everything attached.
 
@@ -98,10 +98,10 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
 
    | Asset | Platform | Notes |
    |---|---|---|
-   | `MechvibesDX-<version>-Setup-x64.exe` | Windows | The installer. **The only asset the auto-updater consumes** — its name must keep containing `x64` and ending in `.exe`. |
-   | `mechvibes-dx_<version>_amd64.deb` | Debian/Ubuntu | `sudo dpkg -i`. Does **not** add the user to the `input` group (see below). |
-   | `mechvibes-dx-<version>-x86_64.AppImage` | Any Linux distro | Portable, no install. Needs `chmod +x` first, and has the **same** `input` group requirement as the `.deb`. |
-   | `mechvibes-dx-<version>-macos-<arch>.dmg` | macOS | **Ad-hoc signed, not notarized.** Contains `MechvibesDX.app` and an `/Applications` symlink. |
+   | `Mechvibes-<version>-Setup-x64.exe` | Windows | The installer. **The only asset the auto-updater consumes** — its name must keep containing `x64` and ending in `.exe`. |
+   | `mechvibes_<version>_amd64.deb` | Debian/Ubuntu | `sudo dpkg -i`. Does **not** add the user to the `input` group (see below). |
+   | `mechvibes-<version>-x86_64.AppImage` | Any Linux distro | Portable, no install. Needs `chmod +x` first, and has the **same** `input` group requirement as the `.deb`. |
+   | `mechvibes-<version>-macos-<arch>.dmg` | macOS | **Ad-hoc signed, not notarized.** Contains `Mechvibes.app` and an `/Applications` symlink. |
    | `README-macos-<version>.txt` | macOS | DMG install, Gatekeeper and Accessibility instructions. |
    | `SHA256SUMS.txt` | all | Digests of every other asset. **The in-app auto-updater refuses to run an installer that is not listed here with a matching hash**, so a release missing this file silently degrades every Windows user to a manual download. |
 
@@ -113,16 +113,16 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
 
    **Both Linux artifacts store settings in `~/.local/share/mechvibes/data`.** Neither writes beside its binary: the AppImage mount is read-only and temporary, and the `.deb`'s app root is `/usr/bin` (root-owned), which used to make `{app_root}/data` resolve to `/usr/bin/data` and silently discard every setting because `AppConfig::save()` fails soft. Fixed 260804. A config left at the old location by anyone who ran the app as root is copied across once on first launch, never overwriting a newer one; the original is left in place.
 
-   **The `.deb` ships `assets/` to `/usr/lib/mechvibes-dx/assets`**, which is not a free choice: `dioxus-asset-resolver` computes `current_exe()/../../lib` (so `/usr/lib` for `/usr/bin/mechvibes-dx`) and scans it for the first subdirectory containing an `assets/` folder. Before 260804 the package shipped no `assets/` at all, so every `asset!()` font fell back to a system font. The AppImage uses the same relative location.
+   **The `.deb` ships `assets/` to `/usr/lib/mechvibes/assets`**, which is not a free choice: `dioxus-asset-resolver` computes `current_exe()/../../lib` (so `/usr/lib` for `/usr/bin/mechvibes`) and scans it for the first subdirectory containing an `assets/` folder. Before 260804 the package shipped no `assets/` at all, so every `asset!()` font fell back to a system font. The AppImage uses the same relative location.
 
    **Neither Linux artifact configures input permissions.** `maintainer-scripts` was deliberately removed from `[package.metadata.deb]`, so installing the package never modifies the user's groups, and an AppImage has no install step that could do so even in principle. Linux users must run `sudo usermod -a -G input $USER` and start a new session themselves, or the app runs silently. The generated release notes say this for both assets; keep that wording if you touch them. (The portable tarball was dropped by user decision 260803; the AppImage now covers the non-Debian users that decision left building from source.)
 
-   **The AppImage's AppDir mirrors the `.deb` layout** (`usr/bin`, `usr/share/mechvibes-dx/soundpacks`) so a single binary serves both packages. Two placements are load-bearing, not cosmetic:
+   **The AppImage's AppDir mirrors the `.deb` layout** (`usr/bin`, `usr/share/mechvibes/soundpacks`) so a single binary serves both packages. Two placements are load-bearing, not cosmetic:
 
-   - `usr/lib/mechvibes-dx/assets` — `dioxus-asset-resolver`'s Linux branch scans `<exe>/../../lib/<dir>/` for a directory containing `assets/`. Put the fonts anywhere else and every `asset!()` font silently 404s.
+   - `usr/lib/mechvibes/assets` — `dioxus-asset-resolver`'s Linux branch scans `<exe>/../../lib/<dir>/` for a directory containing `assets/`. Put the fonts anywhere else and every `asset!()` font silently 404s.
    - The `.desktop` file and icon are duplicated at the **AppDir root**, which `appimagetool` requires; the copies under `usr/share` are what a desktop-integration helper installs later.
 
-   `src/state/paths.rs` resolves soundpacks **relative to the mount point** when running from an AppImage, and that ordering matters: the absolute `/usr/share/mechvibes-dx/soundpacks` fallback is a real directory on a machine that also has the `.deb` installed, so checking it first would make a running AppImage silently load the other installation's soundpacks. Writable state goes to `~/.local/share/mechvibes/data` for the same reason it does on macOS — the image is mounted read-only, and its mount point is a fresh temporary directory on every launch.
+   `src/state/paths.rs` resolves soundpacks **relative to the mount point** when running from an AppImage, and that ordering matters: the absolute `/usr/share/mechvibes/soundpacks` fallback is a real directory on a machine that also has the `.deb` installed, so checking it first would make a running AppImage silently load the other installation's soundpacks. Writable state goes to `~/.local/share/mechvibes/data` for the same reason it does on macOS — the image is mounted read-only, and its mount point is a fresh temporary directory on every launch.
 
    The job asserts bundled soundpack audio, `config.json` and font counts **match the source tree** (same rationale as macOS: the mouse packs are `.mp3`, so an `.ogg`-only check would pass while dropping all four), unpacks the finished image with `--appimage-extract` and checks the ELF magic byte-wise. `appimagetool` runs with `APPIMAGE_EXTRACT_AND_RUN=1` because GitHub runners have no FUSE, so it cannot mount itself.
 
@@ -203,7 +203,7 @@ One rule across all three platforms: **writable state never goes next to the exe
 | Linux AppImage | `~/.local/share/mechvibes/data` | `<mount>/usr/bin/` layout |
 | Linux portable / dev | `{app_root}/data` | none of the above |
 
-**Why Windows keys off the uninstaller rather than "is the directory writable".** A per-user install (`%LOCALAPPDATA%\Programs\MechvibesDX`) *is* writable, so a write-probe would send admin installs to `%APPDATA%` and per-user installs to the app folder — two installs of the same version disagreeing about where settings live. Worse, a probe result can change between launches (an admin repair, an antivirus lock, a policy change), silently relocating a user's config. Inno writes `unins000.exe` into the install directory and a portable copy never has one, so the answer is stable for the life of the install. `installer/windows/mechvibes-dx-setup.iss` uses `DefaultDirName={autopf}` with `PrivilegesRequired=lowest`, which is exactly why both install shapes exist in the wild.
+**Why Windows keys off the uninstaller rather than "is the directory writable".** A per-user install (`%LOCALAPPDATA%\Programs\MechvibesDX`) *is* writable, so a write-probe would send admin installs to `%APPDATA%` and per-user installs to the app folder — two installs of the same version disagreeing about where settings live. Worse, a probe result can change between launches (an admin repair, an antivirus lock, a policy change), silently relocating a user's config. Inno writes `unins000.exe` into the install directory and a portable copy never has one, so the answer is stable for the life of the install. `installer/windows/mechvibes-setup.iss` uses `DefaultDirName={autopf}` with `PrivilegesRequired=lowest`, which is exactly why both install shapes exist in the wild.
 
 **Migration.** When the location moves, the *entire* old `data/` directory is copied once (files only, no recursion), never overwriting anything already at the destination, and the originals are left in place so a downgrade still finds them. This matters most on Windows: per-user installs have fully populated, working data directories right now, so without the copy the fix for admin installs would reset everyone else. The copy is not a curated file list on purpose — a real installed machine held `music.json` (37 KB, the largest file there), which no accessor in `paths.rs` names and any hand-maintained list would have dropped.
 
@@ -223,9 +223,15 @@ Windows is the only platform with an unattended upgrade path. **Nothing is ever 
 4. The installer streams to `%TEMP%\mechvibes-updates\<name>.exe.partial`, is verified against its digest, and only then renamed to its final name. An interrupted download can never be mistaken for a finished one.
 5. **Restart to finish update** re-verifies once more, clears the staged entry from config, spawns the installer detached with `/VERYSILENT /SUPPRESSMSGBOXES /NORESTART`, and closes the app. **Later** keeps the verified file, so returning to the button — or restarting the app — offers the install again without downloading a second time (the hash is re-checked then, so a file altered in between is discarded rather than run).
 
-Two details in `installer/windows/mechvibes-dx-setup.iss` that the update flow depends on — do not remove them without reading this:
+Two details in `installer/windows/mechvibes-setup.iss` that the update flow depends on — do not remove them without reading this:
 
-- `CloseApplications=yes` lets Setup close the running app that holds `mechvibes-dx.exe`.
+- `CloseApplications=yes` lets Setup close the running app that holds `mechvibes.exe`. The `[InstallDelete]` entry for `mechvibes-dx.exe` matters too: Restart Manager covers files that Setup deletes, so an upgrade from MechvibesDX (0.8.x) also closes the old exe, which `[Files]` no longer names.
+
+**The rename from MechvibesDX (3.0.0).** The app, its exe and its packages became `Mechvibes` / `mechvibes`, and the version jumped from 0.8.x to 3.0.0 to continue after the original Electron Mechvibes, whose last release was 2.3.4. Never release below 3.0.0 again: the Electron app's own update check reads this repository's latest release, and the Linux package would read as a downgrade. Three things keep upgrades working:
+
+- **Windows**: the installer keeps the same `AppId`, so it upgrades in place, and new installs still go to `{autopf}\MechvibesDX`, because the original Electron Mechvibes installs per-user into `%LOCALAPPDATA%\Programs\Mechvibes`. `[InstallDelete]` removes the old exe, Start Menu folder, desktop shortcut and WebView2 cache. The app moves a start-at-login entry still named `MechvibesDX` to the new name on startup (`auto_startup::migrate_legacy_run_entry`).
+- **Linux**: the `.deb` declares `Conflicts`/`Replaces: mechvibes-dx`, so dpkg removes the old package. The Electron app's package was also called `mechvibes`, at 2.3.4, so 3.0.0 installs as an upgrade of it.
+- **macOS**: the bundle identifier stays `com.hainguyents13.mechvibesdx`, so permissions and the login item stay filed under the same app. `Mechvibes.app` replaces the Electron app of the same name when dragged to Applications; an existing `MechvibesDX.app` stays until the user deletes it.
 - The second `[Run]` entry (`skipifnotsilent`, no `Check:`) is the **only** thing that relaunches the app after a silent install. Do not add a `Check: not RmSessionStarted` guard to it — that was tried and it broke auto-update entirely (app closed, never returned). `CloseApplications=yes` uses Restart Manager to close us, so a session always exists and that Check is always false; meanwhile RM itself only revives processes that called `RegisterApplicationRestart`, which this app never does. A real `/LOG` trace shows RM logging "Attempting to restart applications" and nothing coming back. Double-launch is not a concern: the app's single-instance mutex makes a second copy exit immediately.
 
 Everything in this flow fails soft. A network error, a missing `SHA256SUMS.txt`, a hash mismatch, or a blocked installer all leave the app running; the button shows a short reason and an "Open download page" link, which is the pre-Phase-6 behavior.

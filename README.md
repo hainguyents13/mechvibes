@@ -1,6 +1,6 @@
 ![image](https://github.com/user-attachments/assets/5aa36739-76c8-4a34-9a9b-7e9272927f22)
 
-# MechvibesDX
+# Mechvibes
 
 Play rich keyboard and mouse sounds with every keystroke and click. A polyphonic, low-latency mechanical keyboard sound simulator for Windows, macOS, and Linux. Successor of Mechvibes, now with resample-on-load audio, dedicated audio engine thread, and one-click verified updates.
 
@@ -8,17 +8,17 @@ Play rich keyboard and mouse sounds with every keystroke and click. A polyphonic
 
 | Platform | Installer | Notes |
 |----------|-----------|-------|
-| **Windows** | [`MechvibesDX-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | One-click installer with automatic in-app updates (SHA-256 verified). |
-| **Linux (Debian/Ubuntu)** | [`mechvibes-dx_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Requires: `sudo usermod -a -G input $USER` + re-log. |
-| **Linux (any distro)** | [`mechvibes-dx-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable (no install). Requires: `chmod +x` + same input group setup. |
-| **macOS** | [`mechvibes-dx-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, unsigned. Right-click the app, then Open to bypass Gatekeeper. |
+| **Windows** | [`Mechvibes-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | One-click installer with automatic in-app updates (SHA-256 verified). |
+| **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Requires: `sudo usermod -a -G input $USER` + re-log. |
+| **Linux (any distro)** | [`mechvibes-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable (no install). Requires: `chmod +x` + same input group setup. |
+| **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, unsigned. Right-click the app, then Open to bypass Gatekeeper. |
 
 All links point to the [latest release](https://github.com/hainguyents13/mechvibes/releases/latest); every release also ships a `SHA256SUMS.txt` covering all assets.
 
 ## Features
 
 - **Polyphonic low-latency audio**: Sounds play within ~15ms of keystroke. Resampled at load time (not realtime) for high quality. 32-voice pool with soft eviction prevents clicks and clipping on rapid keystrokes.
-- **Works while app is focused**: Dedicated Raw Input worker process on Windows; in-process listeners on Linux/macOS. Keyboard and mouse capture work the same whether MechvibesDX window is active or not.
+- **Works while app is focused**: Dedicated Raw Input worker process on Windows; in-process listeners on Linux/macOS. Keyboard and mouse capture work the same whether Mechvibes window is active or not.
 - **Per-device input filtering** (Windows): Disable specific keyboards or mice in Settings, effective immediately.
 - **Runtime output device switching**: Change audio output (headphones, speakers, virtual devices) in Settings without restarting.
 - **Soundpack support**: Import or create custom soundpacks. Drag and drop folders into the app. Supports OGG, WAV, MP3, FLAC. Auto-converts classic Mechvibes packs (V1) to V2 format.
@@ -98,17 +98,17 @@ Old V1 soundpacks (e.g., from the original Mechvibes) are auto-detected on impor
 ### macOS
 - **Experimental**: Not tested on real hardware. Ad-hoc signed, not notarized.
 - **First launch**: Right-click the app, choose "Open" to bypass Gatekeeper's "unidentified developer" block.
-- **Permissions**: global key capture needs **both** of these in System Settings > Privacy & Security, enabled for `MechvibesDX` (or for your terminal, if you launch the binary from there):
-  - **Accessibility**: used while the MechvibesDX window is focused.
+- **Permissions**: global key capture needs **both** of these in System Settings > Privacy & Security, enabled for `Mechvibes` (or for your terminal, if you launch the binary from there):
+  - **Accessibility**: used while the Mechvibes window is focused.
   - **Input Monitoring**: used while the window is minimized or another app is focused. Without it the app runs normally but is silent unless its window has focus.
-  - **Check them from the menu bar icon.** Click the MechvibesDX icon: each permission shows "Granted" in green, or a red "Grant …" line that opens System Settings at the right page when clicked. It updates within about a second of a change. Granting **Accessibility** takes effect straight away. After granting **Input Monitoring**, quit and relaunch MechvibesDX: macOS only lets an app capture keys globally if it had the permission when it started, so until you relaunch the menu can read "Granted" while sounds still stop when another app is in front.
-- **After installing a new build**: the app is ad-hoc signed, so macOS ties its permissions to that exact binary. A rebuilt or reinstalled app keeps its toggles on but they stop working. Remove `MechvibesDX` from both lists with the `-` button, add `/Applications/MechvibesDX.app` back, and relaunch. Alternatively run `tccutil reset ListenEvent com.hainguyents13.mechvibesdx` and `tccutil reset Accessibility com.hainguyents13.mechvibesdx`, and macOS prompts again on next launch.
-- **Start at login**: registers MechvibesDX as a login item (System Settings > General > Login Items), which needs macOS 13 or later and the app installed in `/Applications`. If macOS asks, allow it there. "Start minimized" is read from your saved settings, so it applies whenever the app launches.
+  - **Check them from the menu bar icon.** Click the Mechvibes icon: each permission shows "Granted" in green, or a red "Grant …" line that opens System Settings at the right page when clicked. It updates within about a second of a change. Granting **Accessibility** takes effect straight away. After granting **Input Monitoring**, quit and relaunch Mechvibes: macOS only lets an app capture keys globally if it had the permission when it started, so until you relaunch the menu can read "Granted" while sounds still stop when another app is in front.
+- **After installing a new build**: the app is ad-hoc signed, so macOS ties its permissions to that exact binary. A rebuilt or reinstalled app keeps its toggles on but they stop working. Remove `Mechvibes` from both lists with the `-` button, add `/Applications/Mechvibes.app` back, and relaunch. Alternatively run `tccutil reset ListenEvent com.hainguyents13.mechvibesdx` and `tccutil reset Accessibility com.hainguyents13.mechvibesdx`, and macOS prompts again on next launch.
+- **Start at login**: registers Mechvibes as a login item (System Settings > General > Login Items), which needs macOS 13 or later and the app installed in `/Applications`. If macOS asks, allow it there. "Start minimized" is read from your saved settings, so it applies whenever the app launches.
 - Arm64 (Apple Silicon) only in current builds. Intel builds available on request.
 
 ## Privacy and Telemetry
 
-MechvibesDX sends one anonymous ping per launch to track rough usage. Nothing else leaves your device.
+Mechvibes sends one anonymous ping per launch to track rough usage. Nothing else leaves your device.
 
 **What is sent (once per launch):**
 - OS name and version
@@ -190,31 +190,31 @@ dx serve
 The app looks for `soundpacks/` next to the executable. `cargo build` copies the bundled packs to `target/release/soundpacks/` for you (see `build.rs`), so the binary runs as is:
 ```bash
 cargo build --release
-./target/release/mechvibes-dx
+./target/release/mechvibes
 ```
-To capture a log for a bug report, run it as `RUST_BACKTRACE=1 MECHVIBES_TRACE=1 ./target/release/mechvibes-dx 2>&1 | tee /tmp/mv.log`.
+To capture a log for a bug report, run it as `RUST_BACKTRACE=1 MECHVIBES_TRACE=1 ./target/release/mechvibes 2>&1 | tee /tmp/mv.log`.
 
 On macOS the permissions apply to the app that launched it. When run from a terminal, grant that terminal app **Accessibility** and **Input Monitoring** in System Settings > Privacy & Security, then restart the terminal.
 
 **Release (Windows):**
 ```bash
 .\scripts\build-windows-installer.ps1   # builds first; add -SkipBuild to reuse target\release
-# Output: dist/MechvibesDX-0.8.1-Setup-x64.exe
+# Output: dist/Mechvibes-0.8.1-Setup-x64.exe
 ```
 
 **Release (Linux, AppImage and DEB):**
 ```bash
 cargo install cargo-deb                   # once; or pass --no-deb to skip the .deb
 ./scripts/build-linux-appimage.sh 0.8.1   # builds first; add --skip-build to reuse target/release
-chmod +x dist/mechvibes-dx-0.8.1-x86_64.AppImage
-sudo dpkg -i dist/mechvibes-dx_0.8.1_amd64.deb
+chmod +x dist/mechvibes-0.8.1-x86_64.AppImage
+sudo dpkg -i dist/mechvibes_0.8.1_amd64.deb
 # Remember: run 'sudo usermod -a -G input $USER' and re-log before first use
 ```
 
 **Release (macOS):**
 ```bash
 ./scripts/build-macos-app.sh 0.8.1   # builds first; add --skip-build to reuse target/release
-# Output: dist/mechvibes-dx-0.8.1-macos-arm64.dmg
+# Output: dist/mechvibes-0.8.1-macos-arm64.dmg
 ```
 
 To run the same compile-and-test gate that CI runs (it also checks that Rust is at least the `rust-version` in `Cargo.toml`): `./scripts/ci-check.sh --release`. CI builds and packages every pull request and every push to `main` this way; when a `v*` tag points at a commit it built, the same run drafts the release from those packages.
@@ -229,8 +229,8 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 - Check system volume.
 
 **macOS: sounds only play while the app window is focused?**
-- Click the MechvibesDX icon in the menu bar: a red "Grant Input Monitoring…" line means it is missing.
-- Input Monitoring is missing or stale. See the macOS permissions notes above: remove and re-add `MechvibesDX` under both Accessibility and Input Monitoring, then relaunch. A relaunch is always needed after granting Input Monitoring, even when it was simply missing.
+- Click the Mechvibes icon in the menu bar: a red "Grant Input Monitoring…" line means it is missing.
+- Input Monitoring is missing or stale. See the macOS permissions notes above: remove and re-add `Mechvibes` under both Accessibility and Input Monitoring, then relaunch. A relaunch is always needed after granting Input Monitoring, even when it was simply missing.
 
 **Hotkey (`Ctrl+Alt+M`) not working?**
 - Windows: Run as administrator (required for global hotkey).
@@ -250,11 +250,11 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 - Settings are stored at: `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux), or `~/Library/Application Support/Mechvibes` (macOS). Verify these folders exist and are writable.
 
 **macOS: Right-click Open not working?**
-- Try `codesign --deep -s - /Applications/MechvibesDX.app` if you trust the build. Otherwise, await an official notarized release.
+- Try `codesign --deep -s - /Applications/Mechvibes.app` if you trust the build. Otherwise, await an official notarized release.
 
 ## Credits
 
-MechvibesDX is built in Rust using [Dioxus](https://dioxuslabs.com/) (0.7), [rodio](https://github.com/RustAudio/rodio) (audio), and [rdev](https://github.com/enigo-rs/rdev) (input capture).
+Mechvibes is built in Rust using [Dioxus](https://dioxuslabs.com/) (0.7), [rodio](https://github.com/RustAudio/rodio) (audio), and [rdev](https://github.com/enigo-rs/rdev) (input capture).
 
 Based on the original [Mechvibes](https://github.com/hainguyents13/mechvibes-electron) by hainguyents13. Distributed under the MIT License.
 
