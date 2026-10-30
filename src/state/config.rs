@@ -358,7 +358,9 @@ impl AppConfig {
                     }
                 }
 
-                // Sync auto_start with actual registry state
+                // Sync auto_start with actual registry state, after carrying
+                // over an entry written under the app's former name
+                crate::utils::auto_startup::migrate_legacy_entry();
                 let actual_auto_start = crate::utils::auto_startup::get_auto_startup_state();
                 if config.auto_start != actual_auto_start {
                     crate::always_print!(

@@ -114,7 +114,7 @@ mod tests {
     use super::*;
 
     fn args(items: &[&str]) -> Vec<OsString> {
-        std::iter::once("mechvibes-dx.exe")
+        std::iter::once("mechvibes.exe")
             .chain(items.iter().copied())
             .map(OsString::from)
             .collect()
@@ -205,7 +205,7 @@ mod tests {
             OsString::from_vec(vec![0xff])
         };
 
-        let argv = vec![OsString::from("mechvibes-dx"), bad, OsString::from(HEADLESS_ARG)];
+        let argv = vec![OsString::from("mechvibes"), bad, OsString::from(HEADLESS_ARG)];
         assert!(parse(argv).headless);
     }
 

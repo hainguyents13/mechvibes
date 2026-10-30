@@ -74,7 +74,7 @@ jobs:
             package: .\scripts\build-windows-installer.ps1
             artifact: windows-release
             # The installer only.
-            paths: dist/MechvibesDX-*-Setup-x64.exe
+            paths: dist/Mechvibes-*-Setup-x64.exe
           - name: Linux packages
             os: ubuntu-latest
             shell: bash
@@ -271,7 +271,7 @@ jobs:
           mkdir -p release
           find artifacts -type f -exec cp {} release/ \;
 
-          if ! ls release/MechvibesDX-*-Setup-x64.exe >/dev/null 2>&1; then
+          if ! ls release/Mechvibes-*-Setup-x64.exe >/dev/null 2>&1; then
             echo "::error::Windows installer missing from collected assets"
             exit 1
           fi
@@ -284,7 +284,7 @@ jobs:
             echo ""
             echo "### Downloads"
             echo ""
-            echo "- **Windows**: \`MechvibesDX-<version>-Setup-x64.exe\`, the installer and the only asset the in-app updater uses."
+            echo "- **Windows**: \`Mechvibes-<version>-Setup-x64.exe\`, the installer and the only asset the in-app updater uses."
           } >> notes.md
           if ls release/*.deb >/dev/null 2>&1; then
             {
@@ -297,7 +297,7 @@ jobs:
             } >> notes.md
           fi
           if ls release/*macos*.dmg >/dev/null 2>&1; then
-            echo "- **macOS (Apple Silicon)**: \`.dmg\`. Open it and drag **MechvibesDX** to Applications. Ad-hoc signed but **not notarized**, so Gatekeeper blocks a normal double-click: right-click the app → **Open** → confirm, once. See \`README-macos.txt\`." >> notes.md
+            echo "- **macOS (Apple Silicon)**: \`.dmg\`. Open it and drag **Mechvibes** to Applications. Ad-hoc signed but **not notarized**, so Gatekeeper blocks a normal double-click: right-click the app → **Open** → confirm, once. See \`README-macos.txt\`." >> notes.md
           fi
 
           echo "Assets to publish:"
@@ -325,7 +325,7 @@ jobs:
       - name: Verify checksums cover the Windows installer
         run: |
           set -euo pipefail
-          installer=$(cd release && ls MechvibesDX-*-Setup-x64.exe)
+          installer=$(cd release && ls Mechvibes-*-Setup-x64.exe)
           if ! grep -q " [*]\?${installer}\$" release/SHA256SUMS.txt; then
             echo "::error::SHA256SUMS.txt has no entry for ${installer}"
             exit 1

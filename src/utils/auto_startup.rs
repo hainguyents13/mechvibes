@@ -6,9 +6,20 @@ use winreg::enums::*;
 #[cfg(target_os = "windows")]
 use winreg::RegKey;
 
+/// The Windows Run value name written by builds from before the app was
+/// renamed from MechvibesDX.
+#[cfg(target_os = "windows")]
+const LEGACY_RUN_VALUE: &str = "MechvibesDX";
+
 /// Get the current executable path
 fn get_exe_path() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("Failed to get executable path: {}", e))
+}
+
+/// The Run command line for `exe_path`, in one of the two shapes
+/// [`exe_path_from_run_command`] reads back.
+fn run_command(exe_path: &str, minimized: bool) -> String {
+    if minimized { format!("\"{}\" --minimized", exe_path) } else { exe_path.to_string() }
 }
 
 /// Enable auto startup on Windows
@@ -21,11 +32,7 @@ pub fn enable_auto_startup() -> Result<(), String> {
     // the file: the Settings toggle calls this immediately after writing
     // `start_minimized`, and a re-parse could race that write.
     let config = crate::state::config_writer::current();
-    let command = if config.start_minimized {
-        format!("\"{}\" --minimized", exe_path_str)
-    } else {
-        exe_path_str.to_string()
-    };
+    let command = run_command(exe_path_str, config.start_minimized);
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
     let run_key = hkcu
@@ -89,6 +96,61 @@ fn exe_path_from_run_command(command: &str) -> &str {
     command
 }
 
+/// Whether a Run command written before the rename launches the copy that is
+/// running now. The rename changed the executable's file name but not its
+/// folder, so the folders are compared; a command for a copy somewhere else
+/// belongs to that copy and is left alone.
+fn is_same_install(legacy_command: &str, current_exe: &str) -> bool {
+    fn folder(path: &str) -> Option<&str> {
+        path.rfind(['\\', '/']).map(|end| &path[..end]).filter(|folder| !folder.is_empty())
+    }
+    match (folder(exe_path_from_run_command(legacy_command)), folder(current_exe)) {
+        (Some(legacy), Some(current)) => legacy.eq_ignore_ascii_case(current),
+        _ => false,
+    }
+}
+
+/// Moves a start-at-login entry from the pre-rename value name to the current
+/// one, pointed at the renamed executable.
+///
+/// Without this the enabled check finds nothing under the new name, and the
+/// config sync then turns auto start off for everyone who had it on.
+#[cfg(target_os = "windows")]
+pub fn migrate_legacy_entry() {
+    let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+    let Ok(run_key) = hkcu.open_subkey_with_flags(
+        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run",
+        KEY_READ | KEY_WRITE
+    ) else {
+        return;
+    };
+    let Ok(legacy_command) = run_key.get_value::<String, _>(LEGACY_RUN_VALUE) else {
+        return;
+    };
+    let Some(exe_path) = get_exe_path().ok().and_then(|path| path.to_str().map(str::to_string)) else {
+        return;
+    };
+    if !is_same_install(&legacy_command, &exe_path) {
+        return;
+    }
+
+    let command = run_command(&exe_path, legacy_command.contains("--minimized"));
+    if let Err(e) = run_key.set_value(APP_NAME, &command) {
+        crate::always_eprint!("⚠️ Could not move the auto startup entry to {}: {}", APP_NAME, e);
+        return;
+    }
+    match run_key.delete_value(LEGACY_RUN_VALUE) {
+        Ok(_) => crate::always_print!("🔄 Auto startup entry moved from {} to {}", LEGACY_RUN_VALUE, APP_NAME),
+        Err(e) => crate::always_eprint!("⚠️ Could not remove the {} auto startup entry: {}", LEGACY_RUN_VALUE, e),
+    }
+}
+
+/// Only Windows builds before the rename wrote a startup entry under the old
+/// name; macOS login items are tied to the bundle identifier, which did not
+/// change.
+#[cfg(not(target_os = "windows"))]
+pub fn migrate_legacy_entry() {}
+
 /// Check if auto startup is currently enabled
 #[cfg(target_os = "windows")]
 pub fn is_auto_startup_enabled() -> bool {
@@ -129,7 +191,7 @@ pub fn is_auto_startup_enabled() -> bool {
 /// flag as on Windows.
 ///
 /// It only works from an app bundle in a normal location (e.g.
-/// /Applications). A bare `target/release/mechvibes-dx` or `dx serve` run has
+/// /Applications). A bare `target/release/mechvibes` or `dx serve` run has
 /// no bundle, so registering fails and reports not-enabled.
 #[cfg(target_os = "macos")]
 mod macos {
@@ -195,7 +257,7 @@ mod macos {
                     let _: () = msg_send![class, openSystemSettingsLoginItems];
                 }
             }
-            return Err("Allow MechvibesDX in System Settings > General > Login Items".to_string());
+            return Err("Allow Mechvibes in System Settings > General > Login Items".to_string());
         }
 
         crate::always_print!("✅ Auto startup enabled (macOS login item)");
@@ -257,7 +319,7 @@ pub fn get_auto_startup_state() -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::exe_path_from_run_command;
+    use super::{ exe_path_from_run_command, is_same_install, run_command };
 
     /// A test binary is not an app bundle, so it can never be a registered
     /// login item. This also proves the SMAppService lookup and the framework
@@ -272,7 +334,7 @@ mod tests {
     /// `start_minimized` is off.
     #[test]
     fn a_bare_path_is_returned_unchanged() {
-        let path = r"C:\Program Files\MechvibesDX\mechvibes-dx.exe";
+        let path = r"C:\Program Files\Mechvibes\mechvibes.exe";
         assert_eq!(exe_path_from_run_command(path), path);
     }
 
@@ -281,7 +343,7 @@ mod tests {
     /// reported "not enabled" for an entry this app had just written.
     #[test]
     fn a_quoted_path_with_the_minimized_flag_yields_just_the_path() {
-        let path = r"C:\Program Files\MechvibesDX\mechvibes-dx.exe";
+        let path = r"C:\Program Files\Mechvibes\mechvibes.exe";
         let command = format!("\"{}\" --minimized", path);
         assert_eq!(exe_path_from_run_command(&command), path);
     }
@@ -290,7 +352,7 @@ mod tests {
     /// what a user or an older build may have left behind.
     #[test]
     fn a_quoted_path_without_arguments_yields_just_the_path() {
-        let path = r"C:\Apps\mechvibes-dx.exe";
+        let path = r"C:\Apps\mechvibes.exe";
         assert_eq!(exe_path_from_run_command(&format!("\"{}\"", path)), path);
     }
 
@@ -299,7 +361,7 @@ mod tests {
     /// self-disables exactly like the quoted bug did.
     #[test]
     fn spaces_in_an_unquoted_path_do_not_truncate_it() {
-        let path = r"C:\Program Files\MechvibesDX\mechvibes-dx.exe";
+        let path = r"C:\Program Files\Mechvibes\mechvibes.exe";
         assert_eq!(exe_path_from_run_command(path), path);
     }
 
@@ -308,8 +370,8 @@ mod tests {
     /// reduce to a path that compares equal to the real one.
     #[test]
     fn both_written_forms_match_the_exe_case_insensitively() {
-        let exe = r"C:\Program Files\MechvibesDX\mechvibes-dx.exe";
-        let bare = r"c:\program files\mechvibesdx\MECHVIBES-DX.EXE";
+        let exe = r"C:\Program Files\Mechvibes\mechvibes.exe";
+        let bare = r"c:\program files\mechvibes\MECHVIBES.EXE";
         let minimized = format!("\"{}\" --minimized", bare);
 
         assert!(exe_path_from_run_command(bare).eq_ignore_ascii_case(exe));
@@ -320,8 +382,38 @@ mod tests {
     /// auto start is on", or the config sync would flip `auto_start` true.
     #[test]
     fn a_different_executable_does_not_match() {
-        let exe = r"C:\Program Files\MechvibesDX\mechvibes-dx.exe";
+        let exe = r"C:\Program Files\Mechvibes\mechvibes.exe";
         let other = "\"C:\\Other\\thing.exe\" --minimized";
         assert!(!exe_path_from_run_command(other).eq_ignore_ascii_case(exe));
+    }
+
+    /// Both shapes `run_command` writes must read back as the same path.
+    #[test]
+    fn run_commands_round_trip_through_the_reader() {
+        let exe = r"C:\Program Files\MechvibesDX\mechvibes.exe";
+        assert_eq!(exe_path_from_run_command(&run_command(exe, false)), exe);
+        assert_eq!(exe_path_from_run_command(&run_command(exe, true)), exe);
+        assert!(run_command(exe, true).ends_with(" --minimized"));
+    }
+
+    /// An entry written before the rename points at the old file name in the
+    /// same folder the installer upgrades in place, in either written shape.
+    #[test]
+    fn an_entry_for_the_old_file_name_in_the_same_folder_is_this_install() {
+        let current = r"C:\Users\someone\AppData\Local\Programs\MechvibesDX\mechvibes.exe";
+        let old = r"C:\Users\someone\AppData\Local\Programs\MechvibesDX\mechvibes-dx.exe";
+        assert!(is_same_install(old, current));
+        assert!(is_same_install(&format!("\"{}\" --minimized", old), current));
+        assert!(is_same_install(&old.to_uppercase(), current));
+    }
+
+    /// A copy in another folder owns its own entry; moving it would point
+    /// that copy's start-at-login at this one.
+    #[test]
+    fn an_entry_for_a_copy_in_another_folder_is_not_this_install() {
+        let current = r"C:\Users\someone\AppData\Local\Programs\MechvibesDX\mechvibes.exe";
+        assert!(!is_same_install(r"D:\Portable\mechvibes-dx.exe", current));
+        assert!(!is_same_install("mechvibes-dx.exe", current));
+        assert!(!is_same_install("", current));
     }
 }

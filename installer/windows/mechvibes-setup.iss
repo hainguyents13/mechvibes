@@ -1,24 +1,30 @@
-; MechvibesDX Inno Setup Script
+; Mechvibes Inno Setup Script
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 ;
 ; Version is NOT hardcoded here - pass it at compile time:
-;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-dx-setup.iss
+;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-setup.iss
 ; scripts/build-windows-installer.ps1 does this automatically by reading
 ; Cargo.toml, so there is a single source of truth for the version.
 
 #ifndef AppVersion
-  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-dx-setup.iss
+  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-setup.iss
 #endif
 
-#define MyAppName "MechvibesDX"
+#define MyAppName "Mechvibes"
 #define MyAppVersion AppVersion
 #define MyAppPublisher "Hai Nguyen"
 #define MyAppURL "https://github.com/hainguyents13/mechvibes"
-#define MyAppExeName "mechvibes-dx.exe"
+#define MyAppExeName "mechvibes.exe"
 #define MyAppId "{{8B5F5E5E-5E5E-5E5E-5E5E-5E5E5E5E5E5E}"
 
+; The app was called MechvibesDX before. Upgrades remove what those builds
+; left under the old names (see [InstallDelete] and PrepareToInstall).
+#define LegacyAppName "MechvibesDX"
+#define LegacyExeName "mechvibes-dx.exe"
+
 [Setup]
-; NOTE: The value of AppId uniquely identifies this application.
+; NOTE: The value of AppId uniquely identifies this application. It is
+; unchanged by the rename, so a MechvibesDX install upgrades in place.
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
@@ -26,14 +32,20 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-DefaultDirName={autopf}\{#MyAppName}
+; The install folder keeps the old name. The original Electron Mechvibes
+; installs to %LOCALAPPDATA%\Programs\Mechvibes, which is {autopf}\Mechvibes
+; for a per-user install, and sharing it would let either uninstaller delete
+; the other app's files.
+DefaultDirName={autopf}\{#LegacyAppName}
 DefaultGroupName={#MyAppName}
+; Upgrades would otherwise keep the old "MechvibesDX" Start menu folder.
+UsePreviousGroup=no
 AllowNoIcons=yes
 LicenseFile=..\..\LICENSE
 ; OutputBaseFilename MUST contain "x64" and end in ".exe" to match the
 ; in-app auto-updater's asset filter (src/utils/auto_updater.rs).
 OutputDir=..\..\dist
-OutputBaseFilename=MechvibesDX-{#MyAppVersion}-Setup-x64
+OutputBaseFilename=Mechvibes-{#MyAppVersion}-Setup-x64
 SetupIconFile=..\..\assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -111,11 +123,41 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; the user who owns the tray and audio session, not as admin.
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsilent
 
+[InstallDelete]
+; Shortcuts and WebView2 data from MechvibesDX builds. Their executable is
+; removed in PrepareToInstall, once it has exited.
+Type: filesandordirs; Name: "{autoprograms}\{#LegacyAppName}"
+Type: files; Name: "{autodesktop}\{#LegacyAppName}.lnk"
+Type: filesandordirs; Name: "{localappdata}\mechvibes-dx"
+
 [UninstallDelete]
-Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
+; WebView2 keeps its data in %LOCALAPPDATA%\<executable name>.
+Type: filesandordirs; Name: "{localappdata}\mechvibes"
 Type: filesandordirs; Name: "{userappdata}\Mechvibes"
 
 [Code]
+// An auto-update starts Setup while the old app is still running; the app
+// shuts down only after launching it. Restart Manager does not close a
+// MechvibesDX build because its executable is not a file Setup installs, so
+// wait for it to exit and remove it here. Left in place it would keep
+// starting the old version from any pinned shortcut.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  LegacyExe: String;
+  Attempt: Integer;
+begin
+  Result := '';
+  LegacyExe := ExpandConstant('{app}\{#LegacyExeName}');
+  Attempt := 0;
+  while FileExists(LegacyExe) and not DeleteFile(LegacyExe) and (Attempt < 40) do
+  begin
+    Sleep(250);
+    Attempt := Attempt + 1;
+  end;
+  if FileExists(LegacyExe) then
+    Result := 'Close {#LegacyAppName}, then run Setup again.';
+end;
+
 procedure RefreshIconCache();
 var
   ResultCode: Integer;

@@ -1,4 +1,4 @@
-MechvibesDX for macOS - EXPERIMENTAL, UNTESTED
+Mechvibes for macOS - EXPERIMENTAL, UNTESTED
 ==============================================
 
 READ THIS BEFORE INSTALLING.
@@ -22,8 +22,12 @@ console output - that feedback is the whole point of this build.
 1. Installing
 --------------
 
-Open the .dmg and drag MechvibesDX onto the Applications shortcut inside it.
+Open the .dmg and drag Mechvibes onto the Applications shortcut inside it.
 Then eject the disk image.
+
+Upgrading from MechvibesDX (0.8.4 or earlier): delete
+/Applications/MechvibesDX.app, then grant the permissions in section 3 to
+Mechvibes. Your settings and sound packs carry over.
 
 
 2. Clearing Gatekeeper
@@ -32,7 +36,7 @@ Then eject the disk image.
 Because the app is not notarized, macOS quarantines it on download. The
 simplest fix, and the one to prefer:
 
-  Right-click (or Control-click) MechvibesDX in Applications, choose "Open",
+  Right-click (or Control-click) Mechvibes in Applications, choose "Open",
   then confirm the warning dialog.
 
 That whitelists this one app; afterwards it opens normally. A plain
@@ -42,7 +46,7 @@ If that is not offered, or macOS reports the app "is damaged and can't be
 opened", clear the quarantine flag by hand - it is the same problem, not
 actual corruption:
 
-  xattr -cr /Applications/MechvibesDX.app
+  xattr -cr /Applications/Mechvibes.app
 
 
 3. Accessibility and Input Monitoring permissions
@@ -53,18 +57,18 @@ Global key capture requires BOTH:
   System Settings -> Privacy & Security -> Accessibility
   System Settings -> Privacy & Security -> Input Monitoring
 
-Add /Applications/MechvibesDX.app to each list and enable the toggle.
+Add /Applications/Mechvibes.app to each list and enable the toggle.
 
-  - Accessibility covers key capture while the MechvibesDX window is focused.
+  - Accessibility covers key capture while the Mechvibes window is focused.
   - Input Monitoring covers key capture while the window is minimized or
     another app is focused. Without it, sounds only play while the
-    MechvibesDX window has focus.
+    Mechvibes window has focus.
 
-Click the MechvibesDX icon in the menu bar to see where you stand. Each
+Click the Mechvibes icon in the menu bar to see where you stand. Each
 permission is listed there: "Granted" in green when it is on, or a red
 "Grant ..." line when it is missing. Clicking that line opens System
 Settings at the right page. Granting Accessibility takes effect straight
-away. After granting Input Monitoring, quit and relaunch MechvibesDX: macOS
+away. After granting Input Monitoring, quit and relaunch Mechvibes: macOS
 only lets an app capture keys globally if it had the permission when it
 started, so until you relaunch the menu can say "Granted" while sounds still
 stop when another app is in front.

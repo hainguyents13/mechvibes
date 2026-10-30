@@ -289,7 +289,7 @@ fn mask_name_in_paths(line: &str, user: &str) -> String {
 /// carries the context that would otherwise have to be asked for.
 pub fn export_header() -> String {
     format!(
-        "MechvibesDX log export\n\
+        "Mechvibes log export\n\
          App version: {}\n\
          OS: {} ({})\n\
          Exported at: {}\n\
@@ -635,7 +635,7 @@ mod tests {
         let contents = export_contents();
 
         // Header: the context a bug report would otherwise have to ask for.
-        assert!(contents.contains("MechvibesDX log export"), "{}", contents);
+        assert!(contents.contains("Mechvibes log export"), "{}", contents);
         assert!(
             contents.contains(&format!("App version: {}", crate::utils::constants::APP_VERSION)),
             "{}",
@@ -676,7 +676,7 @@ mod tests {
             return; // No usable name here; nothing to assert.
         };
 
-        push(&format!(r"soundpack_dir: C:\Users\{}\AppData\Local\MechvibesDX", user));
+        push(&format!(r"soundpack_dir: C:\Users\{}\AppData\Local\Mechvibes", user));
         push(&format!("config: /home/{}/.config/mechvibes/config.json", user));
 
         let contents = export_contents();
@@ -688,7 +688,7 @@ mod tests {
         );
         assert!(contents.contains("[username]"), "{}", contents);
         // The rest of the path is the diagnostic part and has to survive.
-        assert!(contents.contains(r"\AppData\Local\MechvibesDX"), "{}", contents);
+        assert!(contents.contains(r"\AppData\Local\Mechvibes"), "{}", contents);
         assert!(contents.contains("/.config/mechvibes/config.json"), "{}", contents);
     }
 
@@ -1004,8 +1004,8 @@ mod tests {
         reset();
 
         push("🐛 Debug logging enabled");
-        push("🚀 Initializing MechvibesDX...");
-        push("📂 App root (from exe): D:\\mechvibes-dx\\target\\release");
+        push("🚀 Initializing Mechvibes...");
+        push("📂 App root (from exe): D:\\mechvibes\\target\\release");
         push("🎧 Audio engine thread started");
         push("🎮 Starting Raw Input worker process...");
         VERBOSE.store(true, Ordering::Relaxed);
@@ -1029,7 +1029,7 @@ mod tests {
         let path = export_to_file().expect("export must succeed");
         let written = std::fs::read_to_string(&path).expect("exported file must be readable");
 
-        assert!(written.contains("MechvibesDX log export"));
+        assert!(written.contains("Mechvibes log export"));
         assert!(written.contains("a line that must survive the round trip"));
 
         let _ = std::fs::remove_file(&path);

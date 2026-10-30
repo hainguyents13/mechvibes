@@ -25,6 +25,9 @@ use winapi::um::winnt::{ EVENT_MODIFY_STATE, HANDLE };
 /// machine each get their own instance, which is the behavior people expect
 /// from a per-user tray app. A `Global\` name would let one user's running
 /// copy block another's.
+///
+/// Keeps the MechvibesDX-era name on purpose: a build from before the rename
+/// and one from after must still see each other, or both would run at once.
 const MUTEX_PREFIX: &str = r"Local\MechvibesDX-SingleInstance-";
 
 /// Event a refused second instance sets to raise the running window. Shares
