@@ -194,7 +194,7 @@ pub fn HomePage(audio_ctx: Arc<AudioContext>) -> Element {
               }
               a {
                 class: "btn btn-soft btn-xs rounded-box",
-                href: "https://beta.mechvibes.com/editor?utm_source=mechvibes&utm_medium=app&utm_campaign=home",
+                href: "https://editor.mechvibes.com/?utm_source=mechvibes&utm_medium=app&utm_campaign=home",
                 target: "_blank",
                 "Open"
                 ExternalLink { class: "w-3 h-3 ml-1" }

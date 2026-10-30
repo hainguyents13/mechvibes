@@ -489,6 +489,11 @@ pub mod data {
         get_writable_data_dir().join("soundpack_cache.json")
     }
 
+    /// A `mechvibes://` link a second launch leaves for the running copy
+    pub fn pending_deep_link() -> PathBuf {
+        get_writable_data_dir().join("pending-deep-link")
+    }
+
     /// Present once the packs added to Mechvibes 2 have been brought over
     pub fn mechvibes2_import_marker() -> PathBuf {
         get_writable_data_dir().join("mechvibes2-packs-imported")

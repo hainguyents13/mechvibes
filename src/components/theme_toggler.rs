@@ -412,15 +412,7 @@ fn ThemeCreatorModal(props: ThemeCreatorModalProps) -> Element {
             if !error().is_empty() {
               div { class: "alert alert-error", {error()} }
             }
-            div { class: "flex justify-between gap-2",
-              a {
-                class: "btn btn-ghost btn-sm",
-                href: "https://mechvibes.com/theme-editor?utm_source=mechvibes&utm_medium=app&utm_campaign=theme_creator",
-                target: "_blank",
-                rel: "noopener noreferrer",
-                "Advanced editor"
-                ExternalLink { class: "w-4 h-4 ml-1" }
-              }
+            div { class: "flex justify-end gap-2",
               button {
                 class: "btn btn-primary btn-sm",
                 disabled: saving() || theme_name().trim().is_empty(),

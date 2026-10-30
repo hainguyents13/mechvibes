@@ -253,6 +253,122 @@ pub fn extract_and_install_soundpack_with_type(
     Ok(info)
 }
 
+/// A library pack's revision as its config states it: `version`, which the
+/// library writes as an integer string (`"3"`).
+pub fn config_revision(config: &Value) -> Option<u64> {
+    match config.get("version")? {
+        Value::String(text) => text.trim().parse().ok(),
+        Value::Number(number) => number.as_u64(),
+        _ => None,
+    }
+}
+
+/// What installing a given revision of a library pack would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryInstall {
+    /// Not installed yet.
+    New,
+    /// An older revision is installed, or one whose revision cannot be read.
+    Update { installed: Option<u64> },
+    /// This revision or a newer one is already installed.
+    Current { installed: u64 },
+}
+
+/// What installing `revision` into `install_dir` would do.
+pub fn library_install_at(install_dir: &Path, revision: u64) -> LibraryInstall {
+    if !install_dir.exists() {
+        return LibraryInstall::New;
+    }
+    let installed = std::fs
+        ::read_to_string(install_dir.join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|config| config_revision(&config));
+    match installed {
+        Some(installed) if installed >= revision => LibraryInstall::Current { installed },
+        installed => LibraryInstall::Update { installed },
+    }
+}
+
+/// What installing `revision` of library pack `id` would do on this machine.
+pub fn library_install_kind(
+    id: &str,
+    soundpack_type: crate::state::soundpack::SoundpackType,
+    revision: u64
+) -> LibraryInstall {
+    let base = crate::state::paths::soundpacks::get_custom_soundpacks_dir();
+    library_install_at(&base.join(resolve_soundpack_type(&Value::Null, Some(soundpack_type))).join(id), revision)
+}
+
+/// The revision inside a pack zip, for comparing an import with what is
+/// installed.
+pub fn zip_revision(file_path: &str) -> Result<Option<u64>, String> {
+    Ok(config_revision(&read_config_from_zip(file_path)?))
+}
+
+/// Install library pack `id` from `zip_path`, or replace the installed copy
+/// with it.
+///
+/// The caller decides whether replacing is wanted (see `library_install_kind`);
+/// this only makes sure the zip really is pack `id` and that a failed update
+/// leaves the installed copy as it was.
+pub fn install_library_pack(
+    zip_path: &str,
+    id: &str,
+    target_type: Option<crate::state::soundpack::SoundpackType>
+) -> Result<SoundpackInfo, String> {
+    let info = install_library_pack_into(
+        zip_path,
+        id,
+        target_type,
+        &crate::state::paths::soundpacks::get_custom_soundpacks_dir()
+    )?;
+    crate::state::config_writer::apply(|config| {
+        crate::state::soundpack_library::mark_added(
+            &mut config.soundpack_added_at,
+            &info.folder_path
+        );
+    });
+    Ok(info)
+}
+
+fn install_library_pack_into(
+    zip_path: &str,
+    id: &str,
+    target_type: Option<crate::state::soundpack::SoundpackType>,
+    soundpacks_dir: &Path
+) -> Result<SoundpackInfo, String> {
+    let config = read_config_from_zip(zip_path)?;
+    if soundpack_id_from_config(&config) != id {
+        return Err("The downloaded sound pack is not the one you chose.".to_string());
+    }
+    let soundpack_type = resolve_soundpack_type(&config, target_type);
+    let install_dir = soundpacks_dir.join(soundpack_type).join(id);
+    if !install_dir.exists() {
+        return extract_and_install_into(zip_path, target_type, soundpacks_dir);
+    }
+
+    // Build the new copy next to the installed one, then swap the two. The
+    // staging folder sits outside the keyboard and mouse folders, so a scan
+    // that runs meanwhile never lists it.
+    let staging = soundpacks_dir.join(format!(".staging-{}", Uuid::new_v4()));
+    let result = (|| {
+        let info = extract_and_install_into(zip_path, target_type, &staging)?;
+        let fresh = staging.join(soundpack_type).join(id);
+        let previous = staging.join("previous");
+        std::fs
+            ::rename(&install_dir, &previous)
+            .map_err(|e| format!("Could not replace the installed sound pack: {}", e))?;
+        if let Err(e) = std::fs::rename(&fresh, &install_dir) {
+            let _ = std::fs::rename(&previous, &install_dir);
+            return Err(format!("Could not replace the installed sound pack: {}", e));
+        }
+        Ok(info)
+    })();
+    let _ = std::fs::remove_dir_all(&staging);
+    result
+}
+
 /// Extract and install into `soundpacks_dir`.
 ///
 /// Split from the public entry point so the install path can be exercised
@@ -779,5 +895,80 @@ mod tests {
         for entry in ["..", "pack/..", "pack\\..", "C:evil.dll", "pack/C:evil.dll"] {
             assert!(entry_file_name(entry).is_err(), "{entry}");
         }
+    }
+
+    const LIBRARY_ID: &str = "mv-0123456789abcdef0123456789abcdef";
+
+    fn library_zip(dir: &Path, name: &str, revision: &str, audio: &[u8]) -> String {
+        let zip_path = dir.join(name);
+        let mut writer = zip::ZipWriter::new(File::create(&zip_path).expect("zip file"));
+        writer.start_file("config.json", zip::write::SimpleFileOptions::default()).expect("config entry");
+        writer
+            .write_all(
+                format!(
+                    r#"{{"id":"{}","name":"Lib","version":"{}","defs":{{"KeyA":{{"timing":[[0,50]]}}}}}}"#,
+                    LIBRARY_ID,
+                    revision
+                ).as_bytes()
+            )
+            .expect("config");
+        writer.start_file("sound.ogg", zip::write::SimpleFileOptions::default()).expect("audio entry");
+        writer.write_all(audio).expect("audio");
+        writer.finish().expect("finish zip");
+        zip_path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn the_revision_is_read_from_a_string_or_a_number() {
+        assert_eq!(config_revision(&serde_json::json!({"version": "3"})), Some(3));
+        assert_eq!(config_revision(&serde_json::json!({"version": 4})), Some(4));
+        assert_eq!(config_revision(&serde_json::json!({"version": "1.0.0"})), None);
+        assert_eq!(config_revision(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn a_newer_revision_replaces_the_installed_pack() {
+        let base = scratch_dir();
+        let keyboard = Some(SoundpackType::Keyboard);
+        let first = library_zip(&base, "r1.zip", "1", b"one");
+        install_library_pack_into(&first, LIBRARY_ID, keyboard, &base).expect("first install");
+        let install_dir = base.join("keyboard").join(LIBRARY_ID);
+
+        assert_eq!(library_install_at(&install_dir, 1), LibraryInstall::Current { installed: 1 });
+        assert_eq!(library_install_at(&install_dir, 2), LibraryInstall::Update { installed: Some(1) });
+
+        let second = library_zip(&base, "r2.zip", "2", b"two");
+        install_library_pack_into(&second, LIBRARY_ID, keyboard, &base).expect("update");
+
+        assert_eq!(std::fs::read(install_dir.join("sound.ogg")).expect("audio"), b"two");
+        assert_eq!(library_install_at(&install_dir, 2), LibraryInstall::Current { installed: 2 });
+        let leftovers: Vec<_> = std::fs
+            ::read_dir(&base)
+            .expect("base")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with(".staging"))
+            .collect();
+        assert!(leftovers.is_empty(), "the staging folder must be cleaned up: {:?}", leftovers);
+    }
+
+    #[test]
+    fn a_zip_for_another_pack_is_refused_and_the_installed_one_kept() {
+        let base = scratch_dir();
+        let keyboard = Some(SoundpackType::Keyboard);
+        let first = library_zip(&base, "r1.zip", "1", b"one");
+        install_library_pack_into(&first, LIBRARY_ID, keyboard, &base).expect("first install");
+
+        let other = library_zip(&base, "r2.zip", "2", b"two");
+        install_library_pack_into(&other, "mv-ffffffffffffffffffffffffffffffff", keyboard, &base).expect_err(
+            "a zip whose id differs from the one asked for must be refused"
+        );
+        let installed = base.join("keyboard").join(LIBRARY_ID).join("sound.ogg");
+        assert_eq!(std::fs::read(installed).expect("audio"), b"one");
+    }
+
+    #[test]
+    fn a_pack_that_is_not_installed_is_new() {
+        let base = scratch_dir();
+        assert_eq!(library_install_at(&base.join("keyboard").join(LIBRARY_ID), 1), LibraryInstall::New);
     }
 }
