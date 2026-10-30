@@ -4,10 +4,19 @@ version = "3.0.0"
 authors = ["Hải Nguyễn <hainguyen.ts13@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
+default-run = "mechvibes"
 description = "A modern mechanical keyboard sound simulator with customizable soundpacks"
 license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "mechvibes"
+path = "src/main.rs"
+
+[[bin]]
+name = "pack-convert"
+path = "src/bin/pack_convert.rs"
 
 [dependencies]
 base64 = "0.22"

@@ -149,6 +149,47 @@ Example:
 
 ---
 
+## Library packs
+
+Packs published through the online library follow a few extra conventions on top of the V2 format. They are conventions between the library server, the web editor and the app, not rules the app enforces today: nothing in the app's Rust code looks for the `mv-` or `default-` prefixes yet (a search of `src/` finds no match). Each claim below about what the app does is tied to the code that does it.
+
+The machine-readable counterpart of this guide is [`soundpack-config-v2.schema.json`](./soundpack-config-v2.schema.json) (JSON Schema draft 2020-12). It describes what `src/utils/soundpack_validator.rs` accepts and nothing stricter, so a server can use it without rejecting a pack the app would load.
+
+### Reserved `id` prefixes
+
+| Prefix | Meaning |
+|--------|---------|
+| `mv-` | Issued by the library, in the form `mv-<32 hex>` (for example `mv-0123456789abcdef0123456789abcdef`). A pack you make yourself must not use it. |
+| `default-` | Reserved for the 14 bundled packs, which are published to the library as `default-<category>-<folder>` (for example `default-keyboard-cherrymx-black-abs`). These ids never come from user uploads. |
+
+- The app uses the config `id` as the install folder name under `<custom_soundpacks_dir>/<keyboard|mouse>/` (`src/utils/soundpack_installer.rs:326`). An id must therefore be a single path component: no `/`, `\` or `:`, and not `.` or `..` (`src/utils/soundpack_installer.rs:11-26`). The schema's `id` pattern mirrors that rule, and both reserved formats satisfy it.
+- When `id` is missing or blank the app mints `imported-<uuid>` (`src/utils/soundpack_installer.rs:79-83`). A library pack always carries an id, so it never takes that path.
+- The 14 bundled packs are the folders under `soundpacks/keyboard` and `soundpacks/mouse`. The app registers them as `keyboard/<folder>` and `mouse/<folder>` (`src/state/paths.rs:507-527`). Importing a pack whose `<type>/<id>` equals one of those is refused (`src/utils/soundpack_installer.rs:326-336`). A `default-<category>-<folder>` id never equals `<type>/<folder>`, so a library copy of a bundled pack does not hit that refusal.
+
+### `version`
+
+For a library pack `version` is an integer written as a string (`"1"`, `"2"`, ...) and equals the `revision` the server holds for that pack. The server rewrites it on every publish.
+
+- Keep it a string. The validator reads `version` only when it is a JSON string and otherwise treats it as absent (`src/utils/soundpack_validator.rs:95-98`). The metadata loader does the same and falls back to `"1.0.0"` (`src/utils/soundpack.rs:144-148`). A bare number would be silently dropped.
+- Comparing versions as numbers, and only for ids starting with `mv-`, is the rule for the install and update flow that is still to be written. Today the app only displays the string.
+
+### `author` and `author_url`
+
+- The server writes `author` when it publishes a library pack, replacing whatever the upload carried. The validator requires `author` (`src/utils/soundpack_validator.rs:180-182`); the legacy `m_author` spelling is accepted there too.
+- The server may also write `author_url`, a link to the author's profile. It is optional and informational.
+
+### Unknown fields
+
+The app ignores fields it does not know, so the server can add fields without breaking older releases. The pack is deserialized into `SoundPack` (`src/state/soundpack.rs:59-89`), which does not set `deny_unknown_fields`, so serde skips anything else. The metadata loader reads individual keys from the parsed JSON (`src/utils/soundpack.rs:97-200`) and never rejects extras. `author_url` is one such field.
+
+One exception: converting a V1 pack rebuilds the config from a fixed list of fields (`src/utils/config_converter.rs:108-150`), so unknown fields on a V1 pack are dropped by the conversion. Library packs are V2 and are not converted.
+
+### Editor behavior
+
+The web editor does not invent an `id` for a new pack. It keeps the `id` only when it opens a pack that already has one, or when it is opened through `?pack=`. This is an editor rule, not app code: a pack exported without an `id` is given `imported-<uuid>` by the app on import (`src/utils/soundpack_installer.rs:79-83`), and the library server issues the `mv-` id when the pack is published.
+
+---
+
 ## Key Naming Reference
 
 Use these identifiers in the `definitions` object. The app follows the W3C Web IDL `KeyboardEvent.code` standard with extensions for mouse.
@@ -576,6 +617,7 @@ The app may add or modify these on load:
 ## See Also
 
 - [Mechvibes README](../README.md#soundpacks) - Basic soundpack import and usage
+- [Config JSON Schema](./soundpack-config-v2.schema.json) - Machine-readable description of the fields the validator accepts
 - [System Architecture](./system-architecture.md) - Audio engine and soundpack loading details
 - [W3C KeyboardEvent.code Spec](https://w3c.github.io/uievents-code/) - Full key naming reference
 

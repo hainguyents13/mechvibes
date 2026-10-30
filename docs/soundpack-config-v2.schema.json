@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://mechvibes.com/schemas/soundpack-config-v2.schema.json",
+  "title": "Mechvibes soundpack config.json (V2)",
+  "description": "Describes what src/utils/soundpack_validator.rs accepts as a valid V2 pack, no more. Key names, audio files and playback fields are not validated by the app at this stage, so they are not constrained here either. See docs/soundpack-config-v2.md.",
+  "type": "object",
+  "required": ["name"],
+  "anyOf": [
+    { "required": ["definitions"] },
+    { "required": ["defs"] }
+  ],
+  "allOf": [
+    {
+      "description": "`author` is required. The legacy `m_author` spelling only counts when config_version is declared as 2 (validator: with no version, the pack is only recognised as V2 when `author` is present).",
+      "anyOf": [
+        { "required": ["author"] },
+        { "required": ["config_version", "m_author"] }
+      ]
+    },
+    {
+      "description": "`defs` is only read when `definitions` is absent, so it is only checked in that case.",
+      "if": {
+        "required": ["defs"],
+        "not": { "required": ["definitions"] }
+      },
+      "then": {
+        "properties": { "defs": { "$ref": "#/$defs/keyDefinitions" } }
+      }
+    }
+  ],
+  "properties": {
+    "name": {
+      "description": "Display name. The validator only checks that the field exists; the app reads it as a string."
+    },
+    "author": {
+      "description": "Pack creator. Library packs: written by the server on publish."
+    },
+    "m_author": {
+      "description": "Legacy spelling of `author`."
+    },
+    "author_url": {
+      "type": "string",
+      "description": "Optional link to the author's profile. Written by the library server; the app ignores it."
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^(?!\\.{1,2}$)[^/\\\\:]+$",
+      "description": "Becomes the install folder name, so it must be a single path component (soundpack_installer.rs validate_soundpack_id). `mv-<32 hex>` is reserved for library-issued packs and `default-` for the bundled packs published to the library; the validator does not enforce either."
+    },
+    "config_version": {
+      "description": "The V2 declaration, as the number 2 or the string \"2\" (surrounding whitespace and leading zeros are tolerated by the validator).",
+      "oneOf": [
+        { "type": "integer", "const": 2 },
+        { "type": "string", "pattern": "^\\s*\\+?0*2\\s*$" }
+      ]
+    },
+    "version": {
+      "description": "Pack version. The app reads it only when it is a string and ignores any other type. Library packs: an integer string equal to the server revision, for example \"3\"."
+    },
+    "definitions": { "$ref": "#/$defs/keyDefinitions" },
+    "mouse": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": true,
+  "$defs": {
+    "timingPair": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "description": "[start, end]. The validator checks the length only."
+    },
+    "timingList": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/timingPair" }
+    },
+    "keyDefinitions": {
+      "type": "object",
+      "description": "Key name to timing. Each value is either `{ \"timing\": [[start, end], ...] }` or the timing array itself.",
+      "additionalProperties": {
+        "oneOf": [
+          { "$ref": "#/$defs/timingList" },
+          {
+            "type": "object",
+            "required": ["timing"],
+            "properties": { "timing": { "$ref": "#/$defs/timingList" } }
+          }
+        ]
+      }
+    }
+  }
+}
