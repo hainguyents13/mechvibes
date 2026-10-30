@@ -1,5 +1,5 @@
 [application]
-name = "mechvibes-dx"
+name = "mechvibes"
 out_dir = "bundle"
 asset_dir = "assets"
 
@@ -8,13 +8,13 @@ bundle_assets = true
 
 [bundle]
 identifier = "com.hainguyents13.mechvibesdx"
-name = "MechvibesDX"
+name = "Mechvibes"
 version = "0.4.0"
 publisher = "Hai Nguyen"
 icon = ["./assets/icon.ico"]
 category = "Productivity"
-short_description = "MechvibesDX"
-long_description = "MechvibesDX is a modern, cross-platform interactive sound simulator for keyboard, mouse, and other input devices."
+short_description = "Mechvibes"
+long_description = "Mechvibes is a modern, cross-platform interactive sound simulator for keyboard, mouse, and other input devices."
 resources = [
   "./soundpacks/keyboard",
   "./soundpacks/mouse",

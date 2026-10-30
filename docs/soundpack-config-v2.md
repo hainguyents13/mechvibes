@@ -1,10 +1,10 @@
-# MechvibesDX Soundpack Config.json V2 Format
+# Mechvibes Soundpack Config.json V2 Format
 
-This guide describes the V2 soundpack format used by MechvibesDX. Use this to create, modify, or understand soundpack configurations.
+This guide describes the V2 soundpack format used by Mechvibes. Use this to create, modify, or understand soundpack configurations.
 
 ## Overview
 
-A soundpack is a folder containing audio files and a configuration file that defines which sounds play for each keyboard key or mouse button. MechvibesDX ships with curated bundled soundpacks (Cherry MX Black, Topre Purple, etc.) and supports importing custom packs.
+A soundpack is a folder containing audio files and a configuration file that defines which sounds play for each keyboard key or mouse button. Mechvibes ships with curated bundled soundpacks (Cherry MX Black, Topre Purple, etc.) and supports importing custom packs.
 
 ### Folder Layout
 
@@ -90,7 +90,7 @@ Unique identifier for the soundpack; alphanumeric characters, hyphens, and under
 #### `config_version` (string or number)
 Configuration format version. Should be `"2"` or `2` (both forms are accepted).
 - Default: treated as `2` when omitted and the structure is valid
-- A value above `2` makes the app report that the pack needs a newer MechvibesDX
+- A value above `2` makes the app report that the pack needs a newer Mechvibes
 
 #### `description` (string)
 Longer description of the soundpack (UI tooltip or details).
@@ -477,8 +477,8 @@ The JSON syntax is invalid. Common issues:
 
 Use a JSON validator (e.g., [jsonlint.com](https://www.jsonlint.com)) to check syntax.
 
-#### "This soundpack requires a newer version of MechvibesDX"
-The `config_version` is higher than the app supports. Update MechvibesDX or downgrade the config version to `2`.
+#### "This soundpack requires a newer version of Mechvibes"
+The `config_version` is higher than the app supports. Update Mechvibes or downgrade the config version to `2`.
 
 #### "No audio files found in soundpack"
 For single-method packs, at least one audio file must be present in the soundpack folder. Check:
@@ -616,7 +616,7 @@ The app may add or modify these on load:
 
 ## See Also
 
-- [MechvibesDX README](../README.md#soundpacks) - Basic soundpack import and usage
+- [Mechvibes README](../README.md#soundpacks) - Basic soundpack import and usage
 - [Config JSON Schema](./soundpack-config-v2.schema.json) - Machine-readable description of the fields the validator accepts
 - [System Architecture](./system-architecture.md) - Audio engine and soundpack loading details
 - [W3C KeyboardEvent.code Spec](https://w3c.github.io/uievents-code/) - Full key naming reference

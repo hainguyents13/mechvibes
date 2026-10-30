@@ -1,20 +1,20 @@
-; MechvibesDX Inno Setup Script
+; Mechvibes Inno Setup Script
 ; Requires Inno Setup 6.0 or later: https://jrsoftware.org/isinfo.php
 ;
 ; Version is NOT hardcoded here - pass it at compile time:
-;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-dx-setup.iss
+;   ISCC.exe /DAppVersion=0.5.2 installer\windows\mechvibes-setup.iss
 ; scripts/build-windows-installer.ps1 does this automatically by reading
 ; Cargo.toml, so there is a single source of truth for the version.
 
 #ifndef AppVersion
-  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-dx-setup.iss
+  #error AppVersion must be defined, e.g. ISCC /DAppVersion=0.5.2 mechvibes-setup.iss
 #endif
 
-#define MyAppName "MechvibesDX"
+#define MyAppName "Mechvibes"
 #define MyAppVersion AppVersion
 #define MyAppPublisher "Hai Nguyen"
-#define MyAppURL "https://github.com/hainguyents13/mechvibes-dx"
-#define MyAppExeName "mechvibes-dx.exe"
+#define MyAppURL "https://github.com/hainguyents13/mechvibes"
+#define MyAppExeName "mechvibes.exe"
 #define MyAppId "{{8B5F5E5E-5E5E-5E5E-5E5E-5E5E5E5E5E5E}"
 
 [Setup]
@@ -26,14 +26,20 @@ AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}/issues
 AppUpdatesURL={#MyAppURL}/releases
-DefaultDirName={autopf}\{#MyAppName}
+; Not {autopf}\{#MyAppName}: the original Electron Mechvibes installs per-user
+; into %LOCALAPPDATA%\Programs\Mechvibes, and sharing that folder would mix
+; the two apps' files and let either uninstaller delete the other's. Upgrades
+; keep whatever folder they were installed in (UsePreviousAppDir).
+DefaultDirName={autopf}\MechvibesDX
 DefaultGroupName={#MyAppName}
+; Upgrades from MechvibesDX would otherwise reuse its Start Menu folder name.
+UsePreviousGroup=no
 AllowNoIcons=yes
 LicenseFile=..\..\LICENSE
 ; OutputBaseFilename MUST contain "x64" and end in ".exe" to match the
 ; in-app auto-updater's asset filter (src/utils/auto_updater.rs).
 OutputDir=..\..\dist
-OutputBaseFilename=MechvibesDX-{#MyAppVersion}-Setup-x64
+OutputBaseFilename=Mechvibes-{#MyAppVersion}-Setup-x64
 SetupIconFile=..\..\assets\icon.ico
 Compression=lzma2/max
 SolidCompression=yes
@@ -47,6 +53,16 @@ DisableWelcomePage=no
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 RestartApplications=yes
+
+[InstallDelete]
+; Leftovers from when the app was called MechvibesDX (0.8.x and earlier).
+; Listing the old exe here also makes CloseApplications close a copy of it
+; that is still running, since Restart Manager covers [InstallDelete] files.
+Type: files; Name: "{app}\mechvibes-dx.exe"
+Type: filesandordirs; Name: "{autoprograms}\MechvibesDX"
+Type: files; Name: "{autodesktop}\MechvibesDX.lnk"
+; WebView2 cache, named after the exe by Dioxus.
+Type: filesandordirs; Name: "{localappdata}\mechvibes-dx"
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -92,7 +108,7 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 ; /LOG trace of a real silent install shows why:
 ;
 ;   Found 1 files to register with RestartManager.
-;   RestartManager found an application using one of our files: MechvibesDX
+;   RestartManager found an application using one of our files: Mechvibes
 ;   Shutting down applications using our files.
 ;   Attempting to restart applications.
 ;
@@ -112,10 +128,95 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsilent
 
 [UninstallDelete]
+; WebView2 cache only. Settings and sound packs in {userappdata}\Mechvibes
+; are deleted only when the user says so (CurUninstallStepChanged): entries
+; here run before that question is asked, so listing that folder here would
+; delete it whatever the answer. The original Electron app keeps its data in
+; the same folder, too.
 Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\Mechvibes"
 
 [Code]
+const
+  UninstallKeyRoot = 'Software\Microsoft\Windows\CurrentVersion\Uninstall';
+
+// The original Electron Mechvibes (2.x) is a separate install. Left in place
+// it keeps running alongside this app, and every key plays twice. Its
+// electron-builder installer registers an uninstall entry whose
+// QuietUninstallString is '"<dir>\Uninstall Mechvibes.exe" /currentuser /S'
+// (or /allusers), under HKCU or HKLM depending on how it was installed.
+function FindElectronMechvibes(var RootKey: Integer; var SubKey, Command: String): Boolean;
+var
+  Roots: array[0..1] of Integer;
+  Names: TArrayOfString;
+  R, I: Integer;
+  Version, Quiet: String;
+begin
+  Result := False;
+  Roots[0] := HKCU;
+  Roots[1] := HKLM;
+  for R := 0 to 1 do
+    if RegGetSubkeyNames(Roots[R], UninstallKeyRoot, Names) then
+      for I := 0 to GetArrayLength(Names) - 1 do
+      begin
+        SubKey := UninstallKeyRoot + '\' + Names[I];
+        if RegQueryStringValue(Roots[R], SubKey, 'DisplayVersion', Version) and
+           (Copy(Version, 1, 2) = '2.') and
+           RegQueryStringValue(Roots[R], SubKey, 'QuietUninstallString', Quiet) and
+           (Pos('\uninstall mechvibes.exe"', Lowercase(Quiet)) > 0) then
+        begin
+          RootKey := Roots[R];
+          Command := Quiet;
+          Result := True;
+          Exit;
+        end;
+      end;
+end;
+
+// Runs the Electron app's own silent uninstaller, which keeps its user data
+// (electron-builder's default). ShellExec rather than Exec so an all-users
+// install can ask for elevation. An NSIS uninstaller hands off to a copy of
+// itself and returns at once, so success is its uninstall entry going away.
+function RemoveElectronMechvibes(RootKey: Integer; SubKey, Command: String): Boolean;
+var
+  ExePath, Params: String;
+  ErrorCode, Attempt: Integer;
+begin
+  ExePath := Copy(Command, 2, Pos('"', Copy(Command, 2, Length(Command))) - 1);
+  Params := Trim(Copy(Command, Length(ExePath) + 3, Length(Command)));
+  if not ShellExec('', ExePath, Params, '', SW_HIDE, ewWaitUntilTerminated, ErrorCode) then
+  begin
+    Result := False;
+    Exit;
+  end;
+  Attempt := 0;
+  while RegKeyExists(RootKey, SubKey) and (Attempt < 60) do
+  begin
+    Sleep(500);
+    Attempt := Attempt + 1;
+  end;
+  Result := not RegKeyExists(RootKey, SubKey);
+end;
+
+// Offered before anything is installed: the Electron uninstaller removes a
+// desktop shortcut named Mechvibes.lnk, which is also this app's.
+// Interactive installs only; an auto-update never asks anything.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  RootKey: Integer;
+  SubKey, Command: String;
+begin
+  Result := '';
+  if WizardSilent or not FindElectronMechvibes(RootKey, SubKey, Command) then
+    Exit;
+  if MsgBox('The previous Mechvibes (version 2) is still installed. With both installed, ' +
+      'every key plays twice.' + #13#10#13#10 +
+      'Remove version 2 now? Only the old app is removed, nothing else.',
+      mbConfirmation, MB_YESNO) = IDYES then
+    if not RemoveElectronMechvibes(RootKey, SubKey, Command) then
+      MsgBox('Mechvibes 2 could not be removed automatically. You can remove it ' +
+        'later in Windows Settings > Apps.', mbInformation, MB_OK);
+end;
+
 procedure RefreshIconCache();
 var
   ResultCode: Integer;
@@ -142,7 +243,11 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    if MsgBox('Do you want to remove all user data including custom soundpacks and settings?', mbConfirmation, MB_YESNO) = IDYES then
+    // Defaults to No, and a silent uninstall keeps the data, so a reinstall
+    // finds everything where it was.
+    if SuppressibleMsgBox('Also delete your settings and imported sound packs?' + #13#10#13#10 +
+      'Choose No to keep them for when you install Mechvibes again.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
     begin
       DelTree(ExpandConstant('{userappdata}\Mechvibes'), True, True, True);
     end;

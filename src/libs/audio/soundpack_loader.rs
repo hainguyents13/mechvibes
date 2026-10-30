@@ -849,7 +849,7 @@ mod tests {
     }
 
     fn builtin_root() -> String {
-        native_path(&["", "opt", "MechvibesDX", "soundpacks"])
+        native_path(&["", "opt", "Mechvibes", "soundpacks"])
     }
 
     fn custom_root() -> String {

@@ -1,8 +1,8 @@
-//! The macOS privacy permissions MechvibesDX needs, read without prompting.
+//! The macOS privacy permissions Mechvibes needs, read without prompting.
 //!
 //! Key capture needs two grants in System Settings > Privacy & Security:
 //!
-//! - **Accessibility**: used while the MechvibesDX window is focused.
+//! - **Accessibility**: used while the Mechvibes window is focused.
 //! - **Input Monitoring**: used while it is minimized or another app is in front.
 //!
 //! The tray menu shows both ("Accessibility: Granted" / "Grant Accessibility…")
@@ -401,7 +401,7 @@ pub fn open_accessibility_settings() {
 
 /// Opens System Settings at the Input Monitoring pane.
 ///
-/// Asking first is what lists MechvibesDX in that pane at all, so the user only
+/// Asking first is what lists Mechvibes in that pane at all, so the user only
 /// has to flip its switch. It shows the system prompt once; on later calls it
 /// does nothing visible.
 pub fn open_input_monitoring_settings() {

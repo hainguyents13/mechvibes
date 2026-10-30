@@ -3562,8 +3562,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "mechvibes-dx"
-version = "0.8.4"
+name = "mechvibes"
+version = "3.0.0"
 dependencies = [
  "base64",
  "bincode",
@@ -3577,6 +3577,7 @@ dependencies = [
  "env_logger",
  "evdev",
  "futures-timer",
+ "glib",
  "hound",
  "image 0.24.9",
  "libc",

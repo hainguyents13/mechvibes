@@ -1,4 +1,4 @@
-# MechvibesDX Windows Installer Build Script
+# Mechvibes Windows Installer Build Script
 # This script builds the release binary and creates a Windows installer using Inno Setup
 
 param(
@@ -8,7 +8,7 @@ param(
 $ErrorActionPreference = "Stop"
 
 Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "MechvibesDX Windows Installer Builder" -ForegroundColor Cyan
+Write-Host "Mechvibes Windows Installer Builder" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
 
@@ -115,7 +115,7 @@ if (-not $SkipBuild) {
 }
 
 # Check if executable exists
-$ExePath = Join-Path $ProjectRoot "target\release\mechvibes-dx.exe"
+$ExePath = Join-Path $ProjectRoot "target\release\mechvibes.exe"
 if (-not (Test-Path $ExePath)) {
     Write-Host "ERROR: Executable not found at $ExePath" -ForegroundColor Red
     Write-Host "Please run without -SkipBuild flag" -ForegroundColor Red
@@ -185,7 +185,7 @@ if (-not $ISCC) {
 
 Write-Host "Found Inno Setup: $ISCC" -ForegroundColor Gray
 
-$InnoScript = Join-Path $ProjectRoot "installer\windows\mechvibes-dx-setup.iss"
+$InnoScript = Join-Path $ProjectRoot "installer\windows\mechvibes-setup.iss"
 if (-not (Test-Path $InnoScript)) {
     Write-Host "ERROR: Inno Setup script not found at $InnoScript" -ForegroundColor Red
     exit 1
@@ -208,7 +208,7 @@ Write-Host "==================" -ForegroundColor Yellow
 Write-Host "Executable: $ExePath" -ForegroundColor Gray
 Write-Host "Output directory: $DistDir" -ForegroundColor Gray
 
-$InstallerPath = Get-ChildItem -Path $DistDir -Filter "MechvibesDX-*-Setup-x64.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+$InstallerPath = Get-ChildItem -Path $DistDir -Filter "Mechvibes-*-Setup-x64.exe" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if ($InstallerPath) {
     Write-Host "Installer: $($InstallerPath.FullName)" -ForegroundColor Gray
     Write-Host ""
@@ -218,7 +218,7 @@ if ($InstallerPath) {
 # Verify the installer asset. The in-app auto-updater picks the first release
 # asset whose name contains "x64" and ends in ".exe", so the name is part of the
 # contract: asserted here rather than trusted.
-$ExpectedInstaller = "MechvibesDX-$AppVersion-Setup-x64.exe"
+$ExpectedInstaller = "Mechvibes-$AppVersion-Setup-x64.exe"
 $ExpectedInstallerPath = Join-Path $DistDir $ExpectedInstaller
 if (-not (Test-Path $ExpectedInstallerPath)) {
     Write-Host "ERROR: expected installer $ExpectedInstaller not found in $DistDir" -ForegroundColor Red

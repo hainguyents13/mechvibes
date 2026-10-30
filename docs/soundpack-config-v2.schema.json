@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://mechvibes.com/schemas/soundpack-config-v2.schema.json",
-  "title": "MechvibesDX soundpack config.json (V2)",
+  "title": "Mechvibes soundpack config.json (V2)",
   "description": "Describes what src/utils/soundpack_validator.rs accepts as a valid V2 pack, no more. Key names, audio files and playback fields are not validated by the app at this stage, so they are not constrained here either. See docs/soundpack-config-v2.md.",
   "type": "object",
   "required": ["name"],

@@ -340,7 +340,7 @@ pub fn SettingsPage() -> Element {
                         }
                         div {
                           a {
-                            href: "https://github.com/hainguyents13/mechvibes-dx/releases/tag/v{saved.latest_version}",
+                            href: "https://github.com/hainguyents13/mechvibes/releases/tag/v{saved.latest_version}",
                             target: "_blank",
                             class: "link link-hover text-xs text-base-content/70",
                             "View release notes"
@@ -459,7 +459,7 @@ pub fn SettingsPage() -> Element {
               Heart { class: "inline w-3.5 h-3.5 -mt-1 text-primary/70 fill-primary/30" }
               span { " by " }
               a {
-                href: "https://github.com/hainguyents13/mechvibes-dx",
+                href: "https://github.com/hainguyents13/mechvibes",
                 target: "_blank",
                 class: "link ",
                 "hainguyents13"
@@ -467,7 +467,7 @@ pub fn SettingsPage() -> Element {
               br {}
               " and "
               a {
-                href: "https://github.com/hainguyents13/mechvibes-dx/graphs/contributors?all=1",
+                href: "https://github.com/hainguyents13/mechvibes/graphs/contributors?all=1",
                 target: "_blank",
                 class: "link ",
                 "these awesome people"

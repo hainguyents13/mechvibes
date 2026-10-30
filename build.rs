@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 /// `get_app_root` in src/state/paths.rs), so a bare `cargo build` binary with
 /// no `soundpacks/` beside it loads zero packs and plays nothing. Packaged
 /// builds (.app, AppImage, installer) bundle their own copy; this only makes
-/// the plain `target/<profile>/mechvibes-dx` run out of the box.
+/// the plain `target/<profile>/mechvibes` run out of the box.
 ///
 /// Best effort: a failure here must never fail the build.
 fn sync_soundpacks() {
@@ -83,8 +83,8 @@ fn main() -> io::Result<()> {
         res.set_icon("assets/icon.ico");
 
         // Set application metadata
-        res.set("ProductName", "MechvibesDX");
-        res.set("FileDescription", "MechvibesDX - Interactive Sound Simulator");
+        res.set("ProductName", "Mechvibes");
+        res.set("FileDescription", "Mechvibes - Interactive Sound Simulator");
         res.set("CompanyName", "Hai Nguyen");
         res.set("LegalCopyright", "Copyright (C) 2026 Hai Nguyen");
 

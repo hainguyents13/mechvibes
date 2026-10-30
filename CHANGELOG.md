@@ -4,7 +4,17 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [3.0.0] - 2026-10-30
+
+### Changed
+
+- **MechvibesDX officially becomes Mechvibes 3.** It replaces the original Mechvibes app (version 2), so the version number carries on from there: after 0.8.4 comes 3.0.0, and the app is now simply called Mechvibes. What to do:
+  - **Windows, coming from MechvibesDX**: nothing special. Click *Download & install* when the app offers the update, or run the new installer. Your settings, sound packs and "Start at login" carry over. Don't uninstall MechvibesDX first, because that deletes your settings and sound packs.
+  - **Windows, coming from Mechvibes 2**: run the new installer. It finds Mechvibes 2 and offers to remove it: click Yes, or every key will play twice.
+  - **Linux**: install the new `.deb` as usual. It replaces MechvibesDX or Mechvibes 2 by itself.
+  - **macOS**: open the `.dmg` and drag Mechvibes to Applications (choose Replace if asked), then drag MechvibesDX from Applications to the Trash. macOS may ask you to allow Accessibility and Input Monitoring again.
+  - Sound packs you added to Mechvibes 2 yourself are not moved over: import them again in the app, as a ZIP.
+- **The project now lives at [github.com/hainguyents13/mechvibes](https://github.com/hainguyents13/mechvibes).** The links in Settings and the tray menu, and the update check, point to the new address. The old `mechvibes-dx` address still redirects there, so earlier versions keep finding updates. The original Electron app moved to [mechvibes-electron](https://github.com/hainguyents13/mechvibes-electron).
 
 ### Added
 
@@ -12,7 +22,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Windows: uninstalling keeps your settings and sound packs unless you ask for them to go.** The uninstaller asked whether to remove your data, but it had already deleted the folder by then, so answering No changed nothing. It now deletes the folder only when you answer Yes, and No is the default. Your data stays in `%APPDATA%\Mechvibes`, where a reinstall picks it up again.
 - **Importing a sound pack whose ID is already taken no longer replaces the installed pack.** The check compared the bare ID from the ZIP against the prefixed IDs the app stores (`mouse/…`), so it could never match and the import went ahead, writing over the installed pack file by file. It now resolves the folder the import would write into and refuses when that folder already exists. An ID that belongs to a built-in pack is refused too: that import would have installed and then been hidden by the built-in pack, so it never played.
+- **Linux: the tray icon menu works while the window is hidden.** Hiding to the tray used to leave the menu able to act once: after a first Mute, Show or Exit nothing in it responded any more, and the mute checkmark moved without the sound changing. The window also came back behind every other window instead of to the front. The menu is now handled on the toolkit's own main loop, which keeps running while the window is hidden, and the window is raised and focused when it is asked for.
 - **Linux: mouse clicks now make sound in every application under Wayland.** On Wayland the mouse was read through X11, which only sees input while one of its own windows is under the pointer. Clicks in Wayland-native windows (the terminal, the file manager, the browser, and this app's own window) produced no sound at all, while apps that run through XWayland (Discord, for one) kept working. Mouse buttons are now read straight from the input devices, the same way keystrokes already are. If the input devices cannot be read, the previous behaviour stays as a fallback, and a click is never played twice. Two limits are worth knowing: the pointer gate is decided once at startup, so a mouse that is plugged in or reconnected while the app runs (over Bluetooth, or after the machine wakes from sleep) stays silent until the app is restarted; and touchpad tap-to-click is synthesized by libinput, so taps make no sound.
 
 ## [0.8.4] - 2026-10-13
@@ -226,6 +238,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.5.1] and earlier
 
 See git history for changes prior to this changelog's introduction.
+
 
 
 

@@ -29,7 +29,7 @@ pub fn attach_to_parent_console() {
     ATTACHED.call_once(|| {
         // A process that already has usable standard output must be left
         // alone. Two cases reach this: a console subsystem build, and any run
-        // whose stdout is a pipe or a file (`mechvibes-dx --headless > log`,
+        // whose stdout is a pipe or a file (`mechvibes --headless > log`,
         // or a test harness capturing output). Reopening `CONOUT$` there
         // would redirect the stream away from the pipe the caller is reading,
         // discarding output they asked for.
@@ -122,7 +122,7 @@ mod tests {
     /// This is not a hypothetical: an earlier version attached unconditionally
     /// and `freopen`'d `CONOUT$` over the test harness's capture pipe, which
     /// killed the whole `cargo test` run mid-output. The same mechanism would
-    /// silently discard the output of `mechvibes-dx --headless > log.txt`.
+    /// silently discard the output of `mechvibes --headless > log.txt`.
     #[test]
     fn a_process_with_working_stdout_is_left_alone() {
         assert!(

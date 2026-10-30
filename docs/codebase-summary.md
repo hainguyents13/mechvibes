@@ -1,4 +1,4 @@
-# Codebase Summary — MechvibesDX
+# Codebase Summary — Mechvibes
 
 **Last Updated:** 2026-08-03 · **Language:** Rust (1.88+) + Dioxus 0.7.10  
 **Build:** `cargo build --release` (Windows); CI via GitHub Actions  
@@ -8,7 +8,7 @@
 ## Directory Tree & Module Organization
 
 ```
-mechvibes-dx/
+mechvibes/
 ├── src/
 │   ├── main.rs                 # App entry, engine spawn, worker mode check
 │   ├── libs/                   # Platform & subsystem libraries
@@ -115,11 +115,8 @@ mechvibes-dx/
 │   └── lib/common.sh           # shared bash helpers (toolchain check, asset-name check)
 ├── installer/
 │   ├── windows/
-│   │   └── mechvibes-dx-setup.iss # Inno Setup config
+│   │   └── mechvibes-setup.iss # Inno Setup config
 │   └── README.md                # Installer docs
-├── debian/
-│   ├── postinst             # Post-install hook (add user to input group)
-│   └── postrm               # Post-remove hook
 ├── assets/
 │   ├── icon.ico             # Windows taskbar icon
 │   └── icon.png             # Linux/macOS app icon
@@ -158,7 +155,7 @@ mechvibes-dx/
 
 5. **Spawn input listeners:** Platform-specific.
    - Windows: `input_worker_host.rs` (spawns worker + reads stdout).
-   - Linux: `input_listener.rs` (rdev) + `evdev_input_listener.rs` (optional direct).
+   - Linux: `evdev_input_listener.rs` on Wayland (rdev kept for the mouse until evdev finds a pointer); `input_listener.rs` (rdev) + `focused_input_listener.rs` (device_query) on X11.
    - macOS: `input_listener.rs` (rdev).
 
 6. **Spawn audio engine:** `libs::audio::engine::spawn_engine()` before Dioxus.
@@ -265,8 +262,8 @@ pub struct AppConfig {
 ```
 
 **Storage:**
-- Linux/macOS: `~/.local/share/mechvibes-dx/config.json`
-- Windows: `HKEY_CURRENT_USER\Software\MechvibesDX` (registry) + JSON fallback
+- Linux/macOS: `~/.local/share/mechvibes/config.json`
+- Windows: `HKEY_CURRENT_USER\Software\Mechvibes` (registry) + JSON fallback
 
 ### `SoundPack` (Soundpack Definition, `src/state/soundpack.rs`)
 

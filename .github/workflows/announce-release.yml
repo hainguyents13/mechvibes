@@ -138,7 +138,7 @@ jobs:
             --argjson test "$IS_TEST" \
             '
             (if $role == "" then "everyone" else "<@&\($role)>" end) as $who |
-            ("Hi \($who), MechvibesDX \($name) is out! 🎉\n\nHere is what’s new:\n\n") as $head |
+            ("Hi \($who), Mechvibes \($name) is out! 🎉\n\nHere is what’s new:\n\n") as $head |
             ("\n\n**Download & full changelog:**\n- GitHub release – \($url)\n- Or just open the app and click *Download & install* (Settings → Updates)") as $foot |
             (2000 - ($head | length) - ($foot | length) - 10) as $room |
             {

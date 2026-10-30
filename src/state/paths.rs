@@ -13,9 +13,9 @@
 /// Inside a bundle the executable does not sit next to its resources:
 ///
 /// ```text
-/// MechvibesDX.app/Contents/MacOS/mechvibes-dx   <- current_exe()
-/// MechvibesDX.app/Contents/Resources/soundpacks
-/// MechvibesDX.app/Contents/Resources/assets
+/// Mechvibes.app/Contents/MacOS/mechvibes   <- current_exe()
+/// Mechvibes.app/Contents/Resources/soundpacks
+/// Mechvibes.app/Contents/Resources/assets
 /// ```
 ///
 /// So the read-only resource root becomes `../Resources`, which matches where
@@ -29,9 +29,9 @@
 /// directory on every launch:
 ///
 /// ```text
-/// /tmp/.mount_MechviXXXXXX/usr/bin/mechvibes-dx        <- current_exe()
-/// /tmp/.mount_MechviXXXXXX/usr/lib/mechvibes-dx/assets
-/// /tmp/.mount_MechviXXXXXX/usr/share/mechvibes-dx/soundpacks
+/// /tmp/.mount_MechviXXXXXX/usr/bin/mechvibes        <- current_exe()
+/// /tmp/.mount_MechviXXXXXX/usr/lib/mechvibes/assets
+/// /tmp/.mount_MechviXXXXXX/usr/share/mechvibes/soundpacks
 /// ```
 ///
 /// The layout deliberately mirrors the `.deb` (`usr/bin`, `usr/share`), which
@@ -47,7 +47,7 @@ use std::sync::OnceLock;
 /// Resource root for a macOS `.app` bundle, if `exe_path` is inside one.
 ///
 /// Detection is structural rather than "am I on macOS": the same binary is also
-/// run bare (`cargo build && ./mechvibes-dx`) during development, and that layout
+/// run bare (`cargo build && ./mechvibes`) during development, and that layout
 /// must keep resolving resources next to the executable. Only the exact
 /// `<name>.app/Contents/MacOS/<exe>` shape counts as a bundle.
 ///
@@ -79,9 +79,9 @@ fn macos_bundle_resource_root(exe_path: &Path) -> Option<PathBuf> {
 ///
 /// Detection is structural, matching the macOS approach and for the same
 /// reason: the identical binary is also installed by the `.deb` at
-/// `/usr/bin/mechvibes-dx`, and that layout must keep resolving `/usr/share`
+/// `/usr/bin/mechvibes`, and that layout must keep resolving `/usr/share`
 /// absolutely. Only the exact `<root>/usr/bin/<exe>` shape counts, and only
-/// when `<root>` is not the filesystem root - `/usr/bin/mechvibes-dx` from the
+/// when `<root>` is not the filesystem root - `/usr/bin/mechvibes` from the
 /// `.deb` would otherwise yield an AppDir of `/`.
 ///
 /// `APPDIR` (exported by AppRun) is deliberately NOT consulted. It is
@@ -104,7 +104,7 @@ fn appimage_root(exe_path: &Path) -> Option<PathBuf> {
 
     // The AppDir root itself. `file_name()` is None for `/` and for a bare
     // relative `usr`, which is exactly the case that must not be treated as an
-    // AppImage: that is the .deb's `/usr/bin/mechvibes-dx`.
+    // AppImage: that is the .deb's `/usr/bin/mechvibes`.
     let app_dir = usr_dir.parent()?;
     app_dir.file_name()?;
 
@@ -183,7 +183,7 @@ fn get_app_root() -> &'static PathBuf {
 }
 
 /// True when `exe_path` is a Linux system-wide install location, i.e. what the
-/// `.deb` produces: `/usr/bin/mechvibes-dx` (or `/usr/local/bin/...`).
+/// `.deb` produces: `/usr/bin/mechvibes` (or `/usr/local/bin/...`).
 ///
 /// These directories are root-owned. The app root for such a binary is
 /// `/usr/bin`, so `{app_root}/data` resolved to `/usr/bin/data` - a directory a
@@ -235,7 +235,7 @@ fn is_linux_system_install(exe_path: &Path) -> bool {
 ///
 /// This is the one detector in this module that must touch the filesystem;
 /// the layout alone cannot distinguish an installed tree from a portable one,
-/// since both are just `<dir>/mechvibes-dx.exe` next to `assets/`. The decision
+/// since both are just `<dir>/mechvibes.exe` next to `assets/`. The decision
 /// is cached by the `OnceLock` in [`get_writable_data_dir`], so this runs once
 /// per process. Split from the pure-path helpers for exactly that reason, and
 /// tested through [`windows_install_marker_name`] plus the directory-probing
@@ -538,8 +538,8 @@ pub mod soundpacks {
     ///
     /// Checks multiple locations in order:
     ///
-    /// 1. {appdir}/usr/share/mechvibes-dx/soundpacks (running from an AppImage)
-    /// 2. /usr/share/mechvibes-dx/soundpacks (installed via DEB/system package)
+    /// 1. {appdir}/usr/share/mechvibes/soundpacks (running from an AppImage)
+    /// 2. /usr/share/mechvibes/soundpacks (installed via DEB/system package)
     /// 3. {app_root}/soundpacks (portable/dev mode)
     ///
     /// The AppImage check must come first and must be **relative to the mount
@@ -572,7 +572,7 @@ pub mod soundpacks {
     /// Where the `.deb` and the AppImage put the built-in soundpacks, relative
     /// to `/` and to the AppDir respectively. One constant so the two branches
     /// above cannot drift apart.
-    const SOUNDPACKS_SYSTEM_SUBDIR: &str = "usr/share/mechvibes-dx/soundpacks";
+    const SOUNDPACKS_SYSTEM_SUBDIR: &str = "usr/share/mechvibes/soundpacks";
 
     /// Get the base soundpacks directory for custom soundpacks (system app data)
     pub fn get_custom_soundpacks_dir() -> PathBuf {
@@ -776,14 +776,14 @@ pub mod bundled_assets {
     /// to put the directory there. See the comment on
     /// `[package.metadata.deb]` in Cargo.toml. Reading the same directory here
     /// keeps one copy of `assets/` in the package instead of two.
-    const ASSETS_SYSTEM_SUBDIR: &str = "usr/lib/mechvibes-dx/assets";
+    const ASSETS_SYSTEM_SUBDIR: &str = "usr/lib/mechvibes/assets";
 
     /// Directory holding the bundled `assets/` tree.
     ///
     /// Checked in order:
     ///
-    /// 1. `{appdir}/usr/lib/mechvibes-dx/assets` (running from an AppImage)
-    /// 2. `/usr/lib/mechvibes-dx/assets` (installed via `.deb`)
+    /// 1. `{appdir}/usr/lib/mechvibes/assets` (running from an AppImage)
+    /// 2. `/usr/lib/mechvibes/assets` (installed via `.deb`)
     /// 3. `{app_root}/assets` (dev, Windows portable/installed, macOS bundle)
     ///
     /// The AppImage check comes first and resolves **relative to the mount
@@ -960,10 +960,10 @@ mod tests {
     /// NOT to `Contents/MacOS` where the executable sits.
     #[test]
     fn detects_the_app_bundle_layout() {
-        let exe = Path::new("/Applications/MechvibesDX.app/Contents/MacOS/mechvibes-dx");
+        let exe = Path::new("/Applications/Mechvibes.app/Contents/MacOS/mechvibes");
         assert_eq!(
             macos_bundle_resource_root(exe),
-            Some(PathBuf::from("/Applications/MechvibesDX.app/Contents/Resources"))
+            Some(PathBuf::from("/Applications/Mechvibes.app/Contents/Resources"))
         );
     }
 
@@ -972,8 +972,8 @@ mod tests {
     #[test]
     fn bundle_detection_is_independent_of_install_location() {
         for exe in [
-            "/Users/someone/Downloads/MechvibesDX.app/Contents/MacOS/mechvibes-dx",
-            "/Volumes/MechvibesDX/MechvibesDX.app/Contents/MacOS/mechvibes-dx",
+            "/Users/someone/Downloads/Mechvibes.app/Contents/MacOS/mechvibes",
+            "/Volumes/Mechvibes/Mechvibes.app/Contents/MacOS/mechvibes",
         ] {
             assert_eq!(
                 macos_bundle_resource_root(Path::new(exe)),
@@ -987,7 +987,7 @@ mod tests {
     /// The executable name is not fixed - a rename must not break resolution.
     #[test]
     fn bundle_detection_ignores_the_executable_name() {
-        let exe = Path::new("/Applications/MechvibesDX.app/Contents/MacOS/AnythingElse");
+        let exe = Path::new("/Applications/Mechvibes.app/Contents/MacOS/AnythingElse");
         assert!(macos_bundle_resource_root(exe).is_some());
     }
 
@@ -998,20 +998,20 @@ mod tests {
     fn non_bundle_layouts_are_never_treated_as_bundles() {
         let non_bundles = [
             // Windows installed and portable layouts
-            r"C:\Program Files\MechvibesDX\mechvibes-dx.exe",
-            r"D:\mechvibes-dx\target\release\mechvibes-dx.exe",
+            r"C:\Program Files\Mechvibes\mechvibes.exe",
+            r"D:\mechvibes\target\release\mechvibes.exe",
             // Linux
-            "/usr/bin/mechvibes-dx",
-            "/opt/mechvibes-dx/mechvibes-dx",
+            "/usr/bin/mechvibes",
+            "/opt/mechvibes/mechvibes",
             // A bare macOS dev build - same binary, no bundle around it
-            "/Users/someone/mechvibes-dx/target/release/mechvibes-dx",
+            "/Users/someone/mechvibes/target/release/mechvibes",
             // Right directory names, but no `.app` wrapper
-            "/Users/someone/Contents/MacOS/mechvibes-dx",
+            "/Users/someone/Contents/MacOS/mechvibes",
             // `.app` present but the inner structure is wrong
-            "/Applications/MechvibesDX.app/mechvibes-dx",
-            "/Applications/MechvibesDX.app/Contents/mechvibes-dx",
+            "/Applications/Mechvibes.app/mechvibes",
+            "/Applications/Mechvibes.app/Contents/mechvibes",
             // Only one directory level - nothing to walk up to
-            "mechvibes-dx",
+            "mechvibes",
         ];
 
         for exe in non_bundles {
@@ -1030,8 +1030,8 @@ mod tests {
     #[test]
     fn bundle_detection_requires_apples_exact_casing() {
         for exe in [
-            "/Applications/MechvibesDX.app/contents/macos/mechvibes-dx",
-            "/Applications/MechvibesDX.app/Contents/macos/mechvibes-dx",
+            "/Applications/Mechvibes.app/contents/macos/mechvibes",
+            "/Applications/Mechvibes.app/Contents/macos/mechvibes",
         ] {
             assert_eq!(macos_bundle_resource_root(Path::new(exe)), None, "failed for {}", exe);
         }
@@ -1041,7 +1041,7 @@ mod tests {
     /// runtime on every launch, so only its *shape* can be relied on.
     #[test]
     fn detects_the_mounted_appimage_layout() {
-        let exe = Path::new("/tmp/.mount_MechviAbC123/usr/bin/mechvibes-dx");
+        let exe = Path::new("/tmp/.mount_MechviAbC123/usr/bin/mechvibes");
         assert_eq!(
             appimage_root(exe),
             Some(PathBuf::from("/tmp/.mount_MechviAbC123"))
@@ -1053,11 +1053,11 @@ mod tests {
     #[test]
     fn appimage_detection_is_independent_of_the_mount_point() {
         for (exe, expected) in [
-            ("/tmp/.mount_Mechvi000001/usr/bin/mechvibes-dx", "/tmp/.mount_Mechvi000001"),
-            ("/run/user/1000/.mount_MechviXY/usr/bin/mechvibes-dx", "/run/user/1000/.mount_MechviXY"),
+            ("/tmp/.mount_Mechvi000001/usr/bin/mechvibes", "/tmp/.mount_Mechvi000001"),
+            ("/run/user/1000/.mount_MechviXY/usr/bin/mechvibes", "/run/user/1000/.mount_MechviXY"),
             // --appimage-extract produces a plain directory, and running the
             // binary out of it must behave identically to the mounted image.
-            ("/home/someone/squashfs-root/usr/bin/mechvibes-dx", "/home/someone/squashfs-root"),
+            ("/home/someone/squashfs-root/usr/bin/mechvibes", "/home/someone/squashfs-root"),
         ] {
             assert_eq!(
                 appimage_root(Path::new(exe)),
@@ -1069,14 +1069,14 @@ mod tests {
     }
 
     /// The single most important case: the `.deb` installs the *same binary* to
-    /// `/usr/bin/mechvibes-dx`. Treating that as an AppImage would compute an
+    /// `/usr/bin/mechvibes`. Treating that as an AppImage would compute an
     /// AppDir of `/`, and then resolve soundpacks and writable data against the
     /// filesystem root. It must fall through to the existing absolute-path
     /// behavior instead.
     #[test]
     fn the_deb_install_location_is_never_treated_as_an_appimage() {
-        assert_eq!(appimage_root(Path::new("/usr/bin/mechvibes-dx")), None);
-        assert_eq!(appimage_root(Path::new("/usr/local/bin/mechvibes-dx")), None);
+        assert_eq!(appimage_root(Path::new("/usr/bin/mechvibes")), None);
+        assert_eq!(appimage_root(Path::new("/usr/local/bin/mechvibes")), None);
     }
 
     /// Everything that is NOT an AppImage must keep resolving resources beside
@@ -1085,20 +1085,20 @@ mod tests {
     fn non_appimage_layouts_are_never_treated_as_appimages() {
         let non_appimages = [
             // Windows installed and portable layouts
-            r"C:\Program Files\MechvibesDX\mechvibes-dx.exe",
-            r"D:\mechvibes-dx\target\release\mechvibes-dx.exe",
+            r"C:\Program Files\Mechvibes\mechvibes.exe",
+            r"D:\mechvibes\target\release\mechvibes.exe",
             // Linux dev build and other install shapes
-            "/home/someone/mechvibes-dx/target/release/mechvibes-dx",
-            "/opt/mechvibes-dx/mechvibes-dx",
+            "/home/someone/mechvibes/target/release/mechvibes",
+            "/opt/mechvibes/mechvibes",
             // macOS bundle - must be claimed by the macOS branch, not this one
-            "/Applications/MechvibesDX.app/Contents/MacOS/mechvibes-dx",
+            "/Applications/Mechvibes.app/Contents/MacOS/mechvibes",
             // `bin` present but not under `usr`
-            "/home/someone/.local/bin/mechvibes-dx",
+            "/home/someone/.local/bin/mechvibes",
             // `usr` present but the binary is not in `bin`
-            "/tmp/.mount_MechviAbC123/usr/lib/mechvibes-dx",
+            "/tmp/.mount_MechviAbC123/usr/lib/mechvibes",
             // Nothing to walk up to
-            "mechvibes-dx",
-            "bin/mechvibes-dx",
+            "mechvibes",
+            "bin/mechvibes",
         ];
 
         for exe in non_appimages {
@@ -1116,8 +1116,8 @@ mod tests {
     /// write - which is the bug this detector exists to fix.
     #[test]
     fn detects_the_deb_system_install_locations() {
-        assert!(is_linux_system_install(Path::new("/usr/bin/mechvibes-dx")));
-        assert!(is_linux_system_install(Path::new("/usr/local/bin/mechvibes-dx")));
+        assert!(is_linux_system_install(Path::new("/usr/bin/mechvibes")));
+        assert!(is_linux_system_install(Path::new("/usr/local/bin/mechvibes")));
     }
 
     /// Everything a user can actually write to must keep the old
@@ -1126,21 +1126,21 @@ mod tests {
     fn writable_locations_are_never_treated_as_system_installs() {
         let user_writable = [
             // Windows installed and portable
-            r"C:\Program Files\MechvibesDX\mechvibes-dx.exe",
-            r"D:\mechvibes-dx\target\release\mechvibes-dx.exe",
+            r"C:\Program Files\Mechvibes\mechvibes.exe",
+            r"D:\mechvibes\target\release\mechvibes.exe",
             // Linux dev build and portable layouts
-            "/home/someone/mechvibes-dx/target/release/mechvibes-dx",
-            "/opt/mechvibes-dx/mechvibes-dx",
+            "/home/someone/mechvibes/target/release/mechvibes",
+            "/opt/mechvibes/mechvibes",
             // A portable build that merely happens to sit in a `bin/` dir:
             // relative, and under the user's home, so it stays portable.
-            "/home/someone/apps/mechvibes/bin/mechvibes-dx",
-            "bin/mechvibes-dx",
+            "/home/someone/apps/mechvibes/bin/mechvibes",
+            "bin/mechvibes",
             // The AppImage mount is handled by appimage_root, not this.
-            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes-dx",
+            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes",
             // Near misses on the exact directory match.
-            "/usr/bin/subdir/mechvibes-dx",
-            "/usr/sbin/mechvibes-dx",
-            "/usr/lib/mechvibes-dx",
+            "/usr/bin/subdir/mechvibes",
+            "/usr/sbin/mechvibes",
+            "/usr/lib/mechvibes",
         ];
 
         for exe in user_writable {
@@ -1159,12 +1159,12 @@ mod tests {
     fn only_unwritable_app_roots_move_data_to_the_system_dir() {
         let moves_to_system_dir = [
             // macOS bundle
-            "/Applications/MechvibesDX.app/Contents/MacOS/mechvibes-dx",
+            "/Applications/Mechvibes.app/Contents/MacOS/mechvibes",
             // Linux AppImage
-            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes-dx",
+            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes",
             // Linux .deb
-            "/usr/bin/mechvibes-dx",
-            "/usr/local/bin/mechvibes-dx",
+            "/usr/bin/mechvibes",
+            "/usr/local/bin/mechvibes",
         ];
         for exe in moves_to_system_dir {
             assert!(
@@ -1175,12 +1175,12 @@ mod tests {
         }
 
         let stays_beside_the_exe = [
-            r"C:\Program Files\MechvibesDX\mechvibes-dx.exe",
-            r"D:\mechvibes-dx\target\release\mechvibes-dx.exe",
-            "/home/someone/mechvibes-dx/target/release/mechvibes-dx",
-            "/opt/mechvibes-dx/mechvibes-dx",
+            r"C:\Program Files\Mechvibes\mechvibes.exe",
+            r"D:\mechvibes\target\release\mechvibes.exe",
+            "/home/someone/mechvibes/target/release/mechvibes",
+            "/opt/mechvibes/mechvibes",
             // Bare macOS dev build - same binary, no bundle around it.
-            "/Users/someone/mechvibes-dx/target/release/mechvibes-dx",
+            "/Users/someone/mechvibes/target/release/mechvibes",
         ];
         for exe in stays_beside_the_exe {
             assert!(
@@ -1351,8 +1351,8 @@ mod tests {
         std::fs::create_dir_all(&portable).unwrap();
         std::fs::create_dir_all(&installed).unwrap();
 
-        let portable_exe = portable.join("mechvibes-dx.exe");
-        let installed_exe = installed.join("mechvibes-dx.exe");
+        let portable_exe = portable.join("mechvibes.exe");
+        let installed_exe = installed.join("mechvibes.exe");
         std::fs::write(&portable_exe, "").unwrap();
         std::fs::write(&installed_exe, "").unwrap();
         std::fs::write(installed.join(windows_install_marker_name()), "").unwrap();
@@ -1378,7 +1378,7 @@ mod tests {
 
         let root = scratch_dir("win-marker-dir");
         std::fs::create_dir_all(root.join(windows_install_marker_name())).unwrap();
-        let exe = root.join("mechvibes-dx.exe");
+        let exe = root.join("mechvibes.exe");
         std::fs::write(&exe, "").unwrap();
 
         assert!(!is_installed_windows_build(&exe));
@@ -1500,10 +1500,10 @@ mod tests {
     #[test]
     fn the_macos_and_appimage_layouts_never_overlap() {
         for exe in [
-            "/Applications/MechvibesDX.app/Contents/MacOS/mechvibes-dx",
-            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes-dx",
-            "/usr/bin/mechvibes-dx",
-            r"C:\Program Files\MechvibesDX\mechvibes-dx.exe",
+            "/Applications/Mechvibes.app/Contents/MacOS/mechvibes",
+            "/tmp/.mount_MechviAbC123/usr/bin/mechvibes",
+            "/usr/bin/mechvibes",
+            r"C:\Program Files\Mechvibes\mechvibes.exe",
         ] {
             let path = Path::new(exe);
             assert!(
