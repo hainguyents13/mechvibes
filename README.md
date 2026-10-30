@@ -1,8 +1,10 @@
 ![image](https://github.com/user-attachments/assets/5aa36739-76c8-4a34-9a9b-7e9272927f22)
 
-# MechvibesDX
+# Mechvibes
 
-Play rich keyboard and mouse sounds with every keystroke and click. A polyphonic, low-latency mechanical keyboard sound simulator for Windows, macOS, and Linux. Successor of Mechvibes, now with resample-on-load audio, dedicated audio engine thread, and one-click verified updates.
+The official Mechvibes app. Play rich keyboard and mouse sounds with every keystroke and click: a polyphonic, low-latency mechanical keyboard sound simulator for Windows, macOS, and Linux, with resample-on-load audio, a dedicated audio engine thread, and one-click verified updates.
+
+This is a complete rewrite of the original Electron app, which now lives at [hainguyents13/mechvibes-electron](https://github.com/hainguyents13/mechvibes-electron) and is no longer maintained. Release files still carry the MechvibesDX name.
 
 ## Download
 
