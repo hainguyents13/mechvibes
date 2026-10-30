@@ -13,7 +13,7 @@
 #define MyAppName "MechvibesDX"
 #define MyAppVersion AppVersion
 #define MyAppPublisher "Hai Nguyen"
-#define MyAppURL "https://github.com/hainguyents13/mechvibes-dx"
+#define MyAppURL "https://github.com/hainguyents13/mechvibes"
 #define MyAppExeName "mechvibes-dx.exe"
 #define MyAppId "{{8B5F5E5E-5E5E-5E5E-5E5E-5E5E5E5E5E5E}"
 
