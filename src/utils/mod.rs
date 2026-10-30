@@ -5,6 +5,7 @@ pub mod config_converter;
 pub mod constants;
 pub mod data;
 pub mod delay;
+pub mod legacy_migration;
 pub mod log_buffer;
 pub mod logger;
 pub mod path;

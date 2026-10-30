@@ -259,47 +259,50 @@ pub fn extract_and_install_soundpack_with_type(
 /// against a scratch directory: what may be overwritten, and what has to be
 /// taken back out when an import fails, is only observable where the files are
 /// written, and the real data directory must not be the only place to see it.
-fn extract_and_install_into(
+pub(crate) fn extract_and_install_into(
     file_path: &str,
     target_type: Option<crate::state::soundpack::SoundpackType>,
     soundpacks_dir: &Path
 ) -> Result<SoundpackInfo, String> {
-    // Open ZIP file
-    let file = File::open(file_path).map_err(|e| format!("Failed to open ZIP file: {}", e))?;
-    let mut archive = ZipArchive::new(file).map_err(|e|
-        format!("Failed to read ZIP archive: {}", e)
-    )?;
+    let config = read_config_from_zip(file_path)?;
+    install_into(config, target_type, soundpacks_dir, |install_dir| {
+        extract_files_into(install_dir, file_path)
+    })
+}
 
-    // Find config.json to determine soundpack info
-    let mut config_content = String::new();
-    let mut found_config = false;
-
-    // First pass: find and read config.json
-    for i in 0..archive.len() {
-        let mut file = archive
-            .by_index(i)
-            .map_err(|e| format!("Failed to read archive entry: {}", e))?;
-        let file_path = file.name().to_string();
-
-        // Look for config.json in any directory level
-        if file_path.ends_with("config.json") {
-            file
-                .read_to_string(&mut config_content)
-                .map_err(|e| format!("Failed to read config.json: {}", e))?;
-            found_config = true;
-            break;
-        }
-    }
-
-    if !found_config {
-        return Err("No config.json found in ZIP file".to_string());
-    }
-
-    // Parse config to get soundpack info
-    let mut config: Value = serde_json
-        ::from_str(&config_content)
+/// Install the unpacked pack in `source_dir` into `soundpacks_dir`.
+///
+/// The same checks as a ZIP import, so a pack copied from a folder can neither
+/// overwrite an installed pack nor hide behind a built-in one. Subfolders are
+/// kept as they are, since a folder pack may point at its sounds by a relative
+/// path.
+pub(crate) fn install_folder_into(
+    source_dir: &Path,
+    target_type: Option<crate::state::soundpack::SoundpackType>,
+    soundpacks_dir: &Path
+) -> Result<SoundpackInfo, String> {
+    let content = std::fs
+        ::read_to_string(source_dir.join("config.json"))
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+    let config: Value = serde_json
+        ::from_str(&content)
         .map_err(|e| format!("Failed to parse config.json: {}", e))?;
+    install_into(config, target_type, soundpacks_dir, |install_dir| {
+        copy_folder_into(source_dir, install_dir, true)
+    })
+}
 
+/// Create the pack's folder, let `fill` put its files there, then save the
+/// config.
+///
+/// Every way of installing a pack goes through here, so the ID, the type and
+/// the conflict checks are decided in one place.
+fn install_into(
+    mut config: Value,
+    target_type: Option<crate::state::soundpack::SoundpackType>,
+    soundpacks_dir: &Path,
+    fill: impl FnOnce(&Path) -> Result<(), String>
+) -> Result<SoundpackInfo, String> {
     let soundpack_name = config
         .get("name")
         .and_then(|v| v.as_str())
@@ -355,7 +358,7 @@ fn extract_and_install_into(
     // to take it back out: a half-made folder would make the next import report
     // "already exists" for a pack that never shows up in the list. Removing it
     // is safe precisely because the checks above proved it was not there.
-    if let Err(error) = extract_files_into(&install_dir, file_path, &config) {
+    if let Err(error) = fill(&install_dir).and_then(|()| write_config_into(&install_dir, &config)) {
         let _ = std::fs::remove_dir_all(&install_dir);
         return Err(error);
     }
@@ -367,11 +370,8 @@ fn extract_and_install_into(
     })
 }
 
-/// Write every file of `file_path` into `install_dir`, then the saved config.
-///
-/// Split out so the caller can take the folder back out when any part of it
-/// fails, instead of leaving a half-made pack behind.
-fn extract_files_into(install_dir: &Path, file_path: &str, config: &Value) -> Result<(), String> {
+/// Write every file of `file_path` into `install_dir`.
+fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String> {
     // Extract all files
     let mut archive = ZipArchive::new(
         File::open(file_path).map_err(|e| format!("Failed to reopen ZIP: {}", e))?
@@ -398,16 +398,43 @@ fn extract_files_into(install_dir: &Path, file_path: &str, config: &Value) -> Re
             .map_err(|e| format!("Failed to extract file: {}", e))?;
     }
 
-    // Write updated config.json with ID if it was generated
+    Ok(())
+}
+
+/// Copy everything in `from` into `to`, keeping subfolders. The pack's own
+/// `config.json` is left out at the top level, because the installer writes
+/// the one it resolved.
+fn copy_folder_into(from: &Path, to: &Path, is_top_level: bool) -> Result<(), String> {
+    let entries = std::fs
+        ::read_dir(from)
+        .map_err(|e| format!("Failed to read {}: {}", from.display(), e))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("Failed to read {}: {}", from.display(), e))?;
+        let source = entry.path();
+        let target = to.join(entry.file_name());
+        if source.is_dir() {
+            std::fs::create_dir(&target).map_err(|e|
+                format!("Failed to create {}: {}", target.display(), e)
+            )?;
+            copy_folder_into(&source, &target, false)?;
+        } else if !(is_top_level && entry.file_name() == "config.json") {
+            std::fs::copy(&source, &target).map_err(|e|
+                format!("Failed to copy {}: {}", source.display(), e)
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// Save the resolved config, which carries the ID when one had to be minted.
+fn write_config_into(install_dir: &Path, config: &Value) -> Result<(), String> {
     let config_path = install_dir.join("config.json");
     let updated_config = serde_json
         ::to_string_pretty(config)
         .map_err(|e| format!("Failed to serialize updated config: {}", e))?;
     std::fs
         ::write(&config_path, updated_config)
-        .map_err(|e| format!("Failed to write updated config.json: {}", e))?;
-
-    Ok(())
+        .map_err(|e| format!("Failed to write updated config.json: {}", e))
 }
 
 fn determine_soundpack_type(config: &serde_json::Value) -> bool {

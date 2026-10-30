@@ -64,6 +64,14 @@ pub fn app() -> Element {
     // Cache will be populated lazily when user opens Settings page
     // This prevents ALSA enumeration from interfering with other audio playback
 
+    // Asked from here rather than before the window opens: a dialog shown
+    // earlier would create the macOS application object before the window
+    // library gets to create its own.
+    #[cfg(target_os = "macos")]
+    use_effect(move || {
+        spawn(crate::utils::legacy_migration::offer_to_trash_mechvibesdx_app());
+    });
+
     // Check for updates on startup (from completely closed state)
     use_effect(move || {
         spawn(async move {
