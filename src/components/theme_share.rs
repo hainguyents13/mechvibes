@@ -8,14 +8,11 @@ use crate::libs::theme::{ use_theme, Theme };
 use crate::utils::config::use_config;
 use crate::utils::theme::use_themes;
 use crate::utils::theme_share::{ self, SharedColors, SharedTheme, FILE_EXTENSION };
-use dioxus::document::eval;
 use dioxus::prelude::*;
 use lucide_dioxus::{ Download, Share2 };
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-
-const MODAL_ID: &str = "theme_share_modal";
 
 #[derive(Debug, Clone, PartialEq)]
 enum Stage {
@@ -30,8 +27,11 @@ enum Stage {
     Failed(String),
 }
 
-fn show_modal() {
-    eval(&format!("document.getElementById('{}').showModal()", MODAL_ID));
+impl Stage {
+    /// Work is running that will set the next stage itself.
+    fn busy(&self) -> bool {
+        matches!(self, Stage::Sharing | Stage::Opening | Stage::Applying)
+    }
 }
 
 #[component]
@@ -45,7 +45,6 @@ pub fn ThemeShareButtons() -> Element {
     let open_share = move |_| {
         name.set(theme_share::default_name(&config(), &themes()));
         stage.set(Stage::Share);
-        show_modal();
     };
 
     let save = move |_| {
@@ -63,6 +62,11 @@ pub fn ThemeShareButtons() -> Element {
             let mut path: PathBuf = handle.path().to_path_buf();
             if path.extension().and_then(|e| e.to_str()) != Some(FILE_EXTENSION) {
                 path.set_extension(FILE_EXTENSION);
+            }
+            // The dialog was closed, or another one opened, while the file
+            // picker was up.
+            if *stage.peek() != Stage::Share {
+                return;
             }
             stage.set(Stage::Sharing);
             let result = match theme_share::gather(&chosen_name, &config(), &themes()).await {
@@ -97,8 +101,10 @@ pub fn ThemeShareButtons() -> Element {
                 return;
             };
             let path = handle.path().to_path_buf();
+            if stage.peek().busy() {
+                return;
+            }
             stage.set(Stage::Opening);
-            show_modal();
             let opened = tokio::task
                 ::spawn_blocking(move || theme_share::open(&path)).await
                 .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
@@ -119,10 +125,10 @@ pub fn ThemeShareButtons() -> Element {
         let update_themes = update_themes.clone();
         spawn(async move {
             let installed = tokio::task
-                ::spawn_blocking(move || theme_share::install_images(&mut look).map(|()| look)).await
+                ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
                 .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()));
-            let look = match installed {
-                Ok(look) => look,
+            let (look, written) = match installed {
+                Ok(installed) => installed,
                 Err(e) => {
                     stage.set(Stage::Failed(e));
                     return;
@@ -145,12 +151,15 @@ pub fn ThemeShareButtons() -> Element {
                     let added = added.borrow_mut().take();
                     match added {
                         Some(Ok(id)) => Theme::Custom(id),
-                        Some(Err(e)) => {
-                            stage.set(Stage::Failed(e));
-                            return;
-                        }
-                        None => {
-                            stage.set(Stage::Failed("Could not save the theme.".to_string()));
+                        failed => {
+                            theme_share::remove_images(&written);
+                            stage.set(
+                                Stage::Failed(
+                                    failed
+                                        .and_then(Result::err)
+                                        .unwrap_or_else(|| "Could not save the theme.".to_string())
+                                )
+                            );
                             return;
                         }
                     }
@@ -164,8 +173,16 @@ pub fn ThemeShareButtons() -> Element {
         });
     };
 
+    // Closing is refused while work runs, so a finished task always lands in
+    // the dialog that started it.
+    let close = move |_| {
+        if !stage.peek().busy() {
+            stage.set(Stage::Hidden);
+        }
+    };
+
     let current = stage();
-    let busy = matches!(current, Stage::Sharing | Stage::Opening | Stage::Applying);
+    let busy = current.busy();
     let cfg = config();
 
     rsx! {
@@ -178,7 +195,8 @@ pub fn ThemeShareButtons() -> Element {
         "Import"
       }
 
-      dialog { class: "modal", id: MODAL_ID,
+      if current != Stage::Hidden {
+      div { class: "modal modal-open",
         div { class: "modal-box",
           h3 { class: "font-bold text-lg mb-4",
             match &current {
@@ -279,10 +297,8 @@ pub fn ThemeShareButtons() -> Element {
           }
 
           div { class: "modal-action mt-6",
-            form { method: "dialog",
-              button { class: "btn btn-sm btn-ghost", disabled: busy,
-                if matches!(current, Stage::Share | Stage::Confirm(_)) { "Cancel" } else { "Close" }
-              }
+            button { class: "btn btn-sm btn-ghost", disabled: busy, onclick: close,
+              if matches!(current, Stage::Share | Stage::Confirm(_)) { "Cancel" } else { "Close" }
             }
             match &current {
                 Stage::Share | Stage::Sharing => rsx! {
@@ -309,9 +325,8 @@ pub fn ThemeShareButtons() -> Element {
             }
           }
         }
-        form { method: "dialog", class: "modal-backdrop",
-          button { disabled: busy, "close" }
-        }
+        div { class: "modal-backdrop", onclick: close }
+      }
       }
     }
 }

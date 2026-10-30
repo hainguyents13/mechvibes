@@ -55,11 +55,11 @@ Image names are whatever `theme.json` says; the app writes `logo`, `logo-muted` 
 
 Everything in a file is untrusted. On import the app:
 
-- Keeps only CSS declarations of custom properties (`--name: value`) and `color-scheme` from `colors.custom.css`, and drops comments, rules and at-rules. A custom theme with nothing left is refused.
-- Accepts a color only if it has no `; { } < > " ' \ @` or backtick and calls no function other than `var`, `calc`, `min`, `max`, `clamp`, `rgb(a)`, `hsl(a)`, `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color` and `color-mix`. So `url()` and anything else that loads a resource is refused. An empty color means the default.
+- Keeps only CSS declarations of custom properties (`--name: value`) and `color-scheme` from `colors.custom.css`, and drops comments (each reads as a space, as in CSS), rules and at-rules. A custom theme with nothing left is refused.
+- Accepts a color only if it has no `; { } [ ] < > " ' \ @`, backtick or comment, its parentheses are balanced, and it calls no function other than `var`, `calc`, `min`, `max`, `clamp`, `rgb(a)`, `hsl(a)`, `hwb`, `lab`, `lch`, `oklab`, `oklch`, `color` and `color-mix`. So `url()` and anything else that loads a resource is refused. An empty color means the default.
 - Accepts an image only if it is a PNG, JPEG, GIF, WebP or BMP by its first bytes (no SVG), at most 10 MB, and named by a plain file name inside the ZIP.
 - Refuses a file over 30 MB or a `theme.json` over 256 KB.
-- Saves images under new names in the app's images folder, so an import never replaces an image already in use.
+- Saves images under new names in the app's images folder, so an import never replaces an image already in use. If the import fails after that, the saved images are removed again.
 - Reuses a custom theme with the same name and CSS instead of adding a copy; a different theme with a name in use gets a number, as "Night drive (2)".
 - Switches logo or background customization off when the file leaves that part out.
 

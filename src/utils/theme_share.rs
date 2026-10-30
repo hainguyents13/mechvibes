@@ -388,8 +388,9 @@ fn read_entry<R: Read + std::io::Seek>(
 
 /// Copy the look's images into this app's images folder and point the logo
 /// and background at the copies. Each copy gets a new name, so importing never
-/// replaces an image already in use.
-pub fn install_images(theme: &mut SharedTheme) -> Result<(), String> {
+/// replaces an image already in use. Returns the files written, so a caller
+/// that fails afterwards can take them back with `remove_images`.
+pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>, String> {
     let dir = crate::state::paths::data::custom_images_dir();
     crate::utils::path::ensure_directory_exists(&dir)?;
     let stem: String = theme.name
@@ -398,10 +399,17 @@ pub fn install_images(theme: &mut SharedTheme) -> Result<(), String> {
         .collect();
 
     let mut installed = HashMap::new();
+    let mut written = Vec::new();
     for (name, bytes) in &theme.images {
         let extension = image_extension(bytes).unwrap_or("png");
         let file_name = format!("{}_{}.{}", stem, &uuid::Uuid::new_v4().simple().to_string()[..8], extension);
-        std::fs::write(dir.join(&file_name), bytes).map_err(|e| format!("Could not save the theme's images: {}", e))?;
+        let path = dir.join(&file_name);
+        if let Err(e) = std::fs::write(&path, bytes) {
+            let _ = std::fs::remove_file(&path);
+            remove_images(&written);
+            return Err(format!("Could not save the theme's images: {}", e));
+        }
+        written.push(path);
         installed.insert(name.clone(), format!("/custom-images/{}", file_name));
     }
 
@@ -416,7 +424,14 @@ pub fn install_images(theme: &mut SharedTheme) -> Result<(), String> {
         relink(&mut background.background_image);
     }
     theme.images.clear();
-    Ok(())
+    Ok(written)
+}
+
+/// Take back images `install_images` saved, when the import stops after it.
+pub fn remove_images(paths: &[std::path::PathBuf]) {
+    for path in paths {
+        let _ = std::fs::remove_file(path);
+    }
 }
 
 /// Put the look on `config`. A part the file leaves out is switched off, so
@@ -468,20 +483,27 @@ fn image_extension(bytes: &[u8]) -> Option<&'static str> {
 }
 
 /// `value` when it is a plain colour or length: one that cannot end its
-/// declaration, open a rule, or call anything but a colour function.
+/// declaration, open a rule or a comment, leave a bracket open for what comes
+/// after it, or call anything but a colour function.
 pub fn safe_css_value(value: &str) -> Option<String> {
     let value = value.trim();
     if value.is_empty() || value.chars().count() > MAX_CSS_VALUE_CHARS {
         return None;
     }
     if
+        value.contains("/*") ||
+        value.contains("*/") ||
         value
             .chars()
-            .any(|c| c.is_control() || matches!(c, ';' | '{' | '}' | '<' | '>' | '"' | '\'' | '\\' | '@' | '`'))
+            .any(|c| {
+                c.is_control() ||
+                    matches!(c, ';' | '{' | '}' | '[' | ']' | '<' | '>' | '"' | '\'' | '\\' | '@' | '`')
+            })
     {
         return None;
     }
     let mut word_start = None;
+    let mut depth: usize = 0;
     for (i, c) in value.char_indices() {
         if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
             word_start.get_or_insert(i);
@@ -494,10 +516,14 @@ pub fn safe_css_value(value: &str) -> Option<String> {
                     return None;
                 }
             }
+            depth += 1;
+        }
+        if c == ')' {
+            depth = depth.checked_sub(1)?;
         }
         word_start = None;
     }
-    Some(value.to_string())
+    (depth == 0).then(|| value.to_string())
 }
 
 /// A colour from a shared file. Configs from before the defaults became theme
@@ -515,8 +541,11 @@ fn safe_color(value: &str, default: String) -> Result<String, String> {
 pub fn safe_theme_css(css: &str) -> String {
     let mut without_comments = String::new();
     let mut rest = css;
+    // A comment reads as a space, as in CSS itself, so removing one never
+    // joins the text around it into a new comment.
     while let Some(start) = rest.find("/*") {
         without_comments.push_str(&rest[..start]);
+        without_comments.push(' ');
         rest = match rest[start + 2..].find("*/") {
             Some(end) => &rest[start + 2 + end + 2..],
             None => "",
@@ -663,6 +692,23 @@ mod tests {
         assert!(safe_css_value("u\\72 l(x)").is_none());
         assert!(safe_css_value("`; alert(1); `").is_none());
         assert!(safe_css_value("").is_none());
+    }
+
+    #[test]
+    fn a_colour_cannot_leave_a_comment_or_bracket_open() {
+        assert!(safe_css_value("red /* rest").is_none());
+        assert!(safe_css_value("red */").is_none());
+        assert!(safe_css_value("rgb(1 2 3").is_none());
+        assert!(safe_css_value("red)").is_none());
+        assert!(safe_css_value("red [").is_none());
+        assert!(safe_css_value("calc((1px + 2px) * 2)").is_some());
+    }
+
+    #[test]
+    fn removing_a_comment_never_joins_a_new_one() {
+        let css = safe_theme_css("--a: red//**/*x;\n--b: blue;");
+        assert!(!css.contains("/*"), "{}", css);
+        assert!(css.ends_with("--b: blue;"));
     }
 
     #[test]
