@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Changed
+
+- **Linux: X11 now reads the keyboard and mouse the same way Wayland does, and picks up devices plugged in while the app runs.** With your user in the `input` group, Mechvibes reads keys, clicks and the mouse wheel straight from the input devices on X11 too, whichever window is in front, and a keyboard or mouse you plug in later, or that reconnects after sleep, is heard within a couple of seconds instead of after a restart. Without the `input` group, X11 keeps using the older listeners, so sound still works there. On X11 this adds the mouse wheel, and, as on Wayland, touchpad taps and two-finger scrolling make no sound. Thanks to [@Palatis](https://github.com/Palatis) for the device handling and its tests (#122).
+
 ## [3.1.0] - 2026-10-30
 
 ### Added

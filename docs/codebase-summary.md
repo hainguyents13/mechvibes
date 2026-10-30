@@ -155,7 +155,7 @@ mechvibes/
 
 5. **Spawn input listeners:** Platform-specific.
    - Windows: `input_worker_host.rs` (spawns worker + reads stdout).
-   - Linux: `evdev_input_listener.rs` on Wayland (rdev kept for the mouse until evdev finds a pointer); `input_listener.rs` (rdev) + `focused_input_listener.rs` (device_query) on X11.
+   - Linux: `evdev_input_listener.rs` on X11 and Wayland whenever `/dev/input` is readable, with hot-plug; otherwise `input_listener.rs` (rdev) + `focused_input_listener.rs` (device_query) on X11, or rdev for the mouse only on Wayland.
    - macOS: `input_listener.rs` (rdev).
 
 6. **Spawn audio engine:** `libs::audio::engine::spawn_engine()` before Dioxus.
