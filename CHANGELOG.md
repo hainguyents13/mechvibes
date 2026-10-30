@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Windows: upgrading through winget removes Mechvibes 2.** winget installs silently, so the installer skipped its "Remove version 2?" question and left both apps running, and every key played twice. The winget package now asks the installer to remove Mechvibes 2 by itself. Your Mechvibes 2 settings and sound packs are kept, as with the question. Updating from inside the app works as before.
+
 ## [3.2.0] - 2026-10-30
 
 ### Changed
