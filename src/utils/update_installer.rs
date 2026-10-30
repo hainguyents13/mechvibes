@@ -443,7 +443,7 @@ mod tests {
     #[ignore = "requires network; hits the real GitHub release"]
     async fn a_release_without_checksums_fails_before_downloading() {
         let url =
-            "https://github.com/hainguyents13/mechvibes-dx/releases/download/v0.6.1/MechvibesDX-0.6.1-Setup-x64.exe";
+            "https://github.com/hainguyents13/mechvibes/releases/download/v0.6.1/MechvibesDX-0.6.1-Setup-x64.exe";
         let err = download_and_verify(url, "0.6.1", "mechvibes-dx-test/0").await.expect_err(
             "v0.6.1 has no SHA256SUMS.txt"
         );

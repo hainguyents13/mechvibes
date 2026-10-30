@@ -166,7 +166,7 @@ pub fn WindowController() -> Element {
                             });
                         }
                         TrayMessage::OpenGitHub => {
-                            let url = "https://github.com/hainguyents13/mechvibes-dx";
+                            let url = "https://github.com/hainguyents13/mechvibes";
                             if let Err(e) = open::that(url) {
                                 always_eprint!("❌ Failed to open GitHub URL: {}", e);
                             } else {
