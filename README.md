@@ -1,50 +1,61 @@
-![image](https://github.com/user-attachments/assets/5aa36739-76c8-4a34-9a9b-7e9272927f22)
+![Mechvibes 3: the Home, Customize and Mood screens](docs/images/cover.webp)
 
 # Mechvibes
 
-Play rich keyboard and mouse sounds with every keystroke and click. A polyphonic, low-latency mechanical keyboard sound simulator for Windows, macOS, and Linux. Successor of Mechvibes, now with resample-on-load audio, dedicated audio engine thread, and one-click verified updates.
+Play rich keyboard and mouse sounds with every keystroke and click, on Windows, macOS and Linux.
+
+This is **Mechvibes 3**, the official Mechvibes app. It replaces Mechvibes 2 (the original Electron app) and MechvibesDX, and carries on from both with a faster audio engine, sound packs for your mouse as well as your keyboard, ambient sounds and themes.
 
 ## Download
 
 | Platform | Installer | Notes |
 |----------|-----------|-------|
-| **Windows** | [`Mechvibes-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | One-click installer with automatic in-app updates (SHA-256 verified). |
-| **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Requires: `sudo usermod -a -G input $USER` + re-log. |
-| **Linux (any distro)** | [`mechvibes-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable (no install). Requires: `chmod +x` + same input group setup. |
-| **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, unsigned. Right-click the app, then Open to bypass Gatekeeper. |
+| **Windows** | [`Mechvibes-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | When a new version is out, click **Update now** in the app. The download is checked (SHA-256) before it installs. |
+| **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. On Wayland, also see [Linux](#linux) for the `input` group. |
+| **Linux (any distro)** | [`mechvibes-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable, nothing to install: `chmod +x`, then run it. |
+| **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, Apple Silicon only. Not notarized, so the first launch needs one extra step (see [macOS](#macos)). |
 
-All links point to the [latest release](https://github.com/hainguyents13/mechvibes/releases/latest); every release also ships a `SHA256SUMS.txt` covering all assets.
+All links point to the [latest release](https://github.com/hainguyents13/mechvibes/releases/latest). Every release also ships a `SHA256SUMS.txt` covering all files.
+
+## Coming from MechvibesDX or Mechvibes 2
+
+- **Windows, from MechvibesDX**: nothing special. Click **Update now** when the app offers it, or run the new installer. Your settings, sound packs and "Start at login" carry over. Don't uninstall MechvibesDX first.
+- **Windows, from Mechvibes 2**: run the new installer. It finds Mechvibes 2 and offers to remove it. Click **Yes**, or every key plays twice.
+- **Linux**: install the new `.deb` as usual. It replaces MechvibesDX or Mechvibes 2 by itself.
+- **macOS**: open the `.dmg` and drag Mechvibes to Applications (choose **Replace** if asked). macOS may ask you to allow Accessibility and Input Monitoring again. From 3.0.1, Mechvibes offers to move the old MechvibesDX app to the Trash for you; on 3.0.0, drag it there yourself.
+- **Sound packs you added to Mechvibes 2**: from 3.0.1 they come over by themselves the first time Mechvibes starts, marked **New**. On 3.0.0, import them again as ZIP files.
 
 ## Features
 
-- **Polyphonic low-latency audio**: Sounds play within ~15ms of keystroke. Resampled at load time (not realtime) for high quality. 32-voice pool with soft eviction prevents clicks and clipping on rapid keystrokes.
-- **Works while app is focused**: Dedicated Raw Input worker process on Windows; in-process listeners on Linux/macOS. Keyboard and mouse capture work the same whether Mechvibes window is active or not.
-- **Per-device input filtering** (Windows): Disable specific keyboards or mice in Settings, effective immediately.
-- **Runtime output device switching**: Change audio output (headphones, speakers, virtual devices) in Settings without restarting.
-- **Soundpack support**: Import or create custom soundpacks. Drag and drop folders into the app. Supports OGG, WAV, MP3, FLAC. Auto-converts classic Mechvibes packs (V1) to V2 format.
-- **Ambiance sounds**: Long-playing background audio (rain, coffee shop) that moves with your selected output device.
-- **Themes and customization**: Light/dark themes, custom logo, background images.
-- **Tray icon and global hotkey**: `Ctrl+Alt+M` to mute/unmute. Tray icon shows mute state at a glance.
-- **One-click verified updates** (Windows): When new versions are available, download and install with SHA-256 verification. Choose "Later" to defer, but the verified file stays ready.
-- **Settings save correctly**: Writable state lives in `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux), or `~/Library/Application Support/Mechvibes` (macOS). Settings persist across restarts, reinstalls, and updates.
-- **Debug section**: Live log viewer in Settings with export button for bug reports. Optional verbose mode adds per-keystroke timing for diagnosing latency.
+- **Low-latency, polyphonic sound**: sounds are prepared once when a pack loads, not while you type, and play on their own audio thread. Up to 32 sounds overlap, and the oldest one fades out when you type fast, so there are no clicks or clipping.
+- **Works in the background**: keyboard and mouse sounds play the same whether the Mechvibes window is in front or not.
+- **Keyboard and mouse packs**: pick one pack for your keyboard and one for your mouse, each with its own volume. The app ships with 10 keyboard packs (Cherry MX, EG, Topre) and 4 mouse packs.
+- **Mute in one keystroke**: `Ctrl+Alt+M` turns all sounds on or off. The tray icon shows when sounds are off.
+- **Pick your speakers**: switch the output device (headphones, speakers, virtual devices) in Settings without restarting.
+- **Mood**: 10 ambient sounds (rain, forest, ocean waves, coffee shop and more) to mix in, each with its own volume.
+- **Themes and customization**: 36 built-in themes, your own themes, and a custom logo and background.
+- **Verified updates**: on Windows, click **Update now** and Mechvibes downloads, checks and installs the new version. On macOS and Linux the app tells you when an update is out and links to the download page.
+- **Your settings stay put**: they are saved in `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux) or `~/Library/Application Support/Mechvibes` (macOS), so they survive restarts, updates and reinstalls. Uninstalling on Windows keeps them unless you choose to delete them.
+- **Logs for bug reports**: Settings > Debug shows a live log, with an **Export logs** button for attaching to an issue.
 
-## Soundpacks
+## Sound packs
 
-Soundpacks define the sounds that play for each key and mouse button. The app ships with a curated collection (Classic Mechvibes, Cherry MX Black, etc.). You can add your own.
+A sound pack decides which sound plays for each key and mouse button.
 
-### Import a soundpack
+### Add a sound pack
 
-1. Download or create a soundpack folder.
-2. In the app, Settings > Soundpacks > "Import Soundpack" (or drag the folder in).
-3. Choose which soundpack to load for keyboard and mouse sounds.
+1. Get the pack as a ZIP file, with `config.json` at the top of the ZIP.
+2. Open **Sound packs**, choose the **Keyboard** or **Mouse** tab, click **Add**, then **Select file**.
+3. Pick the pack on the **Home** page.
 
-### Create a soundpack
+Already have a pack as a folder? In **Sound packs > Manage**, open the custom sound packs folder, copy the folder in, then click **Refresh**.
 
-A soundpack is a folder containing:
-- **config.json** (required): metadata and key mappings
-- **Audio files** (OGG, WAV, MP3, FLAC): the sounds to play
-- **icon.png** (optional): a display icon
+### Make a sound pack
+
+The easiest way is the [sound pack editor](https://beta.mechvibes.com/editor) (also linked from the Home page). By hand, a sound pack is a folder containing:
+- **config.json** (required): the pack's name, author and key mappings
+- **an audio file** (OGG, WAV, MP3 or FLAC): the sounds to play
+- **icon.png** (optional): the pack's icon
 
 **Minimal example:**
 ```
@@ -71,44 +82,45 @@ my-keyboard-pack/
 }
 ```
 
-Timing values are `[start_ms, end_ms]` within the audio file. For "single" method, all keys reference the same audio file with different timing windows. For "multi" method, each key can use a different file.
+Timing values are `[start_ms, end_ms]` within the audio file: every key plays its own slice of the same file. Use `"single"`. A pack that uses `"multi"` (one file per key) is converted to `"single"` automatically the first time it loads.
 
-For complete documentation on config.json fields, key naming, templates, and troubleshooting, see [Soundpack Config.json V2 Format](docs/soundpack-config-v2.md).
+For every config.json field, key names, templates and troubleshooting, see [Sound pack config.json V2 format](docs/soundpack-config-v2.md).
 
 ### Classic Mechvibes packs
 
-Old V1 soundpacks (e.g., from the original Mechvibes) are auto-detected on import. The app automatically converts them to V2 format with no loss of sound quality. Your original files stay intact; a backup is kept if re-imported.
+Packs made for the original Mechvibes (V1) are converted automatically when they load. Your old `config.json` is kept next to the new one as `config.json.v1.backup`, and your audio files are not changed.
 
-## Platform Notes
+## Platform notes
 
 ### Windows
-- SmartScreen may warn on first run (unsigned installer). Click "More info" then "Run anyway" to proceed.
-- "Start at login" in Settings uses Task Scheduler (admin install required for per-user startup).
-- Single-instance mutex prevents multiple app windows running at once.
+- SmartScreen may warn on first run because the installer is not signed. Click **More info**, then **Run anyway**.
+- "Start at login" works for your user account, with no admin rights needed.
+- Only one copy of Mechvibes runs at a time. Opening it again brings the existing window back.
 
 ### Linux
-- **Input group requirement**: The app reads raw keyboard/mouse events from `/dev/input/event*`, which requires membership in the `input` group:
+- **Wayland and X11 both work.** On Wayland (the default on Ubuntu and Fedora), Mechvibes reads the keyboard and mouse directly, so your user must be in the `input` group:
   ```bash
   sudo usermod -a -G input $USER
-  # Log out and log back in for the group change to take effect
+  # Log out and log back in for the change to take effect
   ```
-- **Wayland**: rdev (the input listener) supports Wayland as of recent versions; X11 is also fully supported.
-- **AppImage notes**: The `.AppImage` mounts read-only; writable state goes to `~/.local/share/mechvibes`. No FUSE required to run.
+  On X11 this step is not needed, but it does no harm.
+- On Wayland, touchpad taps and two-finger scrolling make no sound, and a mouse plugged in while the app runs is heard after you restart the app.
+- "Start at login" is not available on Linux yet.
+- **AppImage**: most distros run it directly. If it does not start, run it with `--appimage-extract-and-run`. Settings are saved to `~/.local/share/mechvibes`.
 
 ### macOS
-- **Experimental**: Not tested on real hardware. Ad-hoc signed, not notarized.
-- **First launch**: Right-click the app, choose "Open" to bypass Gatekeeper's "unidentified developer" block.
+- **Experimental**: Apple Silicon only, ad-hoc signed, not notarized, and not tested on real hardware by the maintainer.
+- **First launch**: right-click the app and choose **Open**. On newer macOS versions, go to System Settings > Privacy & Security and click **Open Anyway**. If macOS says the app is damaged, run `xattr -cr /Applications/Mechvibes.app` in Terminal and open it again.
 - **Permissions**: global key capture needs **both** of these in System Settings > Privacy & Security, enabled for `Mechvibes` (or for your terminal, if you launch the binary from there):
   - **Accessibility**: used while the Mechvibes window is focused.
   - **Input Monitoring**: used while the window is minimized or another app is focused. Without it the app runs normally but is silent unless its window has focus.
   - **Check them from the menu bar icon.** Click the Mechvibes icon: each permission shows "Granted" in green, or a red "Grant …" line that opens System Settings at the right page when clicked. It updates within about a second of a change. Granting **Accessibility** takes effect straight away. After granting **Input Monitoring**, quit and relaunch Mechvibes: macOS only lets an app capture keys globally if it had the permission when it started, so until you relaunch the menu can read "Granted" while sounds still stop when another app is in front.
 - **After installing a new build**: the app is ad-hoc signed, so macOS ties its permissions to that exact binary. A rebuilt or reinstalled app keeps its toggles on but they stop working. Remove `Mechvibes` from both lists with the `-` button, add `/Applications/Mechvibes.app` back, and relaunch. Alternatively run `tccutil reset ListenEvent com.hainguyents13.mechvibesdx` and `tccutil reset Accessibility com.hainguyents13.mechvibesdx`, and macOS prompts again on next launch.
 - **Start at login**: registers Mechvibes as a login item (System Settings > General > Login Items), which needs macOS 13 or later and the app installed in `/Applications`. If macOS asks, allow it there. "Start minimized" is read from your saved settings, so it applies whenever the app launches.
-- Arm64 (Apple Silicon) only in current builds. Intel builds available on request.
 
-## Privacy and Telemetry
+## Privacy and telemetry
 
-Mechvibes sends one anonymous ping per launch to track rough usage. Nothing else leaves your device.
+Mechvibes sends one anonymous ping per launch to track rough usage.
 
 **What is sent (once per launch):**
 - OS name and version
@@ -118,15 +130,17 @@ Mechvibes sends one anonymous ping per launch to track rough usage. Nothing else
 
 **What is never sent:**
 - Keystrokes, mouse clicks, or any input data
-- Soundpack names or usage
+- Sound pack names or usage
 - File paths or personal data
 - IP-derived identity or persistent identifiers
 
-Telemetry is handled by [Aptabase](https://aptabase.com), an open-source privacy-first service. **Opt out** anytime in Settings > Privacy > "Share anonymous usage stats".
+Telemetry is handled by [Aptabase](https://aptabase.com), an open-source, privacy-first service. **Opt out** anytime in Settings > Privacy > "Share anonymous usage stats".
 
-Debug logs stay local until you export them via the Debug button. Key names in logs are always masked (e.g., "KEY_A" instead of actual keystroke data).
+Mechvibes also checks GitHub for a new version once a day. That check sends nothing about you.
 
-## Building from Source
+Logs stay on your device until you click **Export logs** in Settings > Debug. The keys you press are never written to the log (they show as `***`), and your user name in file paths is replaced with `[username]` in the export.
+
+## Building from source
 
 ### Prerequisites
 
@@ -199,22 +213,22 @@ On macOS the permissions apply to the app that launched it. When run from a term
 **Release (Windows):**
 ```bash
 .\scripts\build-windows-installer.ps1   # builds first; add -SkipBuild to reuse target\release
-# Output: dist/Mechvibes-0.8.1-Setup-x64.exe
+# Output: dist/Mechvibes-3.0.0-Setup-x64.exe
 ```
 
 **Release (Linux, AppImage and DEB):**
 ```bash
 cargo install cargo-deb                   # once; or pass --no-deb to skip the .deb
-./scripts/build-linux-appimage.sh 0.8.1   # builds first; add --skip-build to reuse target/release
-chmod +x dist/mechvibes-0.8.1-x86_64.AppImage
-sudo dpkg -i dist/mechvibes_0.8.1_amd64.deb
-# Remember: run 'sudo usermod -a -G input $USER' and re-log before first use
+./scripts/build-linux-appimage.sh 3.0.0   # builds first; add --skip-build to reuse target/release
+chmod +x dist/mechvibes-3.0.0-x86_64.AppImage
+sudo dpkg -i dist/mechvibes_3.0.0_amd64.deb
+# On Wayland: run 'sudo usermod -a -G input $USER' and log back in before first use
 ```
 
 **Release (macOS):**
 ```bash
-./scripts/build-macos-app.sh 0.8.1   # builds first; add --skip-build to reuse target/release
-# Output: dist/mechvibes-0.8.1-macos-arm64.dmg
+./scripts/build-macos-app.sh 3.0.0   # builds first; add --skip-build to reuse target/release
+# Output: dist/mechvibes-3.0.0-macos-arm64.dmg
 ```
 
 To run the same compile-and-test gate that CI runs (it also checks that Rust is at least the `rust-version` in `Cargo.toml`): `./scripts/ci-check.sh --release`. CI builds and packages every pull request and every push to `main` this way; when a `v*` tag points at a commit it built, the same run drafts the release from those packages.
@@ -224,39 +238,36 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 ## Troubleshooting
 
 **No sound playing?**
-- Check if muted (tray icon or `Ctrl+Alt+M`) and that **Allow all sounds** is on in Settings. The setting is saved, so it stays off across restarts.
-- Verify a soundpack is selected in Settings > Soundpacks.
-- Check system volume.
+- Check that **Enable all sounds** is on (on the Home page, or press `Ctrl+Alt+M`). The setting is saved, so it stays off across restarts.
+- Check that a sound pack is selected on the Home page, and that its volume is not at zero.
+- Check your system volume and the output device in Settings.
 
 **macOS: sounds only play while the app window is focused?**
 - Click the Mechvibes icon in the menu bar: a red "Grant Input Monitoring…" line means it is missing.
 - Input Monitoring is missing or stale. See the macOS permissions notes above: remove and re-add `Mechvibes` under both Accessibility and Input Monitoring, then relaunch. A relaunch is always needed after granting Input Monitoring, even when it was simply missing.
 
-**Hotkey (`Ctrl+Alt+M`) not working?**
-- Windows: Run as administrator (required for global hotkey).
-- Verify no other app has claimed the same hotkey.
+**`Ctrl+Alt+M` does nothing?**
+- The shortcut works whenever Mechvibes can hear your keyboard. If keys make sound but the shortcut does not, export the logs from Settings > Debug and [open an issue](https://github.com/hainguyents13/mechvibes/issues).
 
-**Linux: No keyboard input detected?**
-- Verify user is in `input` group: `groups $USER` should list `input`.
-- Re-log in for group changes to take effect.
+**Linux: no keyboard input detected?**
+- On Wayland, check that your user is in the `input` group: `groups $USER` should list `input`.
+- Log out and back in after adding the group.
 - Check device permissions: `ls -la /dev/input/event*` (should show `crw-rw---- root input`).
 
-**Soundpack won't import?**
-- Ensure `config.json` is valid JSON (use a JSON validator).
+**Sound pack won't import?**
+- It has to be a ZIP file with `config.json` at the top of the ZIP.
+- Check that `config.json` is valid JSON (use a JSON validator).
 - Check that `definitions` (or `defs`) contains valid key mappings.
-- Verify audio files (OGG, WAV, MP3, FLAC) exist and are readable.
+- Check that the audio file (OGG, WAV, MP3 or FLAC) is in the ZIP.
 
 **Settings reset after restart?**
-- Settings are stored at: `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux), or `~/Library/Application Support/Mechvibes` (macOS). Verify these folders exist and are writable.
-
-**macOS: Right-click Open not working?**
-- Try `codesign --deep -s - /Applications/Mechvibes.app` if you trust the build. Otherwise, await an official notarized release.
+- Settings are stored in `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux) or `~/Library/Application Support/Mechvibes` (macOS). Check that these folders exist and are writable.
 
 ## Credits
 
-Mechvibes is built in Rust using [Dioxus](https://dioxuslabs.com/) (0.7), [rodio](https://github.com/RustAudio/rodio) (audio), and [rdev](https://github.com/enigo-rs/rdev) (input capture).
+Mechvibes is built in Rust with [Dioxus](https://dioxuslabs.com/) (0.7). Audio uses [rodio](https://github.com/RustAudio/rodio) and [Symphonia](https://github.com/pdeljanov/Symphonia). Input is captured with Windows Raw Input, [evdev](https://github.com/emberian/evdev) and [rdev](https://github.com/Narsil/rdev).
 
-Based on the original [Mechvibes](https://github.com/hainguyents13/mechvibes-electron) by hainguyents13. Distributed under the MIT License.
+Mechvibes 3 replaces the original Electron app, Mechvibes 2, which now lives in the archived [mechvibes-electron](https://github.com/hainguyents13/mechvibes-electron) repository.
 
 ## License
 
