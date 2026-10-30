@@ -55,9 +55,13 @@ fn read_config_from_zip(file_path: &str) -> Result<Value, String> {
 
         if file_path.ends_with("config.json") {
             let mut config_content = String::new();
-            file
+            (&mut file)
+                .take(MAX_CONFIG_BYTES + 1)
                 .read_to_string(&mut config_content)
                 .map_err(|e| format!("Failed to read config.json: {}", e))?;
+            if (config_content.len() as u64) > MAX_CONFIG_BYTES {
+                return Err("The sound pack's config.json is too large.".to_string());
+            }
 
             let config: Value = serde_json
                 ::from_str(&config_content)
@@ -253,6 +257,153 @@ pub fn extract_and_install_soundpack_with_type(
     Ok(info)
 }
 
+/// A library pack's revision as its config states it: `version`, which the
+/// library writes as an integer string (`"3"`).
+pub fn config_revision(config: &Value) -> Option<u64> {
+    match config.get("version")? {
+        Value::String(text) => text.trim().parse().ok(),
+        Value::Number(number) => number.as_u64(),
+        _ => None,
+    }
+}
+
+/// What installing a given revision of a library pack would do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LibraryInstall {
+    /// Not installed yet.
+    New,
+    /// An older revision is installed, or one whose revision cannot be read.
+    Update { installed: Option<u64> },
+    /// This revision or a newer one is already installed.
+    Current { installed: u64 },
+}
+
+/// What installing `revision` into `install_dir` would do.
+pub fn library_install_at(install_dir: &Path, revision: u64) -> LibraryInstall {
+    if !install_dir.exists() {
+        return LibraryInstall::New;
+    }
+    let installed = std::fs
+        ::read_to_string(install_dir.join("config.json"))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|config| config_revision(&config));
+    match installed {
+        Some(installed) if installed >= revision => LibraryInstall::Current { installed },
+        installed => LibraryInstall::Update { installed },
+    }
+}
+
+/// What installing `revision` of library pack `id` would do on this machine.
+pub fn library_install_kind(
+    id: &str,
+    soundpack_type: crate::state::soundpack::SoundpackType,
+    revision: u64
+) -> LibraryInstall {
+    let base = crate::state::paths::soundpacks::get_custom_soundpacks_dir();
+    library_install_at(&base.join(resolve_soundpack_type(&Value::Null, Some(soundpack_type))).join(id), revision)
+}
+
+/// The revision inside a pack zip, for comparing an import with what is
+/// installed.
+pub fn zip_revision(file_path: &str) -> Result<Option<u64>, String> {
+    Ok(config_revision(&read_config_from_zip(file_path)?))
+}
+
+/// Install library pack `id` from `zip_path`, or replace the installed copy
+/// with it.
+///
+/// The caller decides whether replacing is wanted (see `library_install_kind`);
+/// this only makes sure the zip really is pack `id` and that a failed update
+/// leaves the installed copy as it was.
+pub fn install_library_pack(
+    zip_path: &str,
+    id: &str,
+    target_type: Option<crate::state::soundpack::SoundpackType>
+) -> Result<SoundpackInfo, String> {
+    let info = install_library_pack_into(
+        zip_path,
+        id,
+        target_type,
+        &crate::state::paths::soundpacks::get_custom_soundpacks_dir()
+    )?;
+    crate::state::config_writer::apply(|config| {
+        crate::state::soundpack_library::mark_added(
+            &mut config.soundpack_added_at,
+            &info.folder_path
+        );
+    });
+    Ok(info)
+}
+
+fn install_library_pack_into(
+    zip_path: &str,
+    id: &str,
+    target_type: Option<crate::state::soundpack::SoundpackType>,
+    soundpacks_dir: &Path
+) -> Result<SoundpackInfo, String> {
+    let config = read_config_from_zip(zip_path)?;
+    if soundpack_id_from_config(&config) != id {
+        return Err("The downloaded sound pack is not the one you chose.".to_string());
+    }
+    let soundpack_type = resolve_soundpack_type(&config, target_type);
+    let install_dir = soundpacks_dir.join(soundpack_type).join(id);
+    if !install_dir.exists() {
+        return extract_and_install_into(zip_path, target_type, soundpacks_dir);
+    }
+
+    // Build the new copy next to the installed one, then swap the two. The
+    // staging folder sits outside the keyboard and mouse folders, so a scan
+    // that runs meanwhile never lists it.
+    let staging = soundpacks_dir.join(format!(".staging-{}", Uuid::new_v4()));
+    let previous = staging.join("previous");
+    let mut keep_staging = false;
+    let result = (|| {
+        let info = extract_and_install_into(zip_path, target_type, &staging)?;
+        let fresh = staging.join(soundpack_type).join(id);
+        rename_with_retry(&install_dir, &previous).map_err(|e|
+            format!("Could not replace the installed sound pack: {}", e)
+        )?;
+        if let Err(e) = rename_with_retry(&fresh, &install_dir) {
+            if rename_with_retry(&previous, &install_dir).is_err() {
+                // The installed copy now only exists inside the staging
+                // folder, so that folder must not be removed below.
+                keep_staging = true;
+                return Err(
+                    format!(
+                        "Could not replace the installed sound pack ({}). Your previous copy is in {}.",
+                        e,
+                        previous.display()
+                    )
+                );
+            }
+            return Err(format!("Could not replace the installed sound pack: {}", e));
+        }
+        Ok(info)
+    })();
+    if !keep_staging {
+        let _ = std::fs::remove_dir_all(&staging);
+    }
+    result
+}
+
+/// Rename `from` to `to`, retrying briefly. On Windows a folder whose files
+/// were just written is often held for a moment by the virus scanner or the
+/// search indexer, and the rename fails with "access denied" until it lets go.
+fn rename_with_retry(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match std::fs::rename(from, to) {
+            Ok(()) => return Ok(()),
+            Err(e) if attempt >= 5 => return Err(e),
+            Err(_) => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(100 * attempt));
+            }
+        }
+    }
+}
+
 /// Extract and install into `soundpacks_dir`.
 ///
 /// Split from the public entry point so the install path can be exercised
@@ -371,12 +522,17 @@ fn install_into(
 }
 
 /// Write every file of `file_path` into `install_dir`.
+///
+/// What is unpacked is counted rather than trusted from the ZIP's own sizes,
+/// so a small archive that expands to gigabytes stops at the limit instead of
+/// filling the disk.
 fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String> {
     // Extract all files
     let mut archive = ZipArchive::new(
         File::open(file_path).map_err(|e| format!("Failed to reopen ZIP: {}", e))?
     ).map_err(|e| format!("Failed to reread ZIP archive: {}", e))?;
 
+    let mut unpacked: u64 = 0;
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
@@ -393,13 +549,23 @@ fn extract_files_into(install_dir: &Path, file_path: &str) -> Result<(), String>
         let mut output_file = File::create(&output_path).map_err(|e|
             format!("Failed to create output file: {}", e)
         )?;
-        std::io
-            ::copy(&mut file, &mut output_file)
+        let room = MAX_UNPACKED_BYTES - unpacked;
+        unpacked += std::io
+            ::copy(&mut (&mut file).take(room + 1), &mut output_file)
             .map_err(|e| format!("Failed to extract file: {}", e))?;
+        if unpacked > MAX_UNPACKED_BYTES {
+            return Err("The sound pack is too large once unpacked.".to_string());
+        }
     }
 
     Ok(())
 }
+
+/// Far above any real config, which is a few hundred kilobytes at most.
+const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+
+/// Far above any real pack: the library takes 5 MB of audio per pack.
+const MAX_UNPACKED_BYTES: u64 = 200 * 1024 * 1024;
 
 /// Copy everything in `from` into `to`, keeping subfolders. The pack's own
 /// `config.json` is left out at the top level, because the installer writes
@@ -779,5 +945,91 @@ mod tests {
         for entry in ["..", "pack/..", "pack\\..", "C:evil.dll", "pack/C:evil.dll"] {
             assert!(entry_file_name(entry).is_err(), "{entry}");
         }
+    }
+
+    const LIBRARY_ID: &str = "mv-0123456789abcdef0123456789abcdef";
+
+    fn library_zip(dir: &Path, name: &str, revision: &str, audio: &[u8]) -> String {
+        let zip_path = dir.join(name);
+        let mut writer = zip::ZipWriter::new(File::create(&zip_path).expect("zip file"));
+        writer.start_file("config.json", zip::write::SimpleFileOptions::default()).expect("config entry");
+        writer
+            .write_all(
+                format!(
+                    r#"{{"id":"{}","name":"Lib","version":"{}","defs":{{"KeyA":{{"timing":[[0,50]]}}}}}}"#,
+                    LIBRARY_ID,
+                    revision
+                ).as_bytes()
+            )
+            .expect("config");
+        writer.start_file("sound.ogg", zip::write::SimpleFileOptions::default()).expect("audio entry");
+        writer.write_all(audio).expect("audio");
+        writer.finish().expect("finish zip");
+        zip_path.to_string_lossy().to_string()
+    }
+
+    #[test]
+    fn the_revision_is_read_from_a_string_or_a_number() {
+        assert_eq!(config_revision(&serde_json::json!({"version": "3"})), Some(3));
+        assert_eq!(config_revision(&serde_json::json!({"version": 4})), Some(4));
+        assert_eq!(config_revision(&serde_json::json!({"version": "1.0.0"})), None);
+        assert_eq!(config_revision(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn a_newer_revision_replaces_the_installed_pack() {
+        let base = scratch_dir();
+        let keyboard = Some(SoundpackType::Keyboard);
+        let first = library_zip(&base, "r1.zip", "1", b"one");
+        install_library_pack_into(&first, LIBRARY_ID, keyboard, &base).expect("first install");
+        let install_dir = base.join("keyboard").join(LIBRARY_ID);
+
+        assert_eq!(library_install_at(&install_dir, 1), LibraryInstall::Current { installed: 1 });
+        assert_eq!(library_install_at(&install_dir, 2), LibraryInstall::Update { installed: Some(1) });
+
+        let second = library_zip(&base, "r2.zip", "2", b"two");
+        install_library_pack_into(&second, LIBRARY_ID, keyboard, &base).expect("update");
+
+        assert_eq!(std::fs::read(install_dir.join("sound.ogg")).expect("audio"), b"two");
+        assert_eq!(library_install_at(&install_dir, 2), LibraryInstall::Current { installed: 2 });
+        let leftovers: Vec<_> = std::fs
+            ::read_dir(&base)
+            .expect("base")
+            .map(|e| e.expect("entry").file_name().to_string_lossy().to_string())
+            .filter(|name| name.starts_with(".staging"))
+            .collect();
+        assert!(leftovers.is_empty(), "the staging folder must be cleaned up: {:?}", leftovers);
+    }
+
+    #[test]
+    fn a_zip_for_another_pack_is_refused_and_the_installed_one_kept() {
+        let base = scratch_dir();
+        let keyboard = Some(SoundpackType::Keyboard);
+        let first = library_zip(&base, "r1.zip", "1", b"one");
+        install_library_pack_into(&first, LIBRARY_ID, keyboard, &base).expect("first install");
+
+        let other = library_zip(&base, "r2.zip", "2", b"two");
+        install_library_pack_into(&other, "mv-ffffffffffffffffffffffffffffffff", keyboard, &base).expect_err(
+            "a zip whose id differs from the one asked for must be refused"
+        );
+        let installed = base.join("keyboard").join(LIBRARY_ID).join("sound.ogg");
+        assert_eq!(std::fs::read(installed).expect("audio"), b"one");
+    }
+
+    #[test]
+    fn a_pack_that_is_not_installed_is_new() {
+        let base = scratch_dir();
+        assert_eq!(library_install_at(&base.join("keyboard").join(LIBRARY_ID), 1), LibraryInstall::New);
+    }
+
+    /// A config.json that unpacks past the limit is refused rather than read
+    /// into memory whole.
+    #[test]
+    fn an_oversized_config_is_refused() {
+        let base = scratch_dir();
+        let padding = " ".repeat((MAX_CONFIG_BYTES as usize) + 1);
+        let pack_zip = zip_with_config(&base, "big.zip", &format!("{{\"id\":\"big\"{}}}", padding));
+        let error = get_soundpack_id_from_zip(&pack_zip).expect_err("an oversized config must be refused");
+        assert!(error.contains("too large"), "got: {}", error);
     }
 }

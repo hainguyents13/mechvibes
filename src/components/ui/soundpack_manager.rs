@@ -215,7 +215,7 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
             }
             a {
               class: "btn btn-soft btn-sm",
-              href: "https://beta.mechvibes.com/editor?utm_source=mechvibes&utm_medium=app&utm_campaign=soundpack_manager",
+              href: "https://editor.mechvibes.com/?utm_source=mechvibes&utm_medium=app&utm_campaign=soundpack_manager",
               target: "_blank",
               "Open Editor"
               ExternalLink { class: "w-4 h-4 ml-1" }

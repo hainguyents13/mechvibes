@@ -451,6 +451,9 @@ pub fn app() -> Element {
         Header {}
 
         Router::<Route> {}
+
+        // Answers mechvibes://install links whatever page is showing.
+        crate::components::ui::LibraryInstallModal {}
     }
 }
 

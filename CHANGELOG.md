@@ -4,6 +4,23 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Install sound packs from the library in one click (Windows and Linux).** On a pack's page at [mechvibes.com/sound-packs](https://mechvibes.com/sound-packs), click **Install in Mechvibes**. The app opens, or comes to the front if it is already running, shows the pack's name, author and size, and installs it when you click **Install**. If you already have the pack and the library has a newer version, the same button updates it. Nothing is downloaded until you confirm, and the download is checked against the library's checksum. macOS still installs from the ZIP for now.
+- **Importing a newer ZIP of a library pack updates it.** Importing a library pack you already have used to stop with "already exists". A newer version now replaces the installed one, and the same or an older version says you already have it.
+
+### Changed
+
+- **The Sound pack editor links open the new editor at [editor.mechvibes.com](https://editor.mechvibes.com).**
+- **Linux: opening Mechvibes again brings the running window back instead of starting a second copy**, which played every key twice. Windows already worked this way, including that a `--headless` run now refuses to start while the app is open.
+- **ZIP imports stop at a size limit.** A pack whose `config.json` unpacks past 1 MB, or whose files unpack past 200 MB in total, is refused instead of filling the disk. Real packs are far below both.
+
+### Removed
+
+- **The "Advanced editor" button when creating a theme.** It led to a page the new website does not have.
+
 ## [3.0.1] - 2026-10-30
 
 ### Added

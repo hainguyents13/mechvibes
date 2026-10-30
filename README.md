@@ -44,6 +44,10 @@ A sound pack decides which sound plays for each key and mouse button.
 
 ### Add a sound pack
 
+From the [sound pack library](https://mechvibes.com/sound-packs) on Windows and Linux, click **Install in Mechvibes** on a pack's page. Mechvibes opens, shows the pack's name, author and size, and installs it when you click **Install**. A pack you already have is updated the same way when the library has a newer version. On macOS, download the ZIP from the pack's page and add it as below.
+
+To add a ZIP yourself:
+
 1. Get the pack as a ZIP file, with `config.json` at the top of the ZIP.
 2. Open **Sound packs**, choose the **Keyboard** or **Mouse** tab, click **Add**, then **Select file**.
 3. Pick the pack on the **Home** page.
@@ -52,7 +56,7 @@ Already have a pack as a folder? In **Sound packs > Manage**, open the custom so
 
 ### Make a sound pack
 
-The easiest way is the [sound pack editor](https://beta.mechvibes.com/editor) (also linked from the Home page). By hand, a sound pack is a folder containing:
+The easiest way is the [sound pack editor](https://editor.mechvibes.com) (also linked from the Home page). By hand, a sound pack is a folder containing:
 - **config.json** (required): the pack's name, author and key mappings
 - **an audio file** (OGG, WAV, MP3 or FLAC): the sounds to play
 - **icon.png** (optional): the pack's icon
@@ -106,7 +110,8 @@ Packs made for the original Mechvibes (V1) are converted automatically when they
   On X11 this step is not needed, but it does no harm.
 - On Wayland, touchpad taps and two-finger scrolling make no sound, and a mouse plugged in while the app runs is heard after you restart the app.
 - "Start at login" is not available on Linux yet.
-- **AppImage**: most distros run it directly. If it does not start, run it with `--appimage-extract-and-run`. Settings are saved to `~/.local/share/mechvibes`.
+- Only one copy of Mechvibes runs at a time. Opening it again brings the existing window back.
+- **AppImage**: most distros run it directly. If it does not start, run it with `--appimage-extract-and-run`. Settings are saved to `~/.local/share/mechvibes`. Run it once so the library's **Install in Mechvibes** links open it.
 
 ### macOS
 - **Experimental**: Apple Silicon only, ad-hoc signed, not notarized, and not tested on real hardware by the maintainer.

@@ -6,6 +6,10 @@ use crate::{
         check_soundpack_conflict,
         extract_and_install_soundpack_with_type,
         get_soundpack_id_from_zip,
+        install_library_pack,
+        library_install_at,
+        zip_revision,
+        LibraryInstall,
         SoundpackConflict,
     },
     utils::soundpack_validator::{ validate_soundpack_structure, validate_zip_file },
@@ -180,6 +184,10 @@ pub fn SoundpackImportModal(
                 // free: the built-in one would hide the imported pack.
                 let soundpacks_dir =
                     crate::state::paths::soundpacks::get_custom_soundpacks_dir();
+                // A library pack that is already installed is not a conflict
+                // when the zip holds a newer revision: importing it updates
+                // the installed copy, as the library's install link does.
+                let mut is_library_update = false;
                 match
                     check_soundpack_conflict(
                         &file_path,
@@ -187,6 +195,32 @@ pub fn SoundpackImportModal(
                         &soundpacks_dir
                     )
                 {
+                    Ok(Some(SoundpackConflict::AlreadyInstalled(install_dir))) if
+                        crate::utils::deep_link::is_library_id(&soundpack_id)
+                    => {
+                        let revision = zip_revision(&file_path).ok().flatten();
+                        match revision.map(|revision| library_install_at(&install_dir, revision)) {
+                            Some(LibraryInstall::Update { .. }) => {
+                                is_library_update = true;
+                            }
+                            Some(LibraryInstall::Current { installed }) => {
+                                error_step.set(ImportStep::CheckingConflicts);
+                                error_message.set(
+                                    format!("You already have version {} of this sound pack, which is this one or newer.", installed)
+                                );
+                                is_loading.set(false);
+                                return;
+                            }
+                            _ => {
+                                error_step.set(ImportStep::CheckingConflicts);
+                                error_message.set(
+                                    format!("A sound pack with ID '{}' already exists.\nPlease remove the existing sound pack and try again.", soundpack_id)
+                                );
+                                is_loading.set(false);
+                                return;
+                            }
+                        }
+                    }
                     Ok(Some(SoundpackConflict::AlreadyInstalled(_))) => {
                         error_step.set(ImportStep::CheckingConflicts);
                         error_message.set(
@@ -222,9 +256,12 @@ pub fn SoundpackImportModal(
 
                 crate::always_print!("⚒️ Installing soundpack ...");
 
-                let soundpack_info = match
+                let installed = if is_library_update {
+                    install_library_pack(&file_path, &soundpack_id, target_soundpack_type)
+                } else {
                     extract_and_install_soundpack_with_type(&file_path, target_soundpack_type)
-                {
+                };
+                let soundpack_info = match installed {
                     Ok(info) => info,
                     Err(e) => {
                         error_step.set(ImportStep::Installing);

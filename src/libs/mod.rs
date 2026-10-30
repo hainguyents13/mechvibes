@@ -40,6 +40,9 @@ pub mod input_worker_host;
 pub mod rawinput_listener;
 #[cfg(target_os = "windows")]
 pub mod single_instance;
+#[cfg(target_os = "linux")]
+#[path = "single_instance_linux.rs"]
+pub mod single_instance;
 
 // Re-export main audio types
 pub use audio::AudioContext;

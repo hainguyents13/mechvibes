@@ -489,6 +489,18 @@ pub mod data {
         get_writable_data_dir().join("soundpack_cache.json")
     }
 
+    /// Where library packs are downloaded before they are installed. Inside the
+    /// user's own data folder rather than the shared temp folder, so no other
+    /// account can swap the file between its checksum and its install.
+    pub fn library_downloads_dir() -> PathBuf {
+        get_writable_data_dir().join("downloads")
+    }
+
+    /// A `mechvibes://` link a second launch leaves for the running copy
+    pub fn pending_deep_link() -> PathBuf {
+        get_writable_data_dir().join("pending-deep-link")
+    }
+
     /// Present once the packs added to Mechvibes 2 have been brought over
     pub fn mechvibes2_import_marker() -> PathBuf {
         get_writable_data_dir().join("mechvibes2-packs-imported")

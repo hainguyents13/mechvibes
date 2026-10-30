@@ -1,6 +1,7 @@
 pub mod collapse;
 pub mod color_picker;
 pub mod confirm_delete_modal;
+pub mod library_install_modal;
 pub mod page_header;
 pub mod progress_step;
 pub mod soundpack_import_modal;
@@ -11,6 +12,7 @@ pub mod toggler;
 pub use collapse::Collapse;
 pub use color_picker::ColorPicker;
 pub use confirm_delete_modal::ConfirmDeleteModal;
+pub use library_install_modal::LibraryInstallModal;
 pub use page_header::PageHeader;
 pub use progress_step::ImportStep;
 pub use progress_step::ProgressStep;

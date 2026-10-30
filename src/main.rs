@@ -106,7 +106,8 @@ fn main() {
     // after the worker branch above on purpose - the worker is a child of an
     // instance that already holds this lock and must not be turned away.
     // Held for the whole run; Windows releases it when this process dies.
-    #[cfg(target_os = "windows")]
+    let deep_link = utils::deep_link::link_from_args(std::env::args_os());
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     let _instance_guard = match libs::single_instance::acquire() {
         Some(guard) => guard,
         None => {
@@ -126,6 +127,14 @@ fn main() {
             // see it again, and this process is about to exit invisibly -
             // `#![windows_subsystem = "windows"]` means the message below
             // reaches no console.
+            //
+            // A sound pack link that started this launch goes to the running
+            // copy, which picks it up when it wakes.
+            if let Some(link) = &deep_link {
+                if let Err(e) = utils::deep_link::hand_over(link) {
+                    always_eprint!("⚠️ {}", e);
+                }
+            }
             libs::single_instance::signal_running_instance();
             always_eprint!("⚠️ {} is already running - raising its window instead", APP_NAME);
             return;
@@ -134,11 +143,23 @@ fn main() {
 
     // Answer those requests for the rest of this process's life. Routed
     // through the same WindowAction::Show the tray's "Show" item uses, so a
-    // second launch and the tray converge on one show/focus path.
-    #[cfg(target_os = "windows")]
+    // second launch and the tray converge on one show/focus path. A sound pack
+    // link that launch left behind is passed on to the window.
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     libs::single_instance::listen_for_wake_requests(|| {
         WINDOW_MANAGER.request_show();
+        if let Some(link) = utils::deep_link::take_handed_over() {
+            utils::deep_link::deliver_link(&link);
+        }
     });
+
+    // A link that started this launch, and any left over from a launch that
+    // handed one over just as the last copy was closing.
+    let pending_link = deep_link.or_else(utils::deep_link::take_handed_over);
+    let opened_by_link = pending_link.is_some();
+    if let Some(link) = pending_link {
+        utils::deep_link::deliver_link(&link);
+    }
 
     // Initialize debug logging first
     utils::logger::init_debug_logging();
@@ -185,17 +206,26 @@ fn main() {
     // `auto_start` against the registry) - every later read and write in the
     // process goes to that same in-memory state rather than re-parsing.
     let startup_config = state::config_writer::current();
+    // A sound pack link always opens the window: its dialog is the point of
+    // the launch, even when "start minimized" is on.
     let should_start_minimized =
-        cli.minimized || (startup_config.auto_start && startup_config.start_minimized);
+        !opened_by_link &&
+        (cli.minimized || (startup_config.auto_start && startup_config.start_minimized));
 
     // Before the app state loads the sound pack list, so the packs brought over
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();
 
-    // Register protocol on first run
-    // if let Err(e) = protocol::register_protocol() {
-    //     crate::always_eprint!("Warning: Failed to register mechvibes:// protocol: {}", e);
-    // }    // Initialize global app state before rendering
+    // Windows registers mechvibes:// in the installer and the .deb in its
+    // desktop file. An AppImage installs nothing, so it registers itself.
+    #[cfg(target_os = "linux")]
+    if libs::protocol::should_self_register() {
+        if let Err(e) = libs::protocol::register_protocol() {
+            always_eprint!("⚠️  Could not register mechvibes:// links: {}", e);
+        }
+    }
+
+    // Initialize global app state before rendering
     state::app::init_app_state();
     state::app::init_update_state();
 
