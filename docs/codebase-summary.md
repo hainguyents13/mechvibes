@@ -117,9 +117,6 @@ mechvibes/
 │   ├── windows/
 │   │   └── mechvibes-setup.iss # Inno Setup config
 │   └── README.md                # Installer docs
-├── debian/
-│   ├── postinst             # Post-install hook (add user to input group)
-│   └── postrm               # Post-remove hook
 ├── assets/
 │   ├── icon.ico             # Windows taskbar icon
 │   └── icon.png             # Linux/macOS app icon
@@ -158,7 +155,7 @@ mechvibes/
 
 5. **Spawn input listeners:** Platform-specific.
    - Windows: `input_worker_host.rs` (spawns worker + reads stdout).
-   - Linux: `input_listener.rs` (rdev) + `evdev_input_listener.rs` (optional direct).
+   - Linux: `evdev_input_listener.rs` on Wayland (rdev kept for the mouse until evdev finds a pointer); `input_listener.rs` (rdev) + `focused_input_listener.rs` (device_query) on X11.
    - macOS: `input_listener.rs` (rdev).
 
 6. **Spawn audio engine:** `libs::audio::engine::spawn_engine()` before Dioxus.
