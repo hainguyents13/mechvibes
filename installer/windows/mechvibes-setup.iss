@@ -204,17 +204,41 @@ begin
   Result := not RegKeyExists(RootKey, SubKey);
 end;
 
+function HasSwitch(const Name: String): Boolean;
+var
+  I: Integer;
+begin
+  Result := False;
+  for I := 1 to ParamCount do
+    if CompareText(ParamStr(I), '/' + Name) = 0 then
+    begin
+      Result := True;
+      Exit;
+    end;
+end;
+
 // Offered before anything is installed: the Electron uninstaller removes a
 // desktop shortcut named Mechvibes.lnk, which is also this app's.
-// Interactive installs only; an auto-update never asks anything.
+// A silent install never asks. The in-app updater leaves Mechvibes 2 alone;
+// winget, which upgrades the old HaiNguyen.Mechvibes package silently, passes
+// /REMOVEMECHVIBES2 so that upgrade does not leave both apps playing.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var
   RootKey: Integer;
   SubKey, Command: String;
 begin
   Result := '';
-  if WizardSilent or not FindElectronMechvibes(RootKey, SubKey, Command) then
+  if not FindElectronMechvibes(RootKey, SubKey, Command) then
     Exit;
+  if WizardSilent then
+  begin
+    if HasSwitch('REMOVEMECHVIBES2') then
+      if RemoveElectronMechvibes(RootKey, SubKey, Command) then
+        Log('Removed Mechvibes 2')
+      else
+        Log('Mechvibes 2 could not be removed');
+    Exit;
+  end;
   if MsgBox('The previous Mechvibes (version 2) is still installed. With both installed, ' +
       'every key plays twice.' + #13#10#13#10 +
       'Remove version 2 now? Only the old app is removed, nothing else.',
