@@ -1,0 +1,29 @@
+name: Publish to winget
+
+# Opens a pull request on microsoft/winget-pkgs for HaiNguyen.Mechvibes each
+# time a release is published (same trigger as announce-release.yml).
+#
+# The action updates the latest manifest already in winget-pkgs and keeps its
+# installer switches, so `/REMOVEMECHVIBES2` set there carries over to every
+# new version. Needs:
+# - a fork of microsoft/winget-pkgs under hainguyents13
+# - secret WINGET_TOKEN: a classic token with the public_repo and workflow scopes
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  winget:
+    name: Update HaiNguyen.Mechvibes
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: vedantmgoyal9/winget-releaser@v2
+        with:
+          identifier: HaiNguyen.Mechvibes
+          installers-regex: '-Setup-x64\.exe$'
+          token: ${{ secrets.WINGET_TOKEN }}
