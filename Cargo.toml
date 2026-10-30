@@ -1,6 +1,6 @@
 [package]
 name = "mechvibes"
-version = "3.0.0"
+version = "3.0.1"
 authors = ["Hải Nguyễn <hainguyen.ts13@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
