@@ -282,7 +282,7 @@ For `definition_method: "multi"`, each sound can have its own audio file:
 1. **User action:** Drag-and-drop folder or select from soundpacks list.
 2. **Validation:** `SoundpackValidator` checks format and required files.
 3. **Load command:** UI sends `AudioCommand::LoadKeyboardPack { soundpack_id, ... }`.
-4. **Decode:** `soundpack_loader.rs` decodes the audio file(s) using `symphonia` (multi-codec: WAV, OGG, MP3).
+4. **Decode:** `soundpack_loader.rs` decodes the audio file(s) using `symphonia` (multi-codec: WAV, OGG, MP3). For a `"multi"` pack, `decode_multi_pack` decodes each key's file, brings them to the first file's layout and rate, and joins them into one buffer, moving each key's timing by where its file starts. The pack on disk is not rewritten.
 5. **Resample:** If file sample rate ≠ device sample rate, `rubato` resamples offline.
 6. **Store:** Decoded samples stored in `EngineState.keyboard_samples` as `Arc<Vec<f32>>`.
 7. **Report:** Engine sends `UiEvent::PackLoaded` back to UI (success or error).

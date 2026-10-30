@@ -2,9 +2,9 @@
 //!
 //! `pack-convert <in.zip> <out.zip> [--mouse] [--author <name>]` runs the same conversion the app
 //! performs when it loads an imported pack (`utils::soundpack`): a v1 config goes
-//! through `convert_v1_to_v2`, a v2 pack that still uses the multi method goes
-//! through `convert_v2_multi_to_single`, and a v2 single pack passes through. The
-//! result is zipped with `config.json` at the archive root.
+//! through `convert_v1_to_v2`, and a v2 pack passes through as it is, whether it
+//! plays from one file ("single") or one file per key ("multi"). The result is
+//! zipped with `config.json` at the archive root.
 //!
 //! The converter modules are compiled into this binary with `#[path]` instead of
 //! being linked from the app crate, so none of the Dioxus / windowing / input
@@ -71,7 +71,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use utils::config_converter::{convert_v1_to_v2, convert_v2_multi_to_single};
+use utils::config_converter::convert_v1_to_v2;
 use utils::soundpack_validator::{validate_soundpack_config, SoundpackValidationStatus};
 
 /// Upper bound on what one archive may expand to. Inputs are untrusted downloads.
@@ -111,7 +111,7 @@ fn run() -> Result<Value, String> {
     let pack_dir = config_path.parent().ok_or("config.json has no parent folder")?.to_path_buf();
     strip_bom(&config_path)?;
 
-    let summary = convert(&config_path, &pack_dir, is_mouse, author.as_deref())?;
+    let summary = convert(&config_path, is_mouse, author.as_deref())?;
     pack(&config_path, &pack_dir, Path::new(output))?;
     Ok(summary)
 }
@@ -119,12 +119,10 @@ fn run() -> Result<Value, String> {
 /// Run the app's conversion pipeline on `config_path` and describe what happened.
 fn convert(
     config_path: &Path,
-    pack_dir: &Path,
     is_mouse: bool,
     author: Option<&str>
 ) -> Result<Value, String> {
     let config_str = config_path.to_str().ok_or("path is not valid UTF-8")?;
-    let dir_str = pack_dir.to_str().ok_or("path is not valid UTF-8")?;
 
     let validation = validate_soundpack_config(config_str);
     let (input_version, method) = match validation.status {
@@ -146,10 +144,6 @@ fn convert(
                 .and_then(Value::as_str)
                 .unwrap_or("single")
                 .to_string();
-            if method == "multi" {
-                convert_v2_multi_to_single(config_str, dir_str)
-                    .map_err(|e| format!("multi to single conversion failed: {}", e))?;
-            }
             (2, method)
         }
         _ => return Err(format!("not a convertible sound pack: {}", validation.message)),
@@ -180,10 +174,14 @@ fn convert(
     }
 
     let after = read_json(config_path)?;
-    let audio = after
-        .get("audio_file")
-        .and_then(Value::as_str)
-        .ok_or("converted config has no audio_file")?;
+    let files = audio_files(&after);
+    // A single pack plays from its `audio_file`. A multi pack may have none,
+    // since each key names its own, so it reports null here and lists every
+    // file under `audio_files`.
+    let audio = after.get("audio_file").and_then(Value::as_str);
+    if files.is_empty() || (method != "multi" && audio.is_none()) {
+        return Err("converted config has no audio_file".to_string());
+    }
     let keys = after
         .get("definitions")
         .or_else(|| after.get("defs"))
@@ -193,8 +191,21 @@ fn convert(
         "input_version": input_version,
         "method": method,
         "output_audio": audio,
+        "audio_files": files,
         "keys": keys,
     }))
+}
+
+/// Every audio file a config plays from: its `audio_file`, and for a multi
+/// pack the file each key names. Sorted, without repeats.
+fn audio_files(config: &Value) -> Vec<&str> {
+    let mut files: Vec<&str> = config.get("audio_file").and_then(Value::as_str).into_iter().collect();
+    if let Some(definitions) = config.get("definitions").and_then(Value::as_object) {
+        files.extend(definitions.values().filter_map(|d| d.get("audio_file").and_then(Value::as_str)));
+    }
+    files.sort_unstable();
+    files.dedup();
+    files
 }
 
 fn read_json(path: &Path) -> Result<Value, String> {
@@ -285,23 +296,23 @@ fn find_config(root: &Path) -> Result<PathBuf, String> {
     found.into_iter().next().ok_or_else(|| "no config.json found in the archive".to_string())
 }
 
-/// Write the output zip: `config.json` at the root, plus the audio file and icon
-/// the converted config references. Source clips of a multi pack are already
-/// folded into the concatenated audio file and are left out.
+/// Write the output zip: `config.json` at the root, plus the audio files and
+/// icon the converted config references. For a multi pack that is the file
+/// each key names, as well as the pack's own `audio_file` if it has one.
 fn pack(config_path: &Path, pack_dir: &Path, output: &Path) -> Result<(), String> {
     let config = read_json(config_path)?;
     let mut members: Vec<(String, PathBuf)> = vec![("config.json".to_string(), config_path.to_path_buf())];
-    for field in ["audio_file", "icon"] {
-        let Some(name) = config.get(field).and_then(Value::as_str) else {
-            continue;
-        };
+
+    // Every audio file has to be there; the icon is optional.
+    let icon = config.get("icon").and_then(Value::as_str);
+    for (name, required) in audio_files(&config).into_iter().map(|n| (n, true)).chain(icon.map(|n| (n, false))) {
         let relative = safe_relative(name.trim_start_matches("./"))
-            .ok_or_else(|| format!("{} '{}' is not a safe relative path", field, name))?;
+            .ok_or_else(|| format!("'{}' is not a safe relative path", name))?;
         let source = pack_dir.join(&relative);
         if source.is_file() {
             members.push((relative.to_string_lossy().replace('\\', "/"), source));
-        } else if field == "audio_file" {
-            return Err(format!("audio_file '{}' is missing from the pack", name));
+        } else if required {
+            return Err(format!("audio file '{}' is missing from the pack", name));
         }
     }
 
@@ -411,7 +422,7 @@ mod tests {
         extract(&input, work.path()).expect("extract");
         let config_path = find_config(work.path()).expect("config");
         let pack_dir = config_path.parent().expect("parent").to_path_buf();
-        let summary = convert(&config_path, &pack_dir, false, Some("Tester")).expect("convert");
+        let summary = convert(&config_path, false, Some("Tester")).expect("convert");
         assert_eq!(summary["input_version"], 1);
         assert_eq!(summary["method"], "single");
         assert_eq!(summary["output_audio"], "sound.wav");
@@ -434,6 +445,37 @@ mod tests {
         let dir = scratch("refuse");
         let config = dir.join("config.json");
         fs::write(&config, r#"{"name":"nothing"}"#).expect("config");
-        assert!(convert(&config, &dir, false, None).is_err());
+        assert!(convert(&config, false, None).is_err());
+    }
+
+    /// A v2 multi pack is left as it is, as the app now plays it, and the zip
+    /// carries the file every key names.
+    #[test]
+    fn a_v2_multi_pack_passes_through_with_every_keys_file() {
+        let dir = scratch("multi");
+        let a = dir.join("a.wav");
+        let b = dir.join("b.wav");
+        write_wav(&a);
+        write_wav(&b);
+        let config = dir.join("config.json");
+        let original = r#"{"id":"m","name":"M","author":"A","config_version":"2","definition_method":"multi","definitions":{"KeyA":{"audio_file":"a.wav","timing":[[0,50]]},"KeyB":{"audio_file":"b.wav","timing":[[0,50]]}}}"#;
+        fs::write(&config, original).expect("config");
+
+        let summary = convert(&config, false, None).expect("convert");
+        assert_eq!(summary["input_version"], 2);
+        assert_eq!(summary["method"], "multi");
+        assert_eq!(summary["audio_files"], json!(["a.wav", "b.wav"]));
+
+        let output = dir.join("out.zip");
+        pack(&config, &dir, &output).expect("pack");
+        let mut archive = zip::ZipArchive::new(File::open(&output).expect("open")).expect("zip");
+        let mut names: Vec<String> = (0..archive.len()).map(|i| archive.by_index(i).expect("entry").name().to_string()).collect();
+        names.sort();
+        assert_eq!(names, ["a.wav", "b.wav", "config.json"]);
+        let mut text = String::new();
+        archive.by_name("config.json").expect("config").read_to_string(&mut text).expect("read");
+        let out: Value = serde_json::from_str(&text).expect("json");
+        assert_eq!(out["definition_method"], "multi");
+        assert_eq!(out["definitions"]["KeyB"]["audio_file"], "b.wav");
     }
 }

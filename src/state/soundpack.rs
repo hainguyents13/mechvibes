@@ -71,7 +71,7 @@ pub struct SoundPack {
     #[serde(default)]
     pub icon: Option<String>,
     #[serde(default)]
-    pub audio_file: Option<String>, // Used only in "single" definition_method
+    pub audio_file: Option<String>, // "single": the file every key plays from; "multi": for keys that name none
     #[serde(default)]
     pub license: Option<String>,
     #[serde(default)]

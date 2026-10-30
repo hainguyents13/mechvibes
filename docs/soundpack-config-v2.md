@@ -61,24 +61,28 @@ Each key maps to an object with timing data:
 }
 ```
 
-For the `"single"` method, `timing` is an array of `[start_ms, end_ms]` pairs within the audio file:
-- Example: `[[45750.0, 45832.0], [45832.0, 45914.0]]` means two sound segments (for multiple keystroke variations)
+`timing` is an array of `[start_ms, end_ms]` pairs within the audio file (for `"multi"`, within the key's own file):
+- One segment, `[[45750.0, 45832.0]]`, plays when the key goes down. Releasing the key is silent.
+- Two segments, `[[45750.0, 45832.0], [45832.0, 45914.0]]`, play the first when the key goes down and the second when it comes up.
+- More than two segments are not played (`lookup_timing` in `src/libs/audio/engine.rs`).
 - Milliseconds can be floats (e.g., `45750.0`)
-- The app picks a random segment on each keypress if multiple are provided
+
+A pack converted from the original Mechvibes (V1) gets one segment per key, because its clips were recorded as a single press. The app never cuts a clip into a press half and a release half. The bundled packs have two segments because their files were written that way.
 
 ### Playback Fields
 
 Not required by the validator, but a pack does not make sound without them.
 
 #### `audio_file` (string)
-Path to the main audio file (for the `"single"` method). Can be relative to the soundpack directory.
+Path to the main audio file. Can be relative to the soundpack directory.
 - Example: `"sound.ogg"`, `"./audio/click.wav"`
 - Supported formats: OGG, WAV, MP3, FLAC
-- Needed when `definition_method` is `"single"` (the normal case)
+- Needed when `definition_method` is `"single"`. In a `"multi"` pack it is optional: a key that names no file of its own plays from it.
 
 #### `definition_method` (string)
-How sounds are mapped to keys. In practice always `"single"`: all keys play segments from one main audio file, specified in `audio_file`.
-- If a pack uses `"multi"` (one file per key), the app automatically converts it to `"single"` on first load
+How sounds are mapped to keys:
+- `"single"`: every key plays a slice of one main audio file, named in `audio_file`.
+- `"multi"`: each key names its own file in its definition's `audio_file`. See [Multi packs](#multi-packs).
 
 ### Optional Fields
 
@@ -531,11 +535,11 @@ The app validates timing during load and logs warnings if a key's timing exceeds
 
 ### Multiple Variants
 
-If you have multiple keystroke sound variations (e.g., a "press" and "release" sound in one file), list both in the timing array:
+If you recorded a separate "press" and "release" sound, list both in the timing array:
 ```json
 "KeyA": { "timing": [[0, 50], [50, 100]] }
 ```
-The app randomly picks one on each keystroke.
+The first plays when the key goes down, the second when it comes up.
 
 ### Audio File Format
 
@@ -555,7 +559,7 @@ All formats are resampled to the system audio output rate on load for optimal qu
 ### Testing
 
 Before sharing:
-1. Import into the app via Settings > Soundpacks > Import
+1. Import into the app: **Sound packs** > **Keyboard** or **Mouse** > **Add**
 2. Select for keyboard or mouse sounds
 3. Test multiple keys to verify timing is correct
 4. Check volume level (adjust `recommended_volume` if needed)
@@ -565,25 +569,24 @@ Before sharing:
 
 ## Advanced Topics
 
-### The "Multi" to "Single" Conversion
+### Multi packs
 
-If you have an older V2 pack with `"definition_method": "multi"`:
+A pack with `"definition_method": "multi"` gives each key its own file:
 
 ```json
 {
   "definition_method": "multi",
   "definitions": {
     "KeyA": { "audio_file": "a.ogg", "timing": [[0, 50]] },
-    "KeyB": { "audio_file": "b.ogg", "timing": [[0, 75]] }
+    "KeyB": { "audio_file": "b.ogg", "timing": [[0, 30], [30, 75]] }
   }
 }
 ```
 
-The app automatically converts this to single-method on first load:
-- All audio files are concatenated into one file
-- Timing values are adjusted to account for the concatenation offsets
-- The config is rewritten to single-method format
-- Original files are left untouched
+- Each key's `timing` is measured within its own file, and one or two segments work as described under [`timing`](#definitions-or-defs-object-required).
+- A key without `audio_file` plays from the pack's `audio_file`.
+- The app plays the pack as it is and never rewrites it: when the pack loads, it decodes each file, brings them all to the first file's channel layout and sample rate, and joins them in memory (`decode_multi_pack` in `src/libs/audio/soundpack_loader.rs`).
+- A file that cannot be read is logged, and only the keys that use it stay silent.
 
 This is transparent; you do not need to do anything.
 
