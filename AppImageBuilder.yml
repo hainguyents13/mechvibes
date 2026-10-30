@@ -4,11 +4,11 @@ AppDir:
   path: ./AppDir
 
   app_info:
-    id: com.hainguyen.mechvibes-dx
-    name: Mechvibes DX
-    icon: mechvibes-dx
+    id: com.hainguyen.mechvibes
+    name: Mechvibes
+    icon: mechvibes
     version: 0.4.0
-    exec: usr/bin/mechvibes-dx
+    exec: usr/bin/mechvibes
     exec_args: $@
 
   apt:
@@ -27,8 +27,8 @@ AppDir:
 
   files:
     include:
-      - usr/bin/mechvibes-dx
-      - usr/share/icons/hicolor/512x512/apps/mechvibes-dx.png
+      - usr/bin/mechvibes
+      - usr/share/icons/hicolor/512x512/apps/mechvibes.png
 
   runtime:
     env:
@@ -47,4 +47,4 @@ AppDir:
 
 AppImage:
   arch: x86_64
-  update-information: gh-releases-zsync|hainguyents13|mechvibes-dx|latest|mechvibes-dx-*x86_64.AppImage.zsync
+  update-information: gh-releases-zsync|hainguyents13|mechvibes|latest|mechvibes-*x86_64.AppImage.zsync

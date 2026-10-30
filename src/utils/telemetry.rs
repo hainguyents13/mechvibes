@@ -23,7 +23,7 @@
 use serde::Serialize;
 use std::time::Duration;
 
-/// Aptabase app key for MechvibesDX, from the app's dashboard at
+/// Aptabase app key for Mechvibes, from the app's dashboard at
 /// aptabase.com. Aptabase app keys are public by design: they identify the
 /// app to the ingest endpoint and grant no read access to the data, so
 /// shipping one inside the binary is the intended usage.
@@ -36,7 +36,7 @@ const PLACEHOLDER_APP_KEY: &str = "A-XX-0000000000";
 
 /// Identifies this hand-rolled client to Aptabase, per the `sdkVersion`
 /// convention in their guide (`<sdk-name>@<version>`).
-const SDK_VERSION: &str = concat!("aptabase-mechvibes-dx@", env!("CARGO_PKG_VERSION"));
+const SDK_VERSION: &str = concat!("aptabase-mechvibes@", env!("CARGO_PKG_VERSION"));
 
 /// Total budget for the request. A hanging or blackholed connection must
 /// never outlive this, so a detached telemetry thread can never be what keeps

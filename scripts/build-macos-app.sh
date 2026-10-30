@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Assemble MechvibesDX.app and package it as a compressed DMG.
+# Assemble Mechvibes.app and package it as a compressed DMG.
 #
 # `dx bundle` is deliberately NOT used: DioxusLabs/dioxus#5723 makes the 0.7.x
 # resource copier fail on every directory entry in Dioxus.toml's `resources`,
@@ -9,9 +9,9 @@
 # what ships until that fix lands (confirmed present in 0.8.0-alpha.1).
 #
 # Usage: scripts/build-macos-app.sh <version> [--skip-build]
-#   Builds target/release/mechvibes-dx (cargo build --release --locked) first.
+#   Builds target/release/mechvibes (cargo build --release --locked) first.
 #   --skip-build reuses an existing binary, e.g. when CI built it already.
-#   Writes dist/mechvibes-dx-<version>-macos-<arch>.dmg
+#   Writes dist/mechvibes-<version>-macos-<arch>.dmg
 #
 # macOS only (uses sips, iconutil, codesign, hdiutil).
 
@@ -34,9 +34,9 @@ if [ -z "$VERSION" ]; then
 fi
 ARCH=$(uname -m)
 
-APP_NAME="MechvibesDX"
+APP_NAME="Mechvibes"
 BUNDLE="dist/${APP_NAME}.app"
-BINARY="target/release/mechvibes-dx"
+BINARY="target/release/mechvibes"
 IDENTIFIER="com.hainguyents13.mechvibesdx"
 # arm64 macOS starts at 11.0; nothing older can run an Apple Silicon build.
 MIN_MACOS="11.0"
@@ -88,8 +88,8 @@ mkdir -p "$BUNDLE/Contents/MacOS" "$BUNDLE/Contents/Resources"
 # ---------------------------------------------------------------------------
 # 1. Executable
 # ---------------------------------------------------------------------------
-cp "$BINARY" "$BUNDLE/Contents/MacOS/mechvibes-dx"
-chmod +x "$BUNDLE/Contents/MacOS/mechvibes-dx"
+cp "$BINARY" "$BUNDLE/Contents/MacOS/mechvibes"
+chmod +x "$BUNDLE/Contents/MacOS/mechvibes"
 
 # ---------------------------------------------------------------------------
 # 2. Resources
@@ -166,7 +166,7 @@ cat > "$BUNDLE/Contents/Info.plist" << PLIST
     <key>CFBundleDevelopmentRegion</key>
     <string>en</string>
     <key>CFBundleExecutable</key>
-    <string>mechvibes-dx</string>
+    <string>mechvibes</string>
     <key>CFBundleIconFile</key>
     <string>${APP_NAME}</string>
     <key>CFBundleIdentifier</key>
@@ -221,7 +221,7 @@ cp README-macos.txt "$DMG_ROOT/README.txt"
 
 # "arm64"/"x86_64" contain no "x64" substring and this is not a .exe, so the
 # Windows auto-updater filter in src/utils/auto_updater.rs cannot pick it up.
-DMG="dist/mechvibes-dx-${VERSION}-macos-${ARCH}.dmg"
+DMG="dist/mechvibes-${VERSION}-macos-${ARCH}.dmg"
 hdiutil create -volname "${APP_NAME}" -srcfolder "$DMG_ROOT" -ov -format UDZO "$DMG"
 hdiutil verify "$DMG"
 
@@ -242,8 +242,8 @@ MOUNTED_APP="$MOUNT_POINT/${APP_NAME}.app"
 echo "--- bundle tree ---"
 find "$MOUNTED_APP" -maxdepth 3 | sort
 echo "--- binary ---"
-file "$MOUNTED_APP/Contents/MacOS/mechvibes-dx"
-file "$MOUNTED_APP/Contents/MacOS/mechvibes-dx" | grep -q "Mach-O" \
+file "$MOUNTED_APP/Contents/MacOS/mechvibes"
+file "$MOUNTED_APP/Contents/MacOS/mechvibes" | grep -q "Mach-O" \
   || { echo "::error::bundled executable is not a Mach-O binary"; exit 1; }
 
 DMG_AUDIO=$(count_audio "$MOUNTED_APP/Contents/Resources/soundpacks")

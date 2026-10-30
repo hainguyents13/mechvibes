@@ -406,7 +406,7 @@ impl UpdateService {
     //         crate::always_print!("📥 Downloading update...");
 
     //         let temp_dir = std::env::temp_dir();
-    //         let default_filename = format!("mechvibes_dx_v{}.exe", update_info.latest_version);
+    //         let default_filename = format!("mechvibes_v{}.exe", update_info.latest_version);
     //         let filename = download_url.split('/').last().unwrap_or(&default_filename);
     //         let installer_path = temp_dir.join(filename);
 
@@ -983,11 +983,11 @@ mod tests {
     /// `assets[0]` fallback served .exe files to Linux and macOS.
     fn release_assets() -> Vec<GitHubAsset> {
         vec![
-            asset("MechvibesDX-0.7.0-Setup-x64.exe"),
+            asset("Mechvibes-0.7.0-Setup-x64.exe"),
             asset("SHA256SUMS.txt"),
-            asset("mechvibes-dx-0.7.0-macos-arm64.dmg"),
-            asset("mechvibes-dx-0.7.0-x86_64.AppImage"),
-            asset("mechvibes-dx_0.7.0_amd64.deb")
+            asset("mechvibes-0.7.0-macos-arm64.dmg"),
+            asset("mechvibes-0.7.0-x86_64.AppImage"),
+            asset("mechvibes_0.7.0_amd64.deb")
         ]
     }
 
@@ -1023,20 +1023,20 @@ mod tests {
 
         assert_eq!(
             pick(InstallKind::Windows).as_deref(),
-            Some("https://example.com/MechvibesDX-0.7.0-Setup-x64.exe")
+            Some("https://example.com/Mechvibes-0.7.0-Setup-x64.exe")
         );
         assert_eq!(
             pick(InstallKind::MacOs).as_deref(),
-            Some("https://example.com/mechvibes-dx-0.7.0-macos-arm64.dmg")
+            Some("https://example.com/mechvibes-0.7.0-macos-arm64.dmg")
         );
         assert_eq!(
             pick(InstallKind::LinuxAppImage).as_deref(),
-            Some("https://example.com/mechvibes-dx-0.7.0-x86_64.AppImage"),
+            Some("https://example.com/mechvibes-0.7.0-x86_64.AppImage"),
             "an AppImage user must be offered the next AppImage"
         );
         assert_eq!(
             pick(InstallKind::LinuxPackage).as_deref(),
-            Some("https://example.com/mechvibes-dx_0.7.0_amd64.deb"),
+            Some("https://example.com/mechvibes_0.7.0_amd64.deb"),
             "a .deb user must be offered the next .deb"
         );
     }
@@ -1096,14 +1096,14 @@ mod tests {
     #[test]
     fn the_macos_rule_does_not_match_the_readme_text_file() {
         assert!(!asset_matches(InstallKind::MacOs, "readme-macos-0.7.0.txt"));
-        assert!(asset_matches(InstallKind::MacOs, "mechvibes-dx-0.7.0-macos-arm64.dmg"));
+        assert!(asset_matches(InstallKind::MacOs, "mechvibes-0.7.0-macos-arm64.dmg"));
     }
 
     /// A release missing this kind's asset yields None, so the UI falls back to
     /// the Releases-page link instead of offering something unusable.
     #[test]
     fn a_kind_with_no_matching_asset_gets_nothing() {
-        let only_windows = vec![asset("MechvibesDX-0.7.0-Setup-x64.exe")];
+        let only_windows = vec![asset("Mechvibes-0.7.0-Setup-x64.exe")];
         assert_eq!(find_download_url_for(InstallKind::LinuxPackage, &only_windows), None);
         assert_eq!(find_download_url_for(InstallKind::LinuxAppImage, &only_windows), None);
         assert_eq!(find_download_url_for(InstallKind::MacOs, &only_windows), None);
@@ -1134,13 +1134,13 @@ mod tests {
             |name: &str| name.ends_with(".exe") && name.contains("x64");
 
         for name in [
-            "mechvibes-dx-0.7.0-macos-arm64.dmg",
-            "mechvibes-dx-0.7.0-macos-x86_64.dmg",
-            "mechvibes-dx_0.7.0_amd64.deb",
+            "mechvibes-0.7.0-macos-arm64.dmg",
+            "mechvibes-0.7.0-macos-x86_64.dmg",
+            "mechvibes_0.7.0_amd64.deb",
             // "x86_64" is x-8-6-_-6-4: the substring "x64" does not occur in
             // it, and the extension is not .exe either. Both halves of the
             // filter have to fail, and this asserts it rather than eyeballing.
-            "mechvibes-dx-0.7.0-x86_64.AppImage",
+            "mechvibes-0.7.0-x86_64.AppImage",
             "README-macos-0.7.0.txt",
             "SHA256SUMS.txt",
         ] {
@@ -1153,7 +1153,7 @@ mod tests {
 
         // The real installer must still match, otherwise the filter is simply
         // broken in the other direction.
-        assert!(windows_filter(&"MechvibesDX-0.7.0-Setup-x64.exe".to_lowercase()));
+        assert!(windows_filter(&"Mechvibes-0.7.0-Setup-x64.exe".to_lowercase()));
     }
 
     /// A release with no asset for this platform must yield None so the UI

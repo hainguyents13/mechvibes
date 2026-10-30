@@ -1,11 +1,11 @@
 [Desktop Entry]
 Version=1.0
 Type=Application
-Name=Mechvibes DX
+Name=Mechvibes
 GenericName=Keyboard Sound Simulator
 Comment=Mechanical keyboard sound simulator
-Icon=mechvibes-dx
-Exec=mechvibes-dx
+Icon=mechvibes
+Exec=mechvibes
 Terminal=false
 Categories=AudioVideo;
 Keywords=keyboard;sound;mechanical;simulator;
