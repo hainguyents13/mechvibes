@@ -60,6 +60,7 @@ mechvibes/
 │   │   ├── soundpack_selector.rs # Pack selection dropdown
 │   │   ├── device_selector.rs  # Audio device selector + filtering UI
 │   │   ├── window_controller.rs # Min/max/close buttons
+│   │   ├── theme_share.rs      # Share/Import buttons and dialog for .mvtheme files
 │   │   ├── theme_toggler.rs    # Dark/light theme switch
 │   │   ├── volume_slider.rs    # Volume control
 │   │   ├── ui/                 # Reusable UI components
@@ -90,6 +91,7 @@ mechvibes/
 │       ├── soundpack_installer.rs # Pack drag-drop install
 │       ├── platform.rs         # Platform detection
 │       ├── theme.rs            # Theme color helpers
+│       ├── theme_share.rs      # .mvtheme read/write and checks (see theme-file-format.md)
 │       ├── time.rs             # Time formatting
 │       ├── delay.rs            # Delay/sleep utilities
 │       ├── spacing.rs          # UI spacing constants

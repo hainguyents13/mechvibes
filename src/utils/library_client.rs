@@ -41,7 +41,7 @@ struct PackResponse {
     pack: LibraryPack,
 }
 
-fn client() -> Result<reqwest::Client, String> {
+pub(crate) fn client() -> Result<reqwest::Client, String> {
     reqwest::Client
         ::builder()
         .user_agent(format!("{}/{}", APP_NAME, APP_VERSION))
