@@ -150,6 +150,23 @@ impl ThemesConfig {
         }
     }
 
+    /// Add a theme someone shared and return its id. Importing the same theme
+    /// again reuses the copy already here; a different theme with a name in
+    /// use gets a number after it, as "Night drive (2)".
+    pub fn import_theme(&mut self, name: &str, css: &str) -> Result<String, String> {
+        let same_name = |theme: &CustomThemeData, name: &str| theme.name.to_lowercase() == name.to_lowercase();
+        if let Some(existing) = self.custom_themes.values().find(|theme| same_name(theme, name) && theme.css == css) {
+            return Ok(existing.id.clone());
+        }
+        let mut unique = name.to_string();
+        let mut number = 2;
+        while self.custom_themes.values().any(|theme| same_name(theme, &unique)) {
+            unique = format!("{} ({})", name, number);
+            number += 1;
+        }
+        self.add_theme(unique, String::new(), css.to_string())
+    }
+
     pub fn get_theme_by_id(&self, id: &str) -> Option<&CustomThemeData> {
         self.custom_themes.get(id)
     }
@@ -159,5 +176,22 @@ impl ThemesConfig {
         themes.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         // Sort by most recently updated
         themes
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn importing_reuses_the_same_theme_and_numbers_a_different_one() {
+        let mut themes = ThemesConfig::default();
+        let first = themes.import_theme("Night", "--a: red;").unwrap();
+        assert_eq!(themes.import_theme("night", "--a: red;").unwrap(), first);
+        let second = themes.import_theme("Night", "--a: blue;").unwrap();
+        assert_ne!(second, first);
+        assert_eq!(themes.get_theme_by_id(&second).unwrap().name, "Night (2)");
+        let third = themes.import_theme("Night", "--a: green;").unwrap();
+        assert_eq!(themes.get_theme_by_id(&third).unwrap().name, "Night (3)");
     }
 }

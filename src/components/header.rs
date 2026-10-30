@@ -218,6 +218,10 @@ body {
         injected_css.set(dynamic_css.clone());
 
         crate::debug_print!("🎨 Header: Injecting fonts and dynamic CSS");
+        // Handed over as a JSON string literal, which escapes every character
+        // that could end it. Theme CSS can come from a shared file, so it must
+        // never be able to close the string and run as script.
+        let css_literal = serde_json::to_string(&dynamic_css).unwrap_or_else(|_| "\"\"".to_string());
         let script = format!(
             r#"
               // Remove existing custom style if any
@@ -229,12 +233,12 @@ body {
               // Create new style element for dynamic CSS
               const style = document.createElement('style');
               style.id = '{}-custom-styles';
-              style.textContent = `{}`;
+              style.textContent = {};
               document.head.appendChild(style);
             "#,
             CSS_ID_PREFIX,
             CSS_ID_PREFIX,
-            dynamic_css.replace('`', r#"\`"#).replace("${", r#"\${"#)
+            css_literal
         );
 
         eval(&script);

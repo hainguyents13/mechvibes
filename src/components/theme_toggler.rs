@@ -5,7 +5,8 @@ use crate::utils::config::use_config;
 use crate::utils::theme::use_themes;
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use lucide_dioxus::{ Ellipsis, ExternalLink, Palette, Pencil, Plus, Trash2 };
+use crate::components::theme_share::ThemeShareButtons;
+use lucide_dioxus::{ Ellipsis, ExternalLink, Palette, Pencil, Trash2 };
 
 #[component]
 pub fn ThemeToggler() -> Element {
@@ -226,7 +227,7 @@ struct CreateThemeButtonProps {
 #[component]
 fn CreateThemeButton(props: CreateThemeButtonProps) -> Element {
     rsx! {
-      div { class: "flex justify-start gap-2 mt-4",
+      div { class: "flex flex-wrap justify-start gap-2 mt-4",
         button {
           class: "btn btn-neutral btn-sm",
           onclick: {
@@ -239,14 +240,7 @@ fn CreateThemeButton(props: CreateThemeButtonProps) -> Element {
           Palette { class: "w-4 h-4 mr-1" }
           "Create"
         }
-        // Disabled button for adding themes
-        // This is just a placeholder for future functionality
-        div { class: "tooltip", "data-tip": "Coming soon!",
-          button { class: "btn btn-ghost btn-sm", disabled: true,
-            Plus { class: "w-4 h-4 mr-1" }
-            "Add"
-          }
-        }
+        ThemeShareButtons {}
         a {
           class: "btn btn-ghost btn-sm",
           href: "https://mechvibes.com/themes?utm_source=mechvibes&utm_medium=app&utm_campaign=theme_creator",
