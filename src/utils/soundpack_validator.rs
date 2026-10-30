@@ -1,8 +1,124 @@
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
+use std::path::{ Component, Path };
 use uuid::Uuid;
 use zip::ZipArchive;
+
+// ===== Rules for what is inside a sound pack ZIP =====
+//
+// Shared by the validator and the installer, so the file a ZIP is checked by
+// is the file it is installed with.
+
+/// Largest `config.json` read from a ZIP. Far above any real config.
+pub const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
+
+/// Device names Windows reserves in every folder, with or without an extension.
+const WINDOWS_RESERVED: [&str; 22] = [
+    "CON", "PRN", "AUX", "NUL", "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8",
+    "COM9", "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9",
+];
+
+/// True when `name` is one ordinary path component that every system a pack
+/// installs on can store as it is.
+///
+/// No separators, no `.` or `..`, no drive prefix, so a value from the ZIP can
+/// never point outside the folder it is joined onto. And none of what Windows
+/// refuses or quietly changes: the characters `<>:"|?*` and control
+/// characters, a trailing dot or space, and device names such as `CON` or
+/// `NUL.txt`. A pack made on Linux must install on Windows too.
+pub fn is_portable_name(name: &str) -> bool {
+    let mut components = Path::new(name).components();
+    if !matches!((components.next(), components.next()), (Some(Component::Normal(_)), None)) {
+        return false;
+    }
+    if name.chars().any(|c| c.is_control() || matches!(c, '/' | '\\' | ':' | '<' | '>' | '"' | '|' | '?' | '*')) {
+        return false;
+    }
+    if name.ends_with(['.', ' ']) {
+        return false;
+    }
+    let stem = name.split('.').next().unwrap_or_default().trim_end();
+    !WINDOWS_RESERVED.iter().any(|reserved| stem.eq_ignore_ascii_case(reserved))
+}
+
+/// Archive clutter that is never part of a pack: macOS resource forks and
+/// folder settings files. Skipped wherever a pack is read.
+pub fn is_archive_noise(entry_name: &str) -> bool {
+    let normalised = entry_name.replace('\\', "/");
+    let file = normalised.rsplit('/').next().unwrap_or_default();
+    normalised.split('/').any(|part| part == "__MACOSX") ||
+        file.starts_with("._") ||
+        [".DS_Store", "Thumbs.db", "desktop.ini"].contains(&file)
+}
+
+/// The name an entry is installed under. Every file goes to the root of the
+/// pack's folder, so only the last segment counts; ZIPs made on Windows can
+/// separate folders with `\`, so both separators do. `Ok(None)` means a folder
+/// entry or archive clutter.
+pub fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
+    if is_archive_noise(entry_name) {
+        return Ok(None);
+    }
+    let name = entry_name.rsplit(['/', '\\']).next().unwrap_or_default();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if is_portable_name(name) {
+        Ok(Some(name))
+    } else {
+        Err(format!("The ZIP contains a file with a name that cannot be used: '{}'", entry_name))
+    }
+}
+
+/// Check every entry name in `archive` and return the index of its
+/// `config.json`.
+///
+/// Files land side by side in one folder, so two entries that would end up
+/// with the same name, ignoring case as Windows and macOS do, make a pack
+/// whose content depends on the order they are written in. That is refused,
+/// and so there is only ever one `config.json` to pick: the one checked here
+/// is the one installed.
+pub fn locate_pack_config<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>
+) -> Result<usize, String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut config = None;
+    for i in 0..archive.len() {
+        let entry = archive.by_index(i).map_err(|e| format!("Failed to read archive entry: {}", e))?;
+        let Some(name) = entry_file_name(entry.name())?.map(str::to_string) else {
+            continue;
+        };
+        let key = name.to_lowercase();
+        if !seen.insert(key.clone()) {
+            return Err(
+                format!("The ZIP has more than one file named '{}'. Every file in a sound pack needs a name of its own.", name)
+            );
+        }
+        if key == "config.json" {
+            config = Some(i);
+        }
+    }
+    config.ok_or_else(|| "No config.json found in ZIP file".to_string())
+}
+
+/// Read the `config.json` at `index`, refusing one that unpacks past
+/// `MAX_CONFIG_BYTES` before it is held in memory.
+pub fn read_pack_config<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+    index: usize
+) -> Result<String, String> {
+    let entry = archive.by_index(index).map_err(|e| format!("Failed to read archive entry: {}", e))?;
+    let mut content = String::new();
+    entry
+        .take(MAX_CONFIG_BYTES + 1)
+        .read_to_string(&mut content)
+        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+    if (content.len() as u64) > MAX_CONFIG_BYTES {
+        return Err("The sound pack's config.json is too large.".to_string());
+    }
+    Ok(content)
+}
 
 #[derive(Debug, Clone, PartialEq)]
 #[allow(dead_code)]
@@ -305,38 +421,31 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
 
     let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid ZIP archive: {}", e))?;
 
-    let mut config_found = false;
     let mut audio_found = false;
     let mut config_method = "single".to_string();
-    let mut config_content = String::new();
     let mut soundpack_name = "Unknown".to_string();
 
-    // Check for required files
+    // The same entry the installer will read, found by the same rules.
+    let config_index = locate_pack_config(&mut archive)?;
+    let config_content = read_pack_config(&mut archive, config_index)?;
+    if let Ok(config) = serde_json::from_str::<Value>(&config_content) {
+        if let Some(name) = config.get("name").and_then(|v| v.as_str()) {
+            soundpack_name = name.to_string();
+        }
+        if let Some(method) = config.get("method").and_then(|v| v.as_str()) {
+            config_method = method.to_string();
+        }
+    }
+
+    // Check for audio files
     for i in 0..archive.len() {
-        let mut file = archive
+        let file = archive
             .by_index(i)
             .map_err(|e| format!("Cannot read file in archive: {}", e))?;
-
         let file_name = file.name().to_string();
-
-        // Check for config.json
-        if file_name.ends_with("config.json") {
-            file.read_to_string(&mut config_content)
-                .map_err(|e| format!("Cannot read config.json: {}", e))?;
-            config_found = true;
-
-            // Parse config to get name
-            if let Ok(config) = serde_json::from_str::<Value>(&config_content) {
-                if let Some(name) = config.get("name").and_then(|v| v.as_str()) {
-                    soundpack_name = name.to_string();
-                }
-                if let Some(method) = config.get("method").and_then(|v| v.as_str()) {
-                    config_method = method.to_string();
-                }
-            }
+        if is_archive_noise(&file_name) {
+            continue;
         }
-
-        // Check for audio files
         let file_lower = file_name.to_lowercase();
         if file_lower.ends_with(".ogg")
             || file_lower.ends_with(".wav")
@@ -347,17 +456,18 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
         }
     }
 
-    if !config_found {
-        return Err("No config.json found in soundpack".to_string());
-    }
-
     // If single method, ensure at least one audio file is present
     if config_method == "single" && !audio_found {
         return Err("No audio files found in soundpack".to_string());
     }
 
     // Use existing validator to validate config content
-    let temp_config_path = format!("temp_validate_{}.json", Uuid::new_v4());
+    // In the temp folder, not the working folder: an install under Program
+    // Files runs from a folder it cannot write to.
+    let temp_config_path = std::env::temp_dir()
+        .join(format!("mechvibes-validate-{}.json", Uuid::new_v4()))
+        .to_string_lossy()
+        .to_string();
     std::fs::write(&temp_config_path, &config_content)
         .map_err(|e| format!("Cannot write temp config: {}", e))?;
 
@@ -617,5 +727,87 @@ mod tests {
 
         let single = r#"{"name":"S","author":"A","config_version":"2","definition_method":"single","audio_file":"a.ogg","definitions":{"KeyA":{"audio_file":"a.ogg"}}}"#;
         assert_ne!(validate_json(single).status, SoundpackValidationStatus::Valid);
+    }
+
+    /// An in-memory ZIP holding `entries` with small placeholder contents.
+    fn archive_of(entries: &[&str]) -> ZipArchive<std::io::Cursor<Vec<u8>>> {
+        use std::io::Write;
+        let mut writer = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for name in entries {
+            writer.start_file(*name, zip::write::SimpleFileOptions::default()).expect("entry");
+            writer.write_all(br#"{"name":"x"}"#).expect("contents");
+        }
+        ZipArchive::new(writer.finish().expect("finish")).expect("archive")
+    }
+
+    #[test]
+    fn names_windows_cannot_store_are_not_portable() {
+        for name in ["sound.ogg", "Config.json", "con-sound.ogg", "LPT10.wav", "a b.ogg", "Âm thanh.ogg"] {
+            assert!(is_portable_name(name), "{} must be allowed", name);
+        }
+        for name in [
+            "CON", "nul.txt", "Com1.wav", "aux", "a<b.ogg", "a|b", "what?.ogg", "x.", "x ", "a\u{1}b", "..", ".", "a/b",
+            "a\\b", "C:x",
+        ] {
+            assert!(!is_portable_name(name), "{:?} must be refused", name);
+        }
+    }
+
+    #[test]
+    fn archive_clutter_is_skipped() {
+        for name in ["__MACOSX/pack/._config.json", "pack/.DS_Store", "._sound.ogg", "Thumbs.db", "pack\\desktop.ini"] {
+            assert!(is_archive_noise(name), "{} is clutter", name);
+            assert_eq!(entry_file_name(name), Ok(None));
+        }
+        assert!(!is_archive_noise("pack/config.json"));
+    }
+
+    #[test]
+    fn only_a_file_named_config_json_is_the_config() {
+        let mut archive = archive_of(&["pack/myconfig.json", "pack/sound.ogg"]);
+        assert!(locate_pack_config(&mut archive).is_err(), "myconfig.json is not config.json");
+
+        let mut archive = archive_of(&["__MACOSX/pack/._config.json", "a/.DS_Store", ".DS_Store", "pack/config.json"]);
+        assert_eq!(locate_pack_config(&mut archive), Ok(3), "clutter is ignored, even when repeated");
+    }
+
+    /// Two entries that would land on one name, even differing only in case,
+    /// would leave which one is installed to the order they are written in.
+    #[test]
+    fn two_files_that_end_up_with_one_name_are_refused() {
+        for entries in [
+            ["config.json", "pack/Config.json"],
+            ["a/config.json", "b/config.json"],
+            ["a/sound.ogg", "b/SOUND.ogg"],
+        ] {
+            let mut archive = archive_of(&entries);
+            let error = locate_pack_config(&mut archive).expect_err("a name collision must be refused");
+            assert!(error.contains("more than one file named"), "{:?}: {}", entries, error);
+        }
+    }
+
+    #[test]
+    fn a_file_name_windows_cannot_store_is_refused() {
+        let mut archive = archive_of(&["config.json", "pack/NUL.ogg"]);
+        assert!(locate_pack_config(&mut archive).is_err());
+    }
+
+    /// The validator reads the config before the installer does, so it has to
+    /// stop at the same limit, or a config that unpacks to gigabytes would be
+    /// read whole here first.
+    #[test]
+    fn the_validator_stops_at_the_config_size_limit() {
+        use std::io::Write;
+        let path = std::env::temp_dir().join(format!("mechvibes-big-config-{}.zip", Uuid::new_v4()));
+        let mut writer = zip::ZipWriter::new(File::create(&path).expect("zip file"));
+        writer.start_file("config.json", zip::write::SimpleFileOptions::default()).expect("entry");
+        writer.write_all(&vec![b' '; (MAX_CONFIG_BYTES as usize) + 1]).expect("contents");
+        writer.start_file("sound.ogg", zip::write::SimpleFileOptions::default()).expect("audio");
+        writer.finish().expect("finish");
+
+        let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
+        let result = runtime.block_on(validate_soundpack_structure(path.to_str().unwrap()));
+        let _ = std::fs::remove_file(&path);
+        assert!(result.expect_err("oversized config").contains("too large"));
     }
 }

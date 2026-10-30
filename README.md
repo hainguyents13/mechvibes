@@ -261,6 +261,7 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 
 **Sound pack won't import?**
 - It has to be a ZIP file with `config.json` at the top of the ZIP.
+- Every file in the ZIP needs its own name, even across subfolders and capital letters, and names Windows cannot use (like `NUL.ogg`, or one ending in a dot) are refused.
 - Check that `config.json` is valid JSON (use a JSON validator).
 - Check that `definitions` (or `defs`) contains valid key mappings.
 - Check that the audio file (OGG, WAV, MP3 or FLAC) is in the ZIP.
