@@ -19,8 +19,9 @@ use crossbeam_channel::Sender;
 /// up. Must be called after `spawn_engine`, so nothing sends into a channel
 /// with no receiver.
 ///
-/// `window_focused` is the shared focus flag the X11/macOS hybrid listeners
-/// consult to decide which of the two is authoritative. Headless has no
+/// `window_focused` is the shared focus flag the macOS hybrid listeners, and
+/// the X11 fallback used when evdev cannot read any device, consult to decide
+/// which of the two is authoritative. Headless has no
 /// window, so it passes a flag that is permanently false - "never focused" is
 /// exactly right there: it is the state in which the unfocused listener, the
 /// one that works without a window, is the one that reports.
@@ -44,43 +45,46 @@ pub fn start_input_capture_with_focus(
             .unwrap_or_else(|_| "x11".to_string());
         crate::debug_print!("🔍 Detected display server: {}", display_server);
 
-        if display_server == "wayland" {
-            // On Wayland, evdev reads the device nodes directly, so it works
-            // focused or not, and it carries hotkey detection with it. It
-            // owns the pointer too: rdev's Linux listen() is X11 XRecord, and
-            // XWayland only delivers input while one of its windows is under
-            // the pointer, so clicks over Wayland-native windows never arrive
-            // that way - but their BTN_* events do show up on these devices.
-            crate::debug_print!("🎮 Starting evdev keyboard listener (Wayland mode)...");
-            // Flips true once evdev has opened a device advertising BTN_LEFT.
-            // Until then rdev is the only mouse source, so it stays ungated.
-            let evdev_pointer_active = std::sync::Arc::new(
-                std::sync::atomic::AtomicBool::new(false)
+        // One input source per session, picked once here, so no key or click
+        // is ever reported twice.
+        if crate::libs::evdev_input_listener::has_readable_input_device() {
+            // evdev reads the device nodes directly: no X server and no
+            // dependence on focus, the same on X11 and Wayland, and devices
+            // plugged in later are picked up. It covers keys, pointer buttons,
+            // the wheel and the hotkey, so nothing else runs beside it. On
+            // Wayland it is also the only way to hear clicks over
+            // Wayland-native windows: rdev's Linux listen() is X11 XRecord,
+            // which XWayland only feeds while one of its windows is under the
+            // pointer.
+            crate::debug_print!("🎮 Starting evdev input listener...");
+            crate::libs::evdev_input_listener::start_evdev_input_listener(
+                keyboard_tx,
+                mouse_tx,
+                hotkey_tx
             );
-            crate::libs::evdev_input_listener::start_evdev_keyboard_listener(
-                keyboard_tx.clone(),
-                mouse_tx.clone(),
-                hotkey_tx.clone(),
-                window_focused.clone(),
-                evdev_pointer_active.clone()
+        } else if display_server == "wayland" {
+            // No readable device, so keys stay silent on Wayland until the
+            // user joins the `input` group. rdev still hears clicks over
+            // XWayland windows, so it covers the mouse, with a permanently
+            // focused flag that keeps its keyboard branch quiet.
+            crate::always_eprint!(
+                "⚠️ Cannot read /dev/input: keys stay silent on Wayland until you join the 'input' group (sudo usermod -a -G input $USER, then log out and back in)"
             );
-
-            // rdev covers mouse only here, and only while evdev found no
-            // pointer device to read. It is handed a permanently-focused
-            // flag so its keyboard branch stays quiet and cannot double every
-            // keystroke evdev already reported.
-            crate::debug_print!("🎮 Starting unified input listener for mouse events (Wayland mode)...");
             let always_focused = std::sync::Arc::new(std::sync::Mutex::new(true));
             start_unified_input_listener(
                 keyboard_tx,
                 mouse_tx,
                 hotkey_tx,
                 Some(always_focused),
-                Some(evdev_pointer_active)
+                None
             );
         } else {
-            // X11: the hybrid. rdev handles keyboard while unfocused,
-            // device_query while focused.
+            // X11 without access to /dev/input: the older hybrid, which still
+            // works there. rdev handles keyboard while unfocused, device_query
+            // while focused.
+            crate::always_eprint!(
+                "ℹ️ Cannot read /dev/input, using the X11 listeners. Join the 'input' group to also pick up devices plugged in while the app runs."
+            );
             crate::debug_print!("🎮 Starting unified input listener (X11 mode - unfocused)...");
             start_unified_input_listener(
                 keyboard_tx.clone(),
@@ -247,38 +251,50 @@ mod tests {
         );
     }
 
-    /// Wayland clicks must come from evdev: rdev's XRecord path never sees
-    /// them over Wayland-native windows. That needs the mouse sender and the
-    /// coverage gate on the evdev call, and the same gate on the unified
-    /// listener so an XWayland click evdev already reported is not doubled.
+    /// Linux runs one input source, picked once: evdev when a device can be
+    /// read, alone, with every channel, since it carries keys, clicks, the
+    /// wheel and the hotkey; the older listeners only when it cannot. Starting
+    /// both would play every keystroke twice.
+    ///
+    /// A source assertion because the real listeners need /dev/input or an X
+    /// server, neither of which a test run has.
     #[test]
-    fn wayland_gives_evdev_the_mouse_sender_and_the_pointer_gate() {
+    fn linux_runs_evdev_alone_or_the_older_listeners_never_both() {
         const SOURCE: &str = include_str!("bootstrap.rs");
         let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes tests");
 
-        let wayland_block = runtime
-            .split("if display_server == \"wayland\" {")
+        let evdev_branch = runtime
+            .split("if crate::libs::evdev_input_listener::has_readable_input_device() {")
             .nth(1)
-            .expect("the Wayland branch must exist");
-        let wayland_block = wayland_block
+            .expect("Linux must ask whether evdev can read a device")
+            .split("} else if display_server == \"wayland\" {")
+            .next()
+            .expect("the evdev branch must end before the fallbacks");
+
+        let evdev_arguments = call_arguments(evdev_branch, "start_evdev_input_listener");
+        for channel in ["keyboard_tx", "mouse_tx", "hotkey_tx"] {
+            assert!(
+                evdev_arguments.contains(channel),
+                "evdev must be handed {channel}, got: {evdev_arguments}"
+            );
+        }
+        assert!(
+            !evdev_branch.contains("start_unified_input_listener") &&
+                !evdev_branch.contains("start_focused_keyboard_listener"),
+            "nothing may run beside evdev, or every key plays twice"
+        );
+
+        let wayland_fallback = runtime
+            .split("} else if display_server == \"wayland\" {")
+            .nth(1)
+            .expect("the Wayland fallback must exist")
             .split("} else {")
             .next()
-            .expect("the Wayland branch must end before the X11 branch");
-
-        let evdev_arguments = call_arguments(wayland_block, "start_evdev_keyboard_listener");
+            .expect("the Wayland fallback must end before the X11 one");
+        let unified_arguments = call_arguments(wayland_fallback, "start_unified_input_listener");
         assert!(
-            evdev_arguments.contains("mouse_tx.clone()"),
-            "evdev must be handed the mouse channel it reports clicks on, got: {evdev_arguments}"
-        );
-        assert!(
-            evdev_arguments.contains("evdev_pointer_active.clone()"),
-            "evdev must be handed the pointer coverage gate, got: {evdev_arguments}"
-        );
-
-        let unified_arguments = call_arguments(wayland_block, "start_unified_input_listener");
-        assert!(
-            unified_arguments.contains("Some(evdev_pointer_active)"),
-            "the rdev mouse path must be gated by evdev pointer coverage, got: {unified_arguments}"
+            unified_arguments.contains("Some(always_focused)"),
+            "the Wayland fallback must keep rdev's keyboard branch quiet, got: {unified_arguments}"
         );
     }
 

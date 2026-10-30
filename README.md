@@ -11,7 +11,7 @@ This is **Mechvibes 3**, the official Mechvibes app. It replaces Mechvibes 2 (th
 | Platform | Installer | Notes |
 |----------|-----------|-------|
 | **Windows** | [`Mechvibes-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | When a new version is out, click **Update now** in the app. The download is checked (SHA-256) before it installs. |
-| **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. On Wayland, also see [Linux](#linux) for the `input` group. |
+| **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Also see [Linux](#linux) for the `input` group. |
 | **Linux (any distro)** | [`mechvibes-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable, nothing to install: `chmod +x`, then run it. |
 | **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, Apple Silicon only. Not notarized, so the first launch needs one extra step (see [macOS](#macos)). |
 
@@ -102,13 +102,13 @@ Packs made for the original Mechvibes (V1) are converted automatically when they
 - Only one copy of Mechvibes runs at a time. Opening it again brings the existing window back.
 
 ### Linux
-- **Wayland and X11 both work.** On Wayland (the default on Ubuntu and Fedora), Mechvibes reads the keyboard and mouse directly, so your user must be in the `input` group:
+- **Wayland and X11 both work.** Mechvibes reads the keyboard and mouse directly, so it hears them whichever window is in front, and picks up a keyboard or mouse you plug in while it runs. That needs your user in the `input` group:
   ```bash
   sudo usermod -a -G input $USER
   # Log out and log back in for the change to take effect
   ```
-  On X11 this step is not needed, but it does no harm.
-- On Wayland, touchpad taps and two-finger scrolling make no sound, and a mouse plugged in while the app runs is heard after you restart the app.
+  On Wayland (the default on Ubuntu and Fedora) keys stay silent without it. On X11 Mechvibes falls back to its older listeners, so sound still works, but a device plugged in later is not picked up until you restart the app.
+- Touchpad taps and two-finger scrolling make no sound. A mouse wheel does.
 - "Start at login" is not available on Linux yet.
 - Only one copy of Mechvibes runs at a time. Opening it again brings the existing window back.
 - **AppImage**: most distros run it directly. If it does not start, run it with `--appimage-extract-and-run`. Settings are saved to `~/.local/share/mechvibes`. Run it once so the library's **Install in Mechvibes** links open it.
@@ -255,7 +255,7 @@ For architecture details, see [docs/system-architecture.md](docs/system-architec
 - The shortcut works whenever Mechvibes can hear your keyboard. If keys make sound but the shortcut does not, export the logs from Settings > Debug and [open an issue](https://github.com/hainguyents13/mechvibes/issues).
 
 **Linux: no keyboard input detected?**
-- On Wayland, check that your user is in the `input` group: `groups $USER` should list `input`.
+- Check that your user is in the `input` group: `groups $USER` should list `input`.
 - Log out and back in after adding the group.
 - Check device permissions: `ls -la /dev/input/event*` (should show `crw-rw---- root input`).
 

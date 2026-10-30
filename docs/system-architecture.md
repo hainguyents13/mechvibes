@@ -211,13 +211,15 @@ M<TAB>{device_id}<TAB>{code}<TAB>down|up    # mouse
 
 **Key files:** `input_worker.rs:89-119` (injection filter), `rawinput_listener.rs`, `input_worker_host.rs`, `single_instance.rs`.
 
-#### Linux: evdev on Wayland, rdev + device_query on X11 (In-Process)
+#### Linux: evdev, with rdev + device_query as the fallback (In-Process)
 
-`bootstrap.rs` picks the listeners from `XDG_SESSION_TYPE`:
+`bootstrap.rs` picks one source at startup, so nothing is reported twice:
 
-**Wayland:** `evdev_input_listener.rs` reads `/dev/input/event*` directly, so it needs the user in the `input` group. It reports keys, the Ctrl+Alt+M hotkey, mouse buttons (`BTN_*`) and the wheel (`REL_WHEEL`), whether or not the app window has focus. `rdev` still runs for the mouse, but stays silent once evdev has opened a device with `BTN_LEFT` (`evdev_pointer_active`), so a click is never played twice.
+**Any device readable (`has_readable_input_device`):** `evdev_input_listener.rs` reads `/dev/input/event*` directly, on X11 and Wayland alike. That needs the user in the `input` group. One reader reports keys, the Ctrl+Alt+M hotkey, mouse buttons (`BTN_*`) and the wheel (`REL_WHEEL`), whether or not the app window has focus. `EventRouter` maps the events and holds the hotkey state across devices. The node list is rescanned every two seconds, so devices plugged in later are opened and unplugged ones dropped, releasing any modifier they held.
 
-**X11:** `rdev` (XRecord) in `input_listener.rs` reports keys while the app is unfocused, plus mouse buttons and the hotkey; `device_query` in `focused_input_listener.rs` reports keys while it is focused. Neither opens `/dev/input`, so X11 works without the `input` group. The wheel is not reported on X11.
+**Nothing readable, X11:** `rdev` (XRecord) in `input_listener.rs` reports keys while the app is unfocused, plus mouse buttons and the hotkey; `device_query` in `focused_input_listener.rs` reports keys while it is focused. Neither opens `/dev/input`, so X11 works without the `input` group, but the wheel is not reported and devices plugged in later need a restart.
+
+**Nothing readable, Wayland:** keys stay silent until the user joins the `input` group. `rdev` covers the mouse, which it only hears over XWayland windows.
 
 No package grants `/dev/input` access (see `deployment-guide.md`), and there is no in-app warning yet when the devices can't be read (#124).
 
