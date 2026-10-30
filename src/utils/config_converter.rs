@@ -392,7 +392,9 @@ pub fn convert_v1_to_v2(
                                 let duration = timing_array[1].as_f64().unwrap_or(100.0) as f32;
                                 let end = start + duration;
 
-                                // Create timing array with keydown and keyup
+                                // One segment, played on keydown only, as Mechvibes 2
+                                // played it. The clip was recorded as one press, so it
+                                // is never split into a press and a release half.
                                 let timing = vec![
                                     Value::Array(
                                         vec![
