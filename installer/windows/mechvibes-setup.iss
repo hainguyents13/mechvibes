@@ -128,8 +128,12 @@ Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#MyAppName}}
 Filename: "{app}\{#MyAppExeName}"; Flags: nowait runasoriginaluser skipifnotsilent
 
 [UninstallDelete]
+; WebView2 cache only. Settings and sound packs in {userappdata}\Mechvibes
+; are deleted only when the user says so (CurUninstallStepChanged): entries
+; here run before that question is asked, so listing that folder here would
+; delete it whatever the answer. The original Electron app keeps its data in
+; the same folder, too.
 Type: filesandordirs; Name: "{localappdata}\{#MyAppName}"
-Type: filesandordirs; Name: "{userappdata}\Mechvibes"
 
 [Code]
 procedure RefreshIconCache();
@@ -158,7 +162,11 @@ var
 begin
   if CurUninstallStep = usPostUninstall then
   begin
-    if MsgBox('Do you want to remove all user data including custom soundpacks and settings?', mbConfirmation, MB_YESNO) = IDYES then
+    // Defaults to No, and a silent uninstall keeps the data, so a reinstall
+    // finds everything where it was.
+    if SuppressibleMsgBox('Also delete your settings and imported sound packs?' + #13#10#13#10 +
+      'Choose No to keep them for when you install Mechvibes again.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
     begin
       DelTree(ExpandConstant('{userappdata}\Mechvibes'), True, True, True);
     end;
