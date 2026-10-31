@@ -1,6 +1,8 @@
 use dioxus::prelude::*;
 
-use crate::{ libs::theme::use_theme, utils::config::use_config };
+use crate::libs::theme::{ use_theme, BuiltInTheme, Theme };
+use crate::state::themes::ThemesConfig;
+use crate::utils::{ config::use_config, theme::use_themes };
 
 #[derive(Clone, Routable, Debug, PartialEq)]
 pub enum Route {
@@ -37,9 +39,20 @@ pub(crate) fn background_style_for(
     }
 }
 
+/// The daisyUI theme the layout carries for `theme`. Custom colors that are
+/// no longer in the list draw as the default colors, the way Customize names
+/// them, rather than as daisyUI's own fallback that nobody picked.
+fn daisy_theme_for(theme: &Theme, themes: &ThemesConfig) -> String {
+    match theme {
+        Theme::Custom(id) if themes.get_theme_by_id(id).is_none() => BuiltInTheme::System.to_daisy_theme(),
+        _ => theme.to_daisy_theme(),
+    }
+}
+
 #[component]
 pub fn Layout() -> Element {
     let (config_signal, _set_config) = use_config();
+    let (themes, _) = use_themes();
 
     // Theme state - use theme context and initialize from config
     let mut theme = use_theme();
@@ -62,7 +75,7 @@ pub fn Layout() -> Element {
     });
 
     // Convert theme to DaisyUI theme name
-    let daisy_theme = theme().to_daisy_theme();
+    let daisy_theme = daisy_theme_for(&theme(), &themes());
 
     // Report the theme only when it actually moves. Navigating remounts this
     // component (the router builds a separate `rsx! { Layout {} }` per route,
@@ -297,6 +310,16 @@ mod tests {
         };
 
         assert_eq!(background_style_for(true, &pending), "background: var(--color-primary);");
+    }
+
+    #[test]
+    fn missing_custom_colors_render_as_default() {
+        let mut themes = ThemesConfig::default();
+        let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
+
+        assert_eq!(daisy_theme_for(&Theme::Custom("gone".to_string()), &themes), "light");
+        assert_eq!(daisy_theme_for(&Theme::Custom(id.clone()), &themes), format!("custom-{}", id));
+        assert_eq!(daisy_theme_for(&Theme::BuiltIn(BuiltInTheme::Dark), &themes), "dark");
     }
 
     /// Every path `navigate` is called with must parse back to a real route and
