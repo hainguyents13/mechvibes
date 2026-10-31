@@ -1,5 +1,60 @@
+use crate::utils::theme_share::safe_css_value;
+use dioxus::html::Key;
 use dioxus::{document::eval, prelude::*};
 use lucide_dioxus::ChevronDown;
+
+/// The colour functions a typed colour can be written with.
+const COLOR_FUNCTIONS: [&str; 11] = [
+    "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color", "color-mix",
+];
+
+/// The colour keywords of CSS.
+const COLOR_NAMES: [&str; 150] = [
+    "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure", "beige", "bisque", "black",
+    "blanchedalmond", "blue", "blueviolet", "brown", "burlywood", "cadetblue", "chartreuse",
+    "chocolate", "coral", "cornflowerblue", "cornsilk", "crimson", "currentcolor", "cyan",
+    "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen", "darkgrey", "darkkhaki",
+    "darkmagenta", "darkolivegreen", "darkorange", "darkorchid", "darkred", "darksalmon",
+    "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey", "darkturquoise",
+    "darkviolet", "deeppink", "deepskyblue", "dimgray", "dimgrey", "dodgerblue", "firebrick",
+    "floralwhite", "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold", "goldenrod",
+    "gray", "green", "greenyellow", "grey", "honeydew", "hotpink", "indianred", "indigo", "ivory",
+    "khaki", "lavender", "lavenderblush", "lawngreen", "lemonchiffon", "lightblue", "lightcoral",
+    "lightcyan", "lightgoldenrodyellow", "lightgray", "lightgreen", "lightgrey", "lightpink",
+    "lightsalmon", "lightseagreen", "lightskyblue", "lightslategray", "lightslategrey",
+    "lightsteelblue", "lightyellow", "lime", "limegreen", "linen", "magenta", "maroon",
+    "mediumaquamarine", "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen",
+    "mediumslateblue", "mediumspringgreen", "mediumturquoise", "mediumvioletred", "midnightblue",
+    "mintcream", "mistyrose", "moccasin", "navajowhite", "navy", "oldlace", "olive", "olivedrab",
+    "orange", "orangered", "orchid", "palegoldenrod", "palegreen", "paleturquoise",
+    "palevioletred", "papayawhip", "peachpuff", "peru", "pink", "plum", "powderblue", "purple",
+    "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown", "salmon", "sandybrown",
+    "seagreen", "seashell", "sienna", "silver", "skyblue", "slateblue", "slategray", "slategrey",
+    "snow", "springgreen", "steelblue", "tan", "teal", "thistle", "tomato", "transparent",
+    "turquoise", "violet", "wheat", "white", "whitesmoke", "yellow", "yellowgreen",
+];
+
+/// Whether `value` is a whole colour rather than one still being typed: a
+/// hex colour of 3, 4, 6 or 8 digits, a colour function with its bracket
+/// closed, a theme colour `var(--color-*)`, or a CSS colour name. Only a
+/// whole colour is saved, so the logo never flashes through "#" and "#f" on
+/// the way to "#ff0000".
+pub(crate) fn is_complete_color(value: &str) -> bool {
+    let value = value.trim();
+    if let Some(hex) = value.strip_prefix('#') {
+        return matches!(hex.len(), 3 | 4 | 6 | 8) && hex.chars().all(|c| c.is_ascii_hexdigit());
+    }
+    let lower = value.to_ascii_lowercase();
+    if let Some(open) = lower.find('(') {
+        let function = &lower[..open];
+        let closed = lower.ends_with(')') && lower.len() > open + 2 && safe_css_value(value).is_some();
+        if function == "var" {
+            return closed && lower.starts_with("var(--color-");
+        }
+        return closed && COLOR_FUNCTIONS.contains(&function);
+    }
+    COLOR_NAMES.contains(&lower.as_str())
+}
 
 /// The theme's colours a logo or background colour can follow, so it changes
 /// with the theme.
@@ -31,6 +86,26 @@ pub fn ColorPicker(
     description: Option<String>,
 ) -> Element {
     let mut is_open = use_signal(|| false);
+    // What is typed in the field while the user is still typing it. `None`
+    // shows the saved colour, so a pick from the list or a reset shows up.
+    let mut draft = use_signal(|| None::<String>);
+
+    // The field shows a typed colour; a theme colour shows in the list button.
+    let saved_text = if options.iter().any(|(_, c)| *c == selected_value) {
+        String::new()
+    } else {
+        selected_value.clone()
+    };
+
+    // Leaving the field, or Enter, saves a whole colour and puts anything
+    // else back to the saved one.
+    let mut finish_typing = move || {
+        if let Some(typed) = draft.take() {
+            if is_complete_color(&typed) {
+                on_change.call(typed.trim().to_string());
+            }
+        }
+    };
 
     // Find the display name for the selected value
     let selected_display = options
@@ -102,8 +177,22 @@ pub fn ColorPicker(
                     r#type: "text",
                     class: "input",
                     placeholder: "Or enter custom color (e.g., #ff0000, rgb(255,0,0))",
-                    value: if options.iter().any(|(_, c)| *c == selected_value) { "" } else { selected_value },
-                    oninput: move |evt| on_change.call(evt.value()),
+                    value: draft().unwrap_or(saved_text),
+                    // Saved as soon as it is a whole colour, so the logo
+                    // follows along, but never half typed.
+                    oninput: move |evt| {
+                        let typed = evt.value();
+                        if is_complete_color(&typed) {
+                            on_change.call(typed.trim().to_string());
+                        }
+                        draft.set(Some(typed));
+                    },
+                    onblur: move |_| finish_typing(),
+                    onkeydown: move |evt| {
+                        if evt.key() == Key::Enter {
+                            finish_typing();
+                        }
+                    },
                 }
             }
             if let Some(desc) = description {
@@ -112,5 +201,36 @@ pub fn ColorPicker(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_half_typed_color_is_not_saved() {
+        for half in ["", "#", "#f", "#ff", "#ff000", "rgb(255,0", "rgb(", "var(--color-", "re", "f00"] {
+            assert!(!is_complete_color(half), "{:?} is still being typed", half);
+        }
+        for whole in [
+            "#fff",
+            "#ff0000",
+            "#FF000080",
+            "rgb(255,0,0)",
+            "oklch(60% 0.2 30)",
+            "var(--color-primary)",
+            "red",
+            " Red ",
+        ] {
+            assert!(is_complete_color(whole), "{:?} is a whole color", whole);
+        }
+    }
+
+    #[test]
+    fn a_typed_color_that_could_break_the_style_is_not_whole() {
+        assert!(!is_complete_color("url(x.png)"));
+        assert!(!is_complete_color("var(--size-field)"));
+        assert!(!is_complete_color("rgb(0,0,0);color:red)"));
     }
 }
