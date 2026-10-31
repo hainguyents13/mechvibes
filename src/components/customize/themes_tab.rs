@@ -12,6 +12,14 @@ use lucide_dioxus::ExternalLink;
 use std::cell::Cell;
 use std::rc::Rc;
 
+/// How to use a theme file. A double-click opens one in Mechvibes on Windows
+/// and Linux only: macOS has no file type registered for it yet.
+const THEME_FILE_HINT: &str = if cfg!(target_os = "macos") {
+    "Got a theme file? Drop it on this window, or use Import."
+} else {
+    "Got a theme file? Double-click it, or drop it on this window."
+};
+
 /// The look the app starts with: the default colours, and the theme's own
 /// logo and background. The user's logo and background settings stay, so
 /// switching them back on brings them back.
@@ -84,9 +92,7 @@ pub fn ThemesTab() -> Element {
             }
           }
         }
-        div { class: "text-sm text-base-content/70",
-          "Got a theme file? Double-click it, or drop it on this window."
-        }
+        div { class: "text-sm text-base-content/70", "{THEME_FILE_HINT}" }
       }
     }
 }
@@ -111,5 +117,10 @@ mod tests {
         assert!(is_default_look(&config));
         assert_eq!(config.logo_customization, logo, "the logo settings are kept for later");
         assert_eq!(config.background_customization, background, "and so are the background ones");
+    }
+
+    #[test]
+    fn the_theme_file_hint_offers_a_double_click_only_where_it_opens_the_file() {
+        assert_eq!(THEME_FILE_HINT.contains("Double-click"), !cfg!(target_os = "macos"));
     }
 }
