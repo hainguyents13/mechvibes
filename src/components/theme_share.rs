@@ -6,6 +6,7 @@
 //! import dialog at the root (`ui::theme_import_modal`), which shows what the
 //! file holds and puts it on only after the user agrees.
 
+use crate::components::customize::look_editor;
 use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
 use crate::state::themes::ThemesConfig;
@@ -29,6 +30,8 @@ pub async fn put_on(
     update_themes: UpdateThemes,
     mut theme_signal: Signal<Theme>
 ) -> Result<String, String> {
+    // The look from before is saved as a theme first, so it can be put on again.
+    look_editor::save_look_on_screen();
     look.keep_parts(parts);
     let (look, written) = tokio::task
         ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
@@ -66,11 +69,13 @@ pub async fn put_on(
     }
     let name = look.name.clone();
     // The look is remembered inside the write, so `before` is exactly what
-    // the config held right before this theme went on.
+    // the config held right before this theme went on. The new look belongs
+    // to no saved theme yet, so the one from before is never saved over.
     update_config(
         Box::new(move |cfg| {
             let before = LookFields::of(cfg);
             theme_share::apply_to_config(&look, choice, parts, cfg);
+            cfg.active_theme_id = None;
             look_undo::remember(before, LookFields::of(cfg));
         })
     );

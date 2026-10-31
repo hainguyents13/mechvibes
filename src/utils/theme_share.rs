@@ -177,6 +177,22 @@ impl Look {
             background: config.enable_background_customization.then(|| config.background_customization.clone()),
         }
     }
+
+    /// Put this whole look on `config`, with `theme` as the theme its colors
+    /// became. A part the look does not have is switched off, and its
+    /// settings are kept for later. Unlike `apply_to_config`, which leaves
+    /// such a part as the user has it: a saved theme is put on as a whole.
+    pub fn write_to(&self, theme: Theme, config: &mut AppConfig) {
+        config.theme = theme;
+        config.enable_logo_customization = self.logo.is_some();
+        if let Some(logo) = &self.logo {
+            config.logo_customization = logo.clone();
+        }
+        config.enable_background_customization = self.background.is_some();
+        if let Some(background) = &self.background {
+            config.background_customization = background.clone();
+        }
+    }
 }
 
 /// The parts of a theme the user chose to put on.
@@ -2032,6 +2048,39 @@ mod tests {
         let mut config = off.clone();
         apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
         assert_eq!(config, off, "yours off stays off");
+    }
+
+    fn look_of(theme: &SharedTheme) -> Look {
+        Look {
+            colors: LookColors::Known(theme.colors.clone()),
+            logo: theme.logo.clone(),
+            background: theme.background.clone(),
+        }
+    }
+
+    #[test]
+    fn a_saved_theme_writes_the_same_config_as_importing_it() {
+        let night = Theme::Custom("night".to_string());
+        let theme = look();
+        let mine = my_config();
+        let mut imported = mine.clone();
+        apply_to_config(&theme, Some(night.clone()), ImportParts::ALL, &mut imported);
+        let mut saved = mine.clone();
+        look_of(&theme).write_to(night.clone(), &mut saved);
+        assert_eq!(saved, imported, "a theme with every part");
+
+        // A part the theme does not have: importing leaves yours on, while a
+        // saved theme is put on whole and switches it off, keeping its settings.
+        let theme = SharedTheme { logo: None, background: None, ..look() };
+        let mut imported = mine.clone();
+        apply_to_config(&theme, Some(night.clone()), ImportParts::ALL, &mut imported);
+        assert!(imported.enable_logo_customization && imported.enable_background_customization);
+        let mut saved = mine.clone();
+        look_of(&theme).write_to(night.clone(), &mut saved);
+        assert_eq!(saved.theme, night);
+        assert!(!saved.enable_logo_customization && !saved.enable_background_customization);
+        assert_eq!(saved.logo_customization, mine.logo_customization, "the logo settings wait for later");
+        assert_eq!(saved.background_customization, mine.background_customization);
     }
 
     #[test]

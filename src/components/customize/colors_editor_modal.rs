@@ -5,9 +5,9 @@
 //! the filter knows. A failure shows inside the dialog and leaves it open,
 //! so nothing typed is lost.
 
+use crate::components::customize::look_editor::use_look_editor;
 use crate::libs::theme::Theme;
 use crate::state::themes::ThemesConfig;
-use crate::utils::config::use_config;
 use crate::utils::notice::{ self, NoticeKind };
 use crate::utils::theme::use_themes;
 use crate::utils::theme_share::{ safe_theme_css, theme_css_declarations };
@@ -101,7 +101,7 @@ pub(crate) fn colors_after_save(editor: &ColorsEditor, saved_id: &str) -> Option
 #[component]
 pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> Element {
     let (themes, update_themes) = use_themes();
-    let (_, update_config) = use_config();
+    let look_editor = use_look_editor();
 
     // Mounted fresh each time the editor opens, so these start from the
     // colors being edited, or from the template for new ones.
@@ -153,9 +153,14 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
                 }
             };
 
-            if let Some(theme) = colors_after_save(&editor, &saved_id) {
-                update_config(Box::new(move |cfg| cfg.theme = theme));
-            }
+            // Edited colors may be the ones on screen, so the look is saved
+            // again either way.
+            let put_on = colors_after_save(&editor, &saved_id);
+            look_editor.edit(move |cfg| {
+                if let Some(theme) = put_on {
+                    cfg.theme = theme;
+                }
+            });
             if clean.left_out {
                 notice::report(NoticeKind::Info, "Some lines were left out because they are not colors.", None);
             }

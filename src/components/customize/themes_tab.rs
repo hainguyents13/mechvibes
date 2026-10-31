@@ -2,15 +2,13 @@
 //! use a theme file.
 
 use crate::components::customize::current_theme_row::FIND_MORE_URL;
-use crate::libs::theme::{ BuiltInTheme, Theme };
-use crate::state::config::AppConfig;
+use crate::components::customize::look_editor::{ use_look_editor, Card };
+use crate::libs::theme::BuiltInTheme;
 use crate::utils::config::use_config;
-use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
+use crate::utils::theme_library::shows_default;
 use dioxus::prelude::*;
 use lucide_dioxus::ExternalLink;
-use std::cell::Cell;
-use std::rc::Rc;
 
 /// How to use a theme file. A double-click opens one in Mechvibes on Windows
 /// and Linux only: macOS has no file type registered for it yet.
@@ -20,42 +18,17 @@ const THEME_FILE_HINT: &str = if cfg!(target_os = "macos") {
     "Got a theme file? Double-click it, or drop it on this window."
 };
 
-/// The look the app starts with: the default colours, and the theme's own
-/// logo and background. The user's logo and background settings stay, so
-/// switching them back on brings them back.
-fn put_on_default_look(config: &mut AppConfig) {
-    config.theme = Theme::BuiltIn(BuiltInTheme::System);
-    config.enable_logo_customization = false;
-    config.enable_background_customization = false;
-}
-
-fn is_default_look(config: &AppConfig) -> bool {
-    config.theme == Theme::BuiltIn(BuiltInTheme::System) &&
-        !config.enable_logo_customization &&
-        !config.enable_background_customization
-}
-
 #[component]
 pub fn ThemesTab() -> Element {
-    let (config, update_config) = use_config();
-    let is_default = is_default_look(&config());
+    let (config, _) = use_config();
+    let editor = use_look_editor();
+    let is_default = shows_default(&config());
 
+    // The look from before is saved first, so it can be put on again. A
+    // click while the default look is already on changes nothing and keeps
+    // the way back.
     let use_default = move |_| {
-        // Remembered inside the write, like a theme being put on, so Undo
-        // goes back to exactly what the config held. A click while the
-        // default look is already on changes nothing and keeps the way back.
-        let changed = Rc::new(Cell::new(false));
-        update_config(
-            Box::new({
-                let changed = changed.clone();
-                move |cfg| {
-                    let before = LookFields::of(cfg);
-                    put_on_default_look(cfg);
-                    changed.set(look_undo::remember(before, LookFields::of(cfg)));
-                }
-            })
-        );
-        if changed.get() {
+        if editor.apply_card(&Card::Default) == Ok(true) {
             notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
         }
     };
@@ -100,24 +73,6 @@ pub fn ThemesTab() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn the_default_look_keeps_your_logo_and_background_settings() {
-        let mut config = AppConfig::default();
-        config.theme = Theme::BuiltIn(BuiltInTheme::Synthwave);
-        config.enable_logo_customization = true;
-        config.logo_customization.text_color = "red".to_string();
-        config.enable_background_customization = true;
-        config.background_customization.background_color = "#202020".to_string();
-        let logo = config.logo_customization.clone();
-        let background = config.background_customization.clone();
-        assert!(!is_default_look(&config));
-
-        put_on_default_look(&mut config);
-        assert!(is_default_look(&config));
-        assert_eq!(config.logo_customization, logo, "the logo settings are kept for later");
-        assert_eq!(config.background_customization, background, "and so are the background ones");
-    }
 
     #[test]
     fn the_theme_file_hint_offers_a_double_click_only_where_it_opens_the_file() {

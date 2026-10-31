@@ -9,7 +9,7 @@
 //!
 //! `sync_action` decides and is pure. `run_sync` carries the decision out.
 
-use crate::libs::theme::Theme;
+use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::config_writer;
 use crate::state::saved_themes::{ self, checked_look, SavedTheme, SavedThemes, ThemeKind };
@@ -225,6 +225,30 @@ fn with_suffix(name: &str, suffix: &str) -> String {
 pub fn palette_in_use(palette_id: &str, config: &AppConfig, cards: &[CardLook]) -> bool {
     config.theme == Theme::Custom(palette_id.to_string()) &&
         config.active_theme_id.as_deref().is_some_and(|pointer| cards.iter().any(|card| card.pointer == pointer))
+}
+
+/// Whether the config shows the Default theme: no saved theme, the colors
+/// that follow the system, and the logo and background off.
+pub fn shows_default(config: &AppConfig) -> bool {
+    config.active_theme_id.is_none() && has_default_look(config)
+}
+
+fn has_default_look(config: &AppConfig) -> bool {
+    config.theme == Theme::BuiltIn(BuiltInTheme::System) &&
+        !config.enable_logo_customization &&
+        !config.enable_background_customization
+}
+
+/// The name of the theme on screen: the card the config points at, or
+/// Default. `None` when the look belongs to no card.
+pub fn active_card_name(config: &AppConfig, cards: &[CardLook]) -> Option<String> {
+    let pointer = config.active_theme_id.as_deref();
+    match pointer.and_then(|pointer| cards.iter().find(|card| card.pointer == pointer)) {
+        Some(card) => Some(card.name.clone()),
+        // A pointer to a card that is gone counts as none.
+        None if has_default_look(config) => Some(DEFAULT_NAME.to_string()),
+        None => None,
+    }
 }
 
 /// The theme `config.theme` takes to show `colors`. Custom colors reuse a
@@ -728,6 +752,25 @@ mod tests {
         assert!(!palette_in_use("p1", &config, &cards), "no theme in use");
         config.active_theme_id = Some("gone".to_string());
         assert!(!palette_in_use("p1", &config, &cards));
+    }
+
+    #[test]
+    fn the_current_theme_is_named_after_its_card() {
+        let cards = [card("a", "Night drive", CardKind::Mine, look_with_logo("red"))];
+        let mut config = AppConfig::default();
+        assert!(shows_default(&config));
+        assert_eq!(active_card_name(&config, &cards).as_deref(), Some("Default"));
+
+        config.active_theme_id = Some("a".to_string());
+        config.enable_logo_customization = true;
+        assert!(!shows_default(&config));
+        assert_eq!(active_card_name(&config, &cards).as_deref(), Some("Night drive"));
+
+        config.active_theme_id = Some("gone".to_string());
+        assert_eq!(active_card_name(&config, &cards), None, "a look that belongs to no card");
+        config.enable_logo_customization = false;
+        assert_eq!(active_card_name(&config, &cards).as_deref(), Some("Default"));
+        assert!(!shows_default(&config), "until the pointer is cleared");
     }
 
     #[test]

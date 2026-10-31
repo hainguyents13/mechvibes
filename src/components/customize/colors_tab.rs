@@ -2,14 +2,20 @@
 //! for new ones.
 
 use crate::components::customize::colors_editor_modal::{ ColorsEditor, ColorsEditorModal };
+use crate::components::customize::look_editor::{ use_look_editor, use_saved_themes };
 use crate::components::ui::ConfirmModal;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::themes::ThemesConfig;
 use crate::utils::config::use_config;
+use crate::utils::notice::{ self, NoticeKind };
 use crate::utils::theme::use_themes;
+use crate::utils::theme_library::{ cards, palette_in_use };
 use dioxus::prelude::*;
 use lucide_dioxus::{ Ellipsis, Palette, Pencil, Trash2 };
+
+/// Said instead of deleting the colors the theme in use shows.
+const COLORS_IN_USE: &str = "These colors belong to the theme you are using. Pick other colors first, then delete them.";
 
 /// After colors are deleted: if they were the ones in use, the app goes back
 /// to the default colors rather than pointing at colors that are gone.
@@ -23,6 +29,8 @@ fn after_deleting_colors(config: &mut AppConfig, id: &str) {
 pub fn ColorsTab() -> Element {
     let (config, update_config) = use_config();
     let (themes, update_themes) = use_themes();
+    let look_editor = use_look_editor();
+    let saved_themes = use_saved_themes();
     let mut editor = use_signal(|| None::<ColorsEditor>);
     // The id and name of the colors waiting for the user to confirm their
     // deletion.
@@ -32,11 +40,9 @@ pub fn ColorsTab() -> Element {
     let list = themes();
     let mine = list.list_themes();
 
-    // Only the config is written; the layout follows it.
-    let put_on = {
-        let update_config = update_config.clone();
-        move |theme: Theme| update_config(Box::new(move |cfg| cfg.theme = theme))
-    };
+    // Only the config is written; the layout follows it, and the look is
+    // saved in the theme it belongs to.
+    let put_on = move |theme: Theme| look_editor.edit(move |cfg| cfg.theme = theme);
 
     rsx! {
       div { class: "space-y-6",
@@ -119,7 +125,15 @@ pub fn ColorsTab() -> Element {
                             class: "text-error",
                             onclick: {
                                 let (id, name) = (id.clone(), name.clone());
-                                move |_| deleting.set(Some((id.clone(), name.clone())))
+                                move |_| {
+                                    // Deleting them would take them from under the
+                                    // theme on screen, which keeps its own copy.
+                                    if palette_in_use(&id, &config.peek(), &cards(&saved_themes.peek())) {
+                                        notice::report(NoticeKind::Info, COLORS_IN_USE, None);
+                                        return;
+                                    }
+                                    deleting.set(Some((id.clone(), name.clone())));
+                                }
                             },
                             Trash2 { class: "w-4 h-4 mr-1" }
                             "Delete"

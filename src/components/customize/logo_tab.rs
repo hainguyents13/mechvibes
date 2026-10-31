@@ -1,5 +1,6 @@
 //! The Logo tab: the user's own logo colours and backgrounds.
 
+use crate::components::customize::look_editor::use_look_editor;
 use crate::components::customize::part_panel::{ edit_part, starting_point, PartPanel };
 use crate::components::logo::logo_style;
 use crate::components::ui::{ ColorPicker, FillField, Toggler, THEME_COLOR_OPTIONS };
@@ -10,7 +11,8 @@ use std::rc::Rc;
 
 #[component]
 pub fn LogoTab() -> Element {
-    let (config, update_config) = use_config();
+    let (config, _) = use_config();
+    let editor = use_look_editor();
     let enabled = config().enable_logo_customization;
     let saved = config().logo_customization.clone();
     // The config is the single source of truth: every field reads it and
@@ -18,36 +20,32 @@ pub fn LogoTab() -> Element {
     let logo = if enabled { saved.clone() } else { starting_point(&saved, LogoCustomization::theme_look()) };
 
     let edit: Rc<dyn Fn(Box<dyn FnOnce(&mut LogoCustomization)>)> = {
-        let update_config = update_config.clone();
+        let editor = editor.clone();
         Rc::new(move |change: Box<dyn FnOnce(&mut LogoCustomization)>| {
-            update_config(
-                Box::new(move |cfg| {
-                    edit_part(
-                        &mut cfg.logo_customization,
-                        &mut cfg.enable_logo_customization,
-                        LogoCustomization::theme_look(),
-                        change
-                    );
-                })
-            );
+            editor.edit(move |cfg| {
+                edit_part(
+                    &mut cfg.logo_customization,
+                    &mut cfg.enable_logo_customization,
+                    LogoCustomization::theme_look(),
+                    change
+                );
+            });
         })
     };
 
     // The switch alone never changes the saved settings: turned on, the logo
     // uses them as they are, as in 3.3; turned off, they wait for later.
     let on_switch = {
-        let update_config = update_config.clone();
-        move |on: bool| update_config(Box::new(move |cfg| cfg.enable_logo_customization = on))
+        let editor = editor.clone();
+        move |on: bool| editor.edit(move |cfg| cfg.enable_logo_customization = on)
     };
     let on_start_over = {
-        let update_config = update_config.clone();
+        let editor = editor.clone();
         move |_| {
-            update_config(
-                Box::new(|cfg| {
-                    cfg.logo_customization = LogoCustomization::default();
-                    cfg.enable_logo_customization = false;
-                })
-            );
+            editor.edit(|cfg| {
+                cfg.logo_customization = LogoCustomization::default();
+                cfg.enable_logo_customization = false;
+            });
         }
     };
 

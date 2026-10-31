@@ -70,6 +70,12 @@ pub fn get_themes_config() -> ThemesConfig {
     themes_config().clone()
 }
 
+/// Show the shared list again everywhere the window uses it, after
+/// `change_themes_config` changed it. Must run on the window's thread.
+pub fn refresh_themes() {
+    *REFRESH_TRIGGER.write() += 1;
+}
+
 /// Change the shared colors list outside a window and save it when `mutate`
 /// changed something. A failed save puts the list back and tells the user.
 /// Windows already showing the list are not refreshed, so this is for work
