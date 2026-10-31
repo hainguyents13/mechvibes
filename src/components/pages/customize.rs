@@ -1,3 +1,4 @@
+use crate::components::customize::CurrentThemeRow;
 use crate::components::logo::logo_style;
 use crate::components::theme_toggler::ThemeToggler;
 use crate::components::ui::{ Collapse, ColorPicker, FillField, PageHeader, Toggler, THEME_COLOR_OPTIONS };
@@ -34,7 +35,9 @@ pub fn CustomizePage() -> Element {
           }),
         }
         // Settings sections
-        div { class: "{crate::utils::spacing::SECTION_SPACING} mt-8", // Theme Section
+        div { class: "{crate::utils::spacing::SECTION_SPACING} mt-8",
+          CurrentThemeRow {}
+          // Theme Section
           Collapse {
             title: "Themes".to_string(),
             group_name: "customize-accordion".to_string(),

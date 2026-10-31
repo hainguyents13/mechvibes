@@ -1,5 +1,5 @@
-//! The Share and Import buttons for a whole look, the dialog Share opens, and
-//! putting an opened look on.
+//! Sharing the look on screen, picking a theme file to import, and putting
+//! an opened look on.
 //!
 //! Share saves the theme colours, the logo and the background, images
 //! included, to one `.mvtheme` file. Import hands the file it picks to the
@@ -8,32 +8,15 @@
 
 use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
-use crate::utils::config::use_config;
+use crate::state::themes::ThemesConfig;
 use crate::utils::look_undo::{ self, LookFields };
-use crate::utils::notice::{ self, NoticeKind };
-use crate::utils::theme::{ use_themes, UpdateThemes };
+use crate::utils::notice::{ self, NoticeAction, NoticeKind };
+use crate::utils::theme::UpdateThemes;
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
-use lucide_dioxus::{ Download, Share2 };
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::rc::Rc;
-
-#[derive(Debug, Clone, PartialEq)]
-enum Stage {
-    Hidden,
-    Share,
-    Sharing,
-    Shared(String),
-    Failed(String),
-}
-
-impl Stage {
-    /// Work is running that will set the next stage itself.
-    fn busy(&self) -> bool {
-        matches!(self, Stage::Sharing)
-    }
-}
 
 /// Put the ticked `parts` of an opened look on: their images saved, custom
 /// colours added to the list, then the theme and the rest of the config
@@ -127,180 +110,60 @@ pub fn undo_look(
     }
 }
 
-#[component]
-pub fn ThemeShareButtons() -> Element {
-    let (config, _) = use_config();
-    let (themes, _) = use_themes();
-    let mut stage = use_signal(|| Stage::Hidden);
-    let mut name = use_signal(String::new);
-
-    let open_share = move |_| {
-        name.set(theme_share::default_name(&config(), &themes()));
-        stage.set(Stage::Share);
+/// Save the look on screen to a `.mvtheme` file. The save dialog opens
+/// straight away, and the theme in the file takes the name the user gives
+/// the file. A toast says how it went and, once saved, offers to show the
+/// file.
+pub async fn share_current(config: AppConfig, themes: ThemesConfig) {
+    let look = Look::from_config(&config, &themes);
+    let suggested = format!("{}.{}", theme_share::default_name(&config, &themes), FILE_EXTENSION);
+    let Some(handle) = rfd::AsyncFileDialog
+        ::new()
+        .add_filter("Mechvibes theme", &[FILE_EXTENSION])
+        .set_file_name(&suggested)
+        .set_title("Save theme")
+        .save_file().await else {
+        return;
     };
+    let mut path: PathBuf = handle.path().to_path_buf();
+    if path.extension().and_then(|e| e.to_str()) != Some(FILE_EXTENSION) {
+        path.set_extension(FILE_EXTENSION);
+    }
+    let name = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().to_string())
+        .unwrap_or_default();
 
-    let save = move |_| {
-        let chosen_name = name();
-        spawn(async move {
-            let suggested = format!("{}.{}", chosen_name.trim(), FILE_EXTENSION);
-            let Some(handle) = rfd::AsyncFileDialog
-                ::new()
-                .add_filter("Mechvibes theme", &[FILE_EXTENSION])
-                .set_file_name(&suggested)
-                .set_title("Save theme")
-                .save_file().await else {
-                return;
-            };
-            let mut path: PathBuf = handle.path().to_path_buf();
-            if path.extension().and_then(|e| e.to_str()) != Some(FILE_EXTENSION) {
-                path.set_extension(FILE_EXTENSION);
-            }
-            // The dialog was closed, or another one opened, while the file
-            // picker was up.
-            if *stage.peek() != Stage::Share {
-                return;
-            }
-            stage.set(Stage::Sharing);
-            let look = Look::from_config(&config(), &themes());
-            let result = match theme_share::gather(&chosen_name, &look).await {
-                Ok(look) => {
-                    let path = path.clone();
-                    tokio::task
-                        ::spawn_blocking(move || theme_share::save(&look, &path)).await
-                        .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
-                }
-                Err(e) => Err(e),
-            };
-            stage.set(match result {
-                Ok(()) =>
-                    Stage::Shared(
-                        path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().to_string())
-                            .unwrap_or_default()
-                    ),
-                Err(e) => Stage::Failed(e),
-            });
-        });
-    };
-
-    // The import dialog at the root reads the file and asks.
-    let open_import = move |_| {
-        spawn(async move {
-            if
-                let Some(handle) = rfd::AsyncFileDialog
-                    ::new()
-                    .add_filter("Mechvibes theme", &[FILE_EXTENSION])
-                    .set_title("Import theme")
-                    .pick_file().await
-            {
-                crate::utils::deep_link::deliver_theme_file(handle.path().to_path_buf());
-            }
-        });
-    };
-
-    // Closing is refused while work runs, so a finished task always lands in
-    // the dialog that started it.
-    let close = move |_| {
-        if !stage.peek().busy() {
-            stage.set(Stage::Hidden);
+    let result = match theme_share::gather(&name, &look).await {
+        Ok(theme) => {
+            let path = path.clone();
+            tokio::task
+                ::spawn_blocking(move || theme_share::save(&theme, &path)).await
+                .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
         }
+        Err(e) => Err(e),
     };
+    match result {
+        Ok(()) =>
+            notice::report(
+                NoticeKind::Info,
+                "Saved. Your friend can double-click the file to use it.",
+                Some(NoticeAction::ShowFile(path))
+            ),
+        Err(e) => notice::report(NoticeKind::Error, e, None),
+    }
+}
 
-    let current = stage();
-    let busy = current.busy();
-    let cfg = config();
-
-    rsx! {
-      button { class: "btn btn-ghost btn-sm", onclick: open_share,
-        Share2 { class: "w-4 h-4 mr-1" }
-        "Share"
-      }
-      button { class: "btn btn-ghost btn-sm", onclick: open_import,
-        Download { class: "w-4 h-4 mr-1" }
-        "Import"
-      }
-
-      if current != Stage::Hidden {
-      div { class: "modal modal-open",
-        div { class: "modal-box",
-          h3 { class: "font-bold text-lg mb-4", "Share theme" }
-
-          match &current {
-              Stage::Share | Stage::Sharing => rsx! {
-                div { class: "space-y-4",
-                  label { class: "form-control w-full",
-                    div { class: "label",
-                      span { class: "label-text", "Theme name" }
-                    }
-                    input {
-                      r#type: "text",
-                      class: "input input-sm w-full",
-                      maxlength: "64",
-                      disabled: busy,
-                      value: name(),
-                      oninput: move |evt| name.set(evt.value()),
-                    }
-                  }
-                  div { class: "text-sm text-base-content/70 space-y-1",
-                    div { "The file includes:" }
-                    ul { class: "list-disc ml-5",
-                      li {
-                        "Colors: "
-                        match &cfg.theme {
-                            Theme::BuiltIn(theme) => format!("{:?}", theme),
-                            Theme::Custom(_) => "your custom theme".to_string(),
-                        }
-                      }
-                      if cfg.enable_logo_customization {
-                        li { "Your logo style and images" }
-                      }
-                      if cfg.enable_background_customization {
-                        li { "Your background" }
-                      }
-                    }
-                    div { class: "text-xs text-base-content/50 pt-1",
-                      "Send the file to a friend. They open it with Import in Customize."
-                    }
-                  }
-                }
-              },
-              Stage::Shared(file_name) => rsx! {
-                div { class: "alert alert-success alert-soft",
-                  "Saved as {file_name}. Send it to a friend, they open it with Import in Customize."
-                }
-              },
-              Stage::Failed(message) => rsx! {
-                div { class: "alert alert-error alert-soft", "{message}" }
-              },
-              Stage::Hidden => rsx! {},
-          }
-
-          div { class: "modal-action mt-6",
-            button { class: "btn btn-sm btn-ghost", disabled: busy, onclick: close,
-              if current == Stage::Share { "Cancel" } else { "Close" }
-            }
-            match &current {
-                Stage::Share | Stage::Sharing => rsx! {
-                  button {
-                    class: "btn btn-sm btn-neutral",
-                    disabled: busy || name().trim().is_empty(),
-                    onclick: save,
-                    if busy {
-                      span { class: "loading loading-spinner loading-sm mr-2" }
-                      "Saving..."
-                    } else {
-                      Share2 { class: "w-4 h-4 mr-2" }
-                      "Save file"
-                    }
-                  }
-                },
-                _ => rsx! {},
-            }
-          }
-        }
-        div { class: "modal-backdrop", onclick: close }
-      }
-      }
+/// Let the user pick a theme file and hand it to the import dialog at the
+/// root, which reads it and asks.
+pub async fn pick_theme_file() {
+    if
+        let Some(handle) = rfd::AsyncFileDialog
+            ::new()
+            .add_filter("Mechvibes theme", &[FILE_EXTENSION])
+            .set_title("Import theme")
+            .pick_file().await
+    {
+        crate::utils::deep_link::deliver_theme_file(handle.path().to_path_buf());
     }
 }

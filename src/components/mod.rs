@@ -1,4 +1,5 @@
 pub mod app_info;
+pub mod customize;
 pub mod debug_log_viewer;
 pub mod device_selector;
 pub mod dock;

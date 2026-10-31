@@ -5,7 +5,6 @@ use crate::utils::config::use_config;
 use crate::utils::theme::use_themes;
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use crate::components::theme_share::ThemeShareButtons;
 use crate::components::ui::ConfirmModal;
 use lucide_dioxus::{ Ellipsis, ExternalLink, Palette, Pencil, Trash2 };
 use std::cell::RefCell;
@@ -260,7 +259,6 @@ fn CreateThemeButton(props: CreateThemeButtonProps) -> Element {
           Palette { class: "w-4 h-4 mr-1" }
           "Create"
         }
-        ThemeShareButtons {}
         a {
           class: "btn btn-ghost btn-sm",
           href: "https://mechvibes.com/themes?utm_source=mechvibes&utm_medium=app&utm_campaign=theme_creator",

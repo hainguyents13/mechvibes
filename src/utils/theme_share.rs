@@ -244,7 +244,7 @@ pub fn default_name(config: &AppConfig, themes: &ThemesConfig) -> String {
                 .get_theme_by_id(id)
                 .map(|theme| theme.name.clone())
                 .unwrap_or_else(|| "My theme".to_string()),
-        Theme::BuiltIn(theme) => format!("My {:?} look", theme),
+        Theme::BuiltIn(theme) => format!("My {:?} theme", theme),
     }
 }
 
@@ -1841,6 +1841,20 @@ mod tests {
         let shared = gather("Mine", &Look::from_config(&config, &ThemesConfig::default())).await.unwrap();
         assert_eq!(shared.colors, SharedColors::BuiltIn(BuiltInTheme::Dark));
         assert_eq!(shared.logo, Some(config.logo_customization.clone()));
+    }
+
+    #[test]
+    fn a_shared_name_says_theme_not_look() {
+        let mut themes = ThemesConfig::default();
+        let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
+        let mut config = my_config();
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        assert_eq!(default_name(&config, &themes), "My Dark theme");
+        config.theme = Theme::Custom(id);
+        assert_eq!(default_name(&config, &themes), "Night");
+        config.theme = Theme::Custom("gone".to_string());
+        assert_eq!(default_name(&config, &themes), "My theme");
     }
 
     /// An empty folder of its own under the system temp folder.
