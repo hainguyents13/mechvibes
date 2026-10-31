@@ -185,14 +185,21 @@ impl SavedThemes {
             }
         };
 
-        let document = serde_json
-            ::from_slice::<Value>(&bytes)
-            .ok()
-            .and_then(|value| match value {
-                Value::Object(document) if document.get("themes").is_some_and(Value::is_array) =>
-                    Some(document),
-                _ => None,
-            });
+        let document = match serde_json::from_slice::<Value>(&bytes) {
+            Ok(Value::Object(document)) => Some(document),
+            _ => None,
+        };
+        // A list without a layout number is read as this layout. One with a
+        // number this app does not know is still shown, so the themes can be
+        // put on, but never written. It is never taken for a damaged file
+        // either, whatever shape the newer Mechvibes gave it.
+        let made_by_newer_app = document
+            .as_ref()
+            .and_then(|document| document.get("format"))
+            .is_some_and(|format| !format.as_u64().is_some_and(|format| format <= FORMAT));
+        let document = document.filter(
+            |document| made_by_newer_app || document.get("themes").is_some_and(Value::is_array)
+        );
         let Some(mut document) = document else {
             crate::always_eprint!("❌ saved_themes.json is damaged");
             return match preserve_corrupt_config(path) {
@@ -206,14 +213,8 @@ impl SavedThemes {
             };
         };
 
-        // A list without a layout number is read as this layout. One with a
-        // number this app does not know is still shown, so the themes can be
-        // put on, but never written.
-        let read_only = match document.remove("format") {
-            None => None,
-            Some(format) if format.as_u64().is_some_and(|format| format <= FORMAT) => None,
-            Some(_) => Some(ReadOnly::MadeByNewerApp),
-        };
+        document.remove("format");
+        let read_only = made_by_newer_app.then_some(ReadOnly::MadeByNewerApp);
         let entries = match document.remove("themes") {
             Some(Value::Array(entries)) => entries,
             _ => Vec::new(),
@@ -606,6 +607,28 @@ mod tests {
         assert!(written.is_err());
         assert_eq!(std::fs::read(&path).unwrap(), bytes, "the file is untouched");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_newer_store_in_another_shape_is_never_set_aside() {
+        for (name, document) in [
+            ("themes-object", json!({ "format": 2, "themes": { "items": [entry("a", "Night", "mine")] } })),
+            ("renamed-key", json!({ "format": 2, "saved": [entry("a", "Night", "mine")] })),
+        ] {
+            let dir = temp_dir(name);
+            let path = dir.join("saved_themes.json");
+            let bytes = serde_json::to_vec(&document).unwrap();
+            std::fs::write(&path, &bytes).unwrap();
+
+            let mut store = SavedThemes::load_from(&path);
+            assert_eq!(store.read_only, Some(ReadOnly::MadeByNewerApp), "{}", name);
+            assert_eq!(store.rescued, None, "{}: not taken for a damaged file", name);
+            assert_eq!(store.themes().count(), 0);
+            assert!(store.apply_at(&path, |store| store.insert(mine("b", SharedColors::BuiltIn(BuiltInTheme::Dark)))).is_err());
+            assert_eq!(std::fs::read(&path).unwrap(), bytes, "{}: the file is untouched", name);
+            assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1, "{}: nothing was moved or written", name);
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
