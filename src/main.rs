@@ -227,6 +227,13 @@ fn main() {
     // belongs to, and put back colors the colors list lost.
     utils::theme_library::run_sync(None);
 
+    // A while after start, remove images this copy made that nothing has used
+    // for a week. Not while the saved themes cannot be read: an image only
+    // they name would look unused.
+    if state::saved_themes::current().read_only.is_none() {
+        utils::custom_images::clear_unused_images_later();
+    }
+
     // Before the app state loads the sound pack list, so the packs brought over
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();

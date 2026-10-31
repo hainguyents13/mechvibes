@@ -10,7 +10,8 @@
 //! The images folder is shared by every copy of Mechvibes on the machine (the
 //! installed app, a portable copy, a development build), while each copy has
 //! its own settings. So each copy keeps a list of the images it made itself,
-//! `owned-images.json` in its own data folder.
+//! `owned-images.json` in its own data folder, and only ever clears those
+//! once nothing has used them for a while.
 
 use chrono::{ DateTime, Utc };
 use serde::{ Deserialize, Serialize };
@@ -94,6 +95,16 @@ fn record_owned(owned: &Path, file_name: &str) {
     write_owned(owned, &list);
 }
 
+/// Clear the time `file_name` was first seen unused, when this copy made it.
+fn note_in_use(owned: &Path, file_name: &str) {
+    if let OwnedList::Read(mut list) = read_owned(owned) {
+        if let Some(unused_since @ Some(_)) = list.images.get_mut(file_name) {
+            *unused_since = None;
+            write_owned(owned, &list);
+        }
+    }
+}
+
 /// The longest picked file extension kept when the bytes say nothing.
 const MAX_EXTENSION_CHARS: usize = 8;
 
@@ -139,7 +150,9 @@ fn file_name_for(bytes: &[u8], fallback_ext: Option<&str>) -> Result<String, Str
 /// `save` into `dir`, noting an image this call created in the list of owned
 /// images at `owned`. Returns the file name and whether this call created it.
 /// An image that was already there is not noted: another copy of Mechvibes
-/// may have made it.
+/// may have made it. One this copy made counts as in use again, since the
+/// caller is about to use it, so the clean-up of unused images starts its
+/// wait over.
 pub(crate) fn save_in(
     dir: &Path,
     owned: &Path,
@@ -150,8 +163,207 @@ pub(crate) fn save_in(
     let (file_name, created) = put_in(dir, bytes, fallback_ext)?;
     if created {
         record_owned(owned, &file_name);
+    } else {
+        note_in_use(owned, &file_name);
     }
     Ok((file_name, created))
+}
+
+/// How long after start the clean-up of unused images runs, so it never
+/// slows the start.
+const CLEAR_UNUSED_AFTER_START: std::time::Duration = std::time::Duration::from_secs(120);
+
+/// How long an image this copy made stays after nothing uses it any more.
+const UNUSED_IMAGE_GRACE_DAYS: i64 = 7;
+
+/// A while after start, remove the images this copy made that nothing has
+/// used for a week, on a thread of its own.
+pub fn clear_unused_images_later() {
+    let images_dir = crate::state::paths::data::custom_images_dir();
+    if !images_dir.is_dir() {
+        return;
+    }
+    std::thread::spawn(move || {
+        std::thread::sleep(CLEAR_UNUSED_AFTER_START);
+        let config = crate::state::paths::data::config_json();
+        let data_dir = config.parent().map(Path::to_path_buf).unwrap_or_default();
+        let files = [config, crate::state::paths::data::saved_themes_json()];
+        let removed = sweep_orphans(
+            &images_dir,
+            &crate::state::paths::data::owned_images_json(),
+            || references_in(&files, &data_dir),
+            chrono::Duration::days(UNUSED_IMAGE_GRACE_DAYS),
+            Utc::now()
+        );
+        if !removed.is_empty() {
+            crate::debug_print!("🧹 Removed {} unused images", removed.len());
+        }
+    });
+}
+
+/// The text of `files` and of every copy of a damaged file kept aside in
+/// `data_dir` (`*.corrupt*`), as one string. Read as plain text, so an image
+/// named only by an entry this version cannot read, or by a field a newer
+/// version added, still counts as used. A file that is not there names
+/// nothing; any other failure is an `Err`, so nothing is removed.
+fn references_in(files: &[PathBuf], data_dir: &Path) -> Result<String, String> {
+    let mut paths = files.to_vec();
+    match fs::read_dir(data_dir) {
+        Ok(entries) => {
+            for entry in entries {
+                let entry = entry.map_err(|e| format!("{}: {}", data_dir.display(), e))?;
+                if entry.file_name().to_string_lossy().contains(".corrupt") {
+                    paths.push(entry.path());
+                }
+            }
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+        Err(e) => {
+            return Err(format!("{}: {}", data_dir.display(), e));
+        }
+    }
+
+    let mut text = String::new();
+    for path in paths {
+        match fs::read(&path) {
+            Ok(bytes) => text.push_str(&String::from_utf8_lossy(&bytes)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => {
+                return Err(format!("{}: {}", path.display(), e));
+            }
+        }
+        text.push('\n');
+    }
+    Ok(text)
+}
+
+/// Remove the images in `images_dir` that the list at `owned` says this copy
+/// made and that nothing has used for `grace`. Returns the files removed.
+///
+/// `read_references` returns the text of everything that can name an image.
+/// An image counts as used when its name appears anywhere in it. The wait
+/// starts the first time a sweep finds an image unused, and the text is read
+/// again just before anything is removed. Only names of the form
+/// `img-<32 hex>.<ext>` are ever removed, and only plain files, never a link.
+/// When the list or the references cannot be read, nothing is removed.
+pub fn sweep_orphans(
+    images_dir: &Path,
+    owned: &Path,
+    read_references: impl Fn() -> Result<String, String>,
+    grace: chrono::Duration,
+    now: DateTime<Utc>
+) -> Vec<PathBuf> {
+    let _lock = images_lock();
+    let mut list = match read_owned(owned) {
+        OwnedList::Read(list) => list,
+        OwnedList::Damaged => {
+            return Vec::new();
+        }
+        OwnedList::Unreadable(e) => {
+            crate::always_eprint!("⚠️ Unused images were left: could not read {}: {}", owned.display(), e);
+            return Vec::new();
+        }
+    };
+    let references = match read_references() {
+        Ok(references) => references,
+        Err(e) => {
+            crate::always_eprint!("⚠️ Unused images were left: could not read {}", e);
+            return Vec::new();
+        }
+    };
+    let before = list.clone();
+
+    // An image someone removed by hand needs no more watching.
+    list.images.retain(|name, _| !is_gone(&images_dir.join(name)));
+    for (name, unused_since) in list.images.iter_mut() {
+        if references.contains(name.as_str()) {
+            *unused_since = None;
+        } else if unused_since.is_none() {
+            *unused_since = Some(now);
+        }
+    }
+    let due: Vec<String> = list.images
+        .iter()
+        .filter(|(name, unused_since)| {
+            is_hashed_name(name) && unused_since.is_some_and(|since| now - since > grace)
+        })
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    let mut removed = Vec::new();
+    if !due.is_empty() {
+        // Something may have started using an image since the first read.
+        match read_references() {
+            Ok(references) => {
+                for name in due {
+                    if references.contains(name.as_str()) {
+                        list.images.insert(name, None);
+                        continue;
+                    }
+                    match remove_plain_file(&images_dir.join(&name)) {
+                        Removal::Removed(path) => {
+                            list.images.remove(&name);
+                            removed.push(path);
+                        }
+                        Removal::WasGone => {
+                            list.images.remove(&name);
+                        }
+                        Removal::Kept => {}
+                    }
+                }
+            }
+            Err(e) => crate::always_eprint!("⚠️ Unused images were left: could not read {}", e),
+        }
+    }
+
+    if list != before {
+        write_owned(owned, &list);
+    }
+    removed
+}
+
+/// What became of an image the sweep set out to remove.
+enum Removal {
+    Removed(PathBuf),
+    WasGone,
+    Kept,
+}
+
+/// Remove `path` when it is a plain file. A link or a folder is never
+/// followed or removed.
+fn remove_plain_file(path: &Path) -> Removal {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) if metadata.is_file() =>
+            match fs::remove_file(path) {
+                Ok(()) => Removal::Removed(path.to_path_buf()),
+                Err(e) => {
+                    crate::always_eprint!("⚠️ Could not remove the unused image {}: {}", path.display(), e);
+                    Removal::Kept
+                }
+            }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Removal::WasGone,
+        _ => Removal::Kept,
+    }
+}
+
+/// Whether nothing is at `path` any more.
+fn is_gone(path: &Path) -> bool {
+    matches!(fs::symlink_metadata(path), Err(e) if e.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// Whether `name` is `img-<32 lowercase hex>.<1 to 5 lowercase letters or
+/// digits>`, the only form `save` gives an image.
+fn is_hashed_name(name: &str) -> bool {
+    let Some(rest) = name.strip_prefix("img-") else {
+        return false;
+    };
+    let Some((hash, extension)) = rest.split_once('.') else {
+        return false;
+    };
+    hash.len() == 32 &&
+        hash.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f')) &&
+        (1..=5).contains(&extension.len()) &&
+        extension.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
 }
 
 /// Put `bytes` into `dir` under the name taken from their content. Another
@@ -444,6 +656,241 @@ mod tests {
         assert!(!created, "the name was there before");
         assert_eq!(fs::read(dir.join(&name)).unwrap(), PNG);
         assert_eq!(files_in(&dir), [name]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    // ===== Clearing unused images =====
+
+    fn grace() -> chrono::Duration {
+        chrono::Duration::days(UNUSED_IMAGE_GRACE_DAYS)
+    }
+
+    fn days(count: i64) -> chrono::Duration {
+        chrono::Duration::days(count)
+    }
+
+    /// A sweep of `dir` where `references` is everything that names images.
+    fn sweep(dir: &Path, references: &str, now: DateTime<Utc>) -> Vec<PathBuf> {
+        sweep_orphans(dir, &owned_list(dir), || Ok(references.to_string()), grace(), now)
+    }
+
+    /// A different image for each `seed`.
+    fn png(seed: u8) -> Vec<u8> {
+        [PNG, &[seed]].concat()
+    }
+
+    /// A sweep reading its references from a data folder of its own, the way
+    /// the app reads `config.json`, `saved_themes.json` and the damaged copies.
+    fn sweep_with_data(dir: &Path, data_dir: &Path, now: DateTime<Utc>) -> Vec<PathBuf> {
+        let files = [data_dir.join("config.json"), data_dir.join("saved_themes.json")];
+        sweep_orphans(dir, &owned_list(dir), || references_in(&files, data_dir), grace(), now)
+    }
+
+    #[test]
+    fn an_image_only_another_layout_made_is_never_swept() {
+        let dir = temp_dir("another-layout");
+        let (theirs, _) = put_in(&dir, &png(1), None).unwrap();
+        let (mine, _) = save_in(&dir, &owned_list(&dir), &png(2), None).unwrap();
+
+        let now = Utc::now();
+        assert!(sweep(&dir, "", now).is_empty(), "the first sweep only notes what is unused");
+        assert_eq!(sweep(&dir, "", now + days(30)), [dir.join(&mine)]);
+        assert!(sweep(&dir, "", now + days(60)).is_empty());
+        assert_eq!(files_in(&dir), [theirs]);
+        assert!(owned_names(&owned_list(&dir)).is_empty(), "a removed image is no longer listed");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_grace_period_starts_when_an_image_is_first_unused() {
+        let dir = temp_dir("grace");
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let now = Utc::now();
+        // Made a month ago, in use until today.
+        let month_ago = std::time::SystemTime::now() - std::time::Duration::from_secs(30 * 24 * 60 * 60);
+        fs::File::options().write(true).open(dir.join(&name)).unwrap().set_modified(month_ago).unwrap();
+        let in_use = format!("\"background_image\": \"/custom-images/{}\"", name);
+        assert!(sweep(&dir, &in_use, now - days(1)).is_empty());
+
+        assert!(sweep(&dir, "", now).is_empty(), "first seen unused today");
+        assert!(sweep(&dir, "", now + days(6)).is_empty());
+        assert_eq!(sweep(&dir, "", now + days(8)), [dir.join(&name)]);
+        assert!(files_in(&dir).is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_image_used_again_starts_its_wait_over() {
+        let dir = temp_dir("used-again");
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let now = Utc::now();
+        assert!(sweep(&dir, "", now).is_empty());
+        let in_use = format!("/custom-images/{}", name);
+        assert!(sweep(&dir, &in_use, now + days(3)).is_empty());
+        assert!(sweep(&dir, "", now + days(4)).is_empty(), "unused again from day four");
+        assert!(sweep(&dir, "", now + days(10)).is_empty());
+
+        // Saving it again means it is about to be used, before any setting says so.
+        save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        assert!(sweep(&dir, "", now + days(30)).is_empty());
+        assert_eq!(sweep(&dir, "", now + days(38)), [dir.join(&name)]);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_image_reused_during_the_sweep_is_kept() {
+        let dir = temp_dir("reused");
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let now = Utc::now();
+        assert!(sweep(&dir, "", now).is_empty());
+
+        // Unused at the first read, used by the time the sweep removes it.
+        let reads = std::cell::Cell::new(0);
+        let read_references = || {
+            reads.set(reads.get() + 1);
+            Ok(if reads.get() == 1 { String::new() } else { format!("/custom-images/{}", name) })
+        };
+        let removed = sweep_orphans(&dir, &owned_list(&dir), read_references, grace(), now + days(8));
+        assert!(removed.is_empty());
+        assert_eq!(reads.get(), 2, "the references are read again before removing");
+        assert_eq!(files_in(&dir), [name.clone()]);
+        assert!(sweep(&dir, "", now + days(9)).is_empty(), "its wait starts over");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_sweep_keeps_images_a_config_or_saved_theme_names() {
+        let (dir, data_dir) = (temp_dir("named"), temp_dir("named-data"));
+        let owned = owned_list(&dir);
+        let (in_config, _) = save_in(&dir, &owned, &png(1), None).unwrap();
+        let (in_saved_theme, _) = save_in(&dir, &owned, &png(2), None).unwrap();
+        let (unused, _) = save_in(&dir, &owned, &png(3), None).unwrap();
+        fs::write(
+            data_dir.join("config.json"),
+            format!("{{\"logo_customization\": {{\"background_image\": \"/custom-images/{}\"}}}}", in_config)
+        ).unwrap();
+        fs::write(
+            data_dir.join("saved_themes.json"),
+            format!(
+                "{{\"format\": 1, \"themes\": [{{\"background\": {{\"background_image\": \"/custom-images/{}\"}}}}]}}",
+                in_saved_theme
+            )
+        ).unwrap();
+
+        let now = Utc::now();
+        assert!(sweep_with_data(&dir, &data_dir, now).is_empty());
+        assert_eq!(sweep_with_data(&dir, &data_dir, now + days(8)), [dir.join(&unused)]);
+        assert_eq!(files_in(&dir), {
+            let mut kept = vec![in_config, in_saved_theme];
+            kept.sort();
+            kept
+        });
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn the_sweep_keeps_images_named_only_in_unreadable_entries() {
+        let (dir, data_dir) = (temp_dir("unreadable"), temp_dir("unreadable-data"));
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let saved_themes = data_dir.join("saved_themes.json");
+        fs::write(
+            &saved_themes,
+            format!(
+                "{{\"format\": 1, \"themes\": [{{\"id\": \"a\", \"name\": \"Later\", \"kind\": \"from_the_future\", \"colors\": {{\"built_in\": \"Dark\"}}, \"logo\": {{\"background_image\": \"/custom-images/{}\"}}}}]}}",
+                name
+            )
+        ).unwrap();
+        let store = crate::state::saved_themes::SavedThemes::load_from(&saved_themes);
+        assert!(store.had_unreadable && store.themes().next().is_none(), "the app cannot read this entry");
+
+        let now = Utc::now();
+        assert!(sweep_with_data(&dir, &data_dir, now).is_empty());
+        assert!(sweep_with_data(&dir, &data_dir, now + days(30)).is_empty());
+        assert_eq!(files_in(&dir), [name]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn images_named_in_a_corrupt_file_are_kept() {
+        let (dir, data_dir) = (temp_dir("corrupt"), temp_dir("corrupt-data"));
+        let owned = owned_list(&dir);
+        let (in_corrupt, _) = save_in(&dir, &owned, &png(1), None).unwrap();
+        let (in_numbered_corrupt, _) = save_in(&dir, &owned, &png(2), None).unwrap();
+        fs::write(data_dir.join("config.json.corrupt"), format!("{{ broken /custom-images/{}", in_corrupt)).unwrap();
+        fs::write(
+            data_dir.join("saved_themes.json.corrupt.2"),
+            format!("not json /custom-images/{}", in_numbered_corrupt)
+        ).unwrap();
+
+        let now = Utc::now();
+        assert!(sweep_with_data(&dir, &data_dir, now).is_empty());
+        assert!(sweep_with_data(&dir, &data_dir, now + days(30)).is_empty());
+        assert_eq!(files_in(&dir).len(), 2);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn references_that_cannot_be_read_remove_nothing() {
+        let dir = temp_dir("no-references");
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let now = Utc::now();
+        assert!(sweep(&dir, "", now).is_empty());
+        let removed = sweep_orphans(&dir, &owned_list(&dir), || Err("busy".to_string()), grace(), now + days(30));
+        assert!(removed.is_empty());
+
+        // A config that is a folder cannot be read.
+        let data_dir = temp_dir("no-references-data");
+        fs::create_dir(data_dir.join("config.json")).unwrap();
+        assert!(sweep_with_data(&dir, &data_dir, now + days(30)).is_empty());
+        assert_eq!(files_in(&dir), [name]);
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&data_dir);
+    }
+
+    #[test]
+    fn the_sweep_only_touches_hashed_names() {
+        let dir = temp_dir("hashed");
+        let long_ago = Utc::now() - days(365);
+        let names = [
+            "photo_1a2b3c4d.png",
+            "photo_1700000000.png",
+            "img-0123456789abcdef0123456789ABCDEF.png",
+            "img-0123456789abcdef.png",
+            "img-0123456789abcdef0123456789abcdef.toolong",
+        ];
+        for name in names {
+            fs::write(dir.join(name), PNG).unwrap();
+        }
+        // A list someone edited by hand, claiming files the app never names.
+        let list = OwnedImages {
+            images: names
+                .iter()
+                .map(|name| (name.to_string(), Some(long_ago)))
+                .chain([("../outside.png".to_string(), Some(long_ago))])
+                .collect(),
+        };
+        crate::utils::data::save_json_to_file_atomically(&list, &owned_list(&dir)).unwrap();
+
+        assert!(sweep(&dir, "", Utc::now()).is_empty());
+        assert_eq!(files_in(&dir).len(), names.len());
+        assert!(is_hashed_name(&url_for(PNG).unwrap().replace("/custom-images/", "")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_damaged_owned_list_deletes_nothing() {
+        let dir = temp_dir("damaged-sweep");
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
+        let now = Utc::now();
+        assert!(sweep(&dir, "", now).is_empty());
+        fs::write(owned_list(&dir), b"{ cut short").unwrap();
+
+        assert!(sweep(&dir, "", now + days(30)).is_empty());
+        assert!(sweep(&dir, "", now + days(60)).is_empty(), "the moved list owns nothing");
+        assert_eq!(files_in(&dir), [name, "owned-images.json.corrupt".to_string()]);
         let _ = fs::remove_dir_all(&dir);
     }
 }
