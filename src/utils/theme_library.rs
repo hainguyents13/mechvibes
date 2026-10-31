@@ -8,6 +8,11 @@
 //! a card points at it, so nothing is ever saved twice.
 //!
 //! `sync_action` decides and is pure. `run_sync` carries the decision out.
+//!
+//! A theme installed from a file or the theme library gets a card of its own
+//! that holds every part of it, whatever parts the user put on. Installing
+//! the same library theme again updates its card, and importing the same
+//! file again reuses its card (`add_installed`).
 
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
@@ -15,9 +20,10 @@ use crate::state::config_writer;
 use crate::state::saved_themes::{ self, checked_look, SavedTheme, SavedThemes, ThemeKind };
 use crate::state::themes::ThemesConfig;
 use crate::utils::theme;
-use crate::utils::theme_share::{ safe_theme_css, Look, LookColors, SharedColors, MAX_NAME_CHARS };
+use crate::utils::theme_share::{ self, safe_theme_css, ImportParts, Look, LookColors, SharedColors, SharedTheme, MAX_NAME_CHARS };
 use chrono::{ DateTime, Utc };
 use serde_json::Map;
+use std::path::PathBuf;
 use std::time::{ Duration, Instant };
 
 /// How long after the last edit the look is saved, so typing a color or
@@ -330,6 +336,132 @@ impl SyncDebounce {
     /// another card is put on.
     pub fn take_now(&mut self) -> Option<Option<String>> {
         self.burst.take().map(|burst| burst.name_hint)
+    }
+}
+
+// ===== Installing =====
+
+/// Where a theme being installed came from.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ThemeSource {
+    /// A `.mvtheme` file, told apart from others by `SharedTheme::fingerprint`.
+    File {
+        fingerprint: String,
+    },
+    /// The theme library: the id from the link, already checked, and the
+    /// checksum the library gave for the file.
+    Library {
+        id: String,
+        checksum: String,
+    },
+}
+
+/// What putting an installed theme on writes to the config.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Installed {
+    /// The theme with only the ticked parts.
+    pub shown: SharedTheme,
+    /// The theme its colors became, when the colors are ticked.
+    pub colors: Option<Theme>,
+    /// The id of the installed theme's card.
+    pub card: String,
+}
+
+/// The colors, then the card, of a theme whose images are installed already:
+/// `full` holds every part, pointed at the installed images, and `written`
+/// are the image files that install made. The card holds every part, so
+/// putting it on later shows the whole theme; only `Installed::shown` leaves
+/// out the parts the user did not tick.
+///
+/// The order keeps a failure from losing what was installed before. Colors
+/// that cannot be added take `written` back and change nothing else. A card
+/// that cannot be saved leaves the list as it was (`save_list` gives the
+/// change to the list and says whether it was saved), and the images stay
+/// for the clean-up of unused images, since the old card may use some.
+pub fn add_installed(
+    full: SharedTheme,
+    written: &[PathBuf],
+    parts: ImportParts,
+    source: &ThemeSource,
+    choose_colors: impl FnOnce(&SharedColors, &str) -> Result<Theme, String>,
+    save_list: impl FnOnce(&mut dyn FnMut(&mut SavedThemes)) -> Result<(), String>
+) -> Result<Installed, String> {
+    let colors = if parts.colors {
+        match choose_colors(&full.colors, &full.name) {
+            Ok(theme) => Some(theme),
+            Err(e) => {
+                theme_share::remove_images(written);
+                return Err(e);
+            }
+        }
+    } else {
+        None
+    };
+
+    let mut card = None;
+    save_list(&mut |store| {
+        card = Some(upsert_installed(store, &full, source, Utc::now()));
+    })?;
+    let card = card.ok_or_else(|| "Could not save the theme.".to_string())?;
+
+    let mut shown = full;
+    shown.keep_parts(parts);
+    Ok(Installed { shown, colors, card })
+}
+
+/// Put an installed theme's card on the list and give its id. A library
+/// theme installed before is updated in place: same id and creation time,
+/// the content, name and checksum of this install. A file imported before
+/// keeps its card as it is. A copy the user made of either is never touched,
+/// since it is a theme of their own with no library id or fingerprint.
+pub fn upsert_installed(store: &mut SavedThemes, theme: &SharedTheme, source: &ThemeSource, now: DateTime<Utc>) -> String {
+    let existing = store
+        .themes()
+        .find(|saved| match source {
+            ThemeSource::Library { id, .. } =>
+                saved.kind == ThemeKind::Library && saved.library_id.as_deref() == Some(id.as_str()),
+            ThemeSource::File { fingerprint } =>
+                saved.kind == ThemeKind::Imported && saved.fingerprint.as_deref() == Some(fingerprint.as_str()),
+        })
+        .map(|saved| saved.id.clone());
+
+    match (existing, source) {
+        (Some(card), ThemeSource::Library { checksum, .. }) => {
+            store.update(&card, |saved| {
+                saved.name = theme.name.clone();
+                saved.colors = theme.colors.clone();
+                saved.logo = theme.logo.clone();
+                saved.background = theme.background.clone();
+                saved.library_checksum = Some(checksum.clone());
+                saved.updated_at = now;
+            });
+            card
+        }
+        (Some(card), ThemeSource::File { .. }) => card,
+        (None, source) => {
+            let (kind, library_id, library_checksum, fingerprint) = match source {
+                ThemeSource::Library { id, checksum } =>
+                    (ThemeKind::Library, Some(id.clone()), Some(checksum.clone()), None),
+                ThemeSource::File { fingerprint } => (ThemeKind::Imported, None, None, Some(fingerprint.clone())),
+            };
+            let card = SavedTheme {
+                id: uuid::Uuid::new_v4().to_string(),
+                name: theme.name.clone(),
+                kind,
+                library_id,
+                library_checksum,
+                fingerprint,
+                colors: theme.colors.clone(),
+                logo: theme.logo.clone(),
+                background: theme.background.clone(),
+                created_at: now,
+                updated_at: now,
+                extra: Map::new(),
+            };
+            let id = card.id.clone();
+            store.insert(card);
+            id
+        }
     }
 }
 
@@ -782,5 +914,258 @@ mod tests {
         assert_eq!((theme.created_at, theme.updated_at), (now, now));
         assert!(saved_themes::checked(theme).is_some(), "it passes the saved list's checks");
         assert_eq!(new_mine("Lost".to_string(), lost_colors(), now), None);
+    }
+
+    // ===== Installing =====
+
+    /// A theme with custom colors, a logo with two images and a background
+    /// image, named "Night drive".
+    const NIGHT: &[u8] = include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme");
+    /// Another theme with a logo and background, and images of its own.
+    const SUNSET: &[u8] = include_bytes!("theme_share/fixtures/v1/library-rewritten.mvtheme");
+    /// Colors only.
+    const PLAIN: &[u8] = include_bytes!("theme_share/fixtures/v1/built-in-plain.mvtheme");
+    const LIBRARY_ID: &str = "th-0123456789abcdef0123456789abcdef";
+
+    /// An empty folder of its own under the system temp folder.
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("mechvibes-theme-library-{}-{}", name, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn files_in(dir: &std::path::Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs
+            ::read_dir(dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        names.sort();
+        names
+    }
+
+    fn library(checksum: &str) -> ThemeSource {
+        ThemeSource::Library { id: LIBRARY_ID.to_string(), checksum: checksum.to_string() }
+    }
+
+    fn file(bytes: &[u8]) -> ThemeSource {
+        ThemeSource::File { fingerprint: theme_share::from_bytes(bytes).unwrap().fingerprint() }
+    }
+
+    /// Install `bytes` the way `put_on` does: every image into `dir`, the
+    /// colors into `themes`, the card into `store`.
+    fn install(
+        bytes: &[u8],
+        parts: ImportParts,
+        source: &ThemeSource,
+        dir: &std::path::Path,
+        store: &mut SavedThemes,
+        themes: &mut ThemesConfig
+    ) -> (Installed, Vec<PathBuf>) {
+        let mut theme = theme_share::from_bytes(bytes).unwrap();
+        let written = theme_share::install_images_in(&mut theme, dir).unwrap();
+        let installed = add_installed(
+            theme,
+            &written,
+            parts,
+            source,
+            |colors, name| colors_choice(colors, name, themes),
+            |upsert| {
+                upsert(store);
+                Ok(())
+            }
+        ).unwrap();
+        (installed, written)
+    }
+
+    fn card_of<'a>(store: &'a SavedThemes, id: &str) -> &'a SavedTheme {
+        store.themes().find(|theme| theme.id == id).unwrap()
+    }
+
+    /// Puts the installed theme on a config the way `put_on` does.
+    fn wear(installed: &Installed, parts: ImportParts, config: &mut AppConfig) {
+        theme_share::apply_to_config(&installed.shown, installed.colors.clone(), parts, config);
+        config.active_theme_id = Some(installed.card.clone());
+    }
+
+    #[test]
+    fn reinstalling_a_library_theme_updates_it_in_place() {
+        let dir = temp_dir("reinstall");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let (first, _) = install(NIGHT, ImportParts::ALL, &library("aaa"), &dir, &mut store, &mut themes);
+        let before = card_of(&store, &first.card).clone();
+        assert_eq!(before.kind, ThemeKind::Library);
+        assert_eq!(before.library_id.as_deref(), Some(LIBRARY_ID));
+        assert!(saved_themes::checked(before.clone()).is_some(), "it passes the saved list's checks");
+
+        let (second, _) = install(SUNSET, ImportParts::ALL, &library("bbb"), &dir, &mut store, &mut themes);
+        assert_eq!(second.card, first.card);
+        assert_eq!(store.themes().count(), 1, "one card for each library theme");
+        let card = card_of(&store, &second.card);
+        assert_eq!((&card.id, card.created_at), (&before.id, before.created_at));
+        assert_eq!(card.name, "Library sunset");
+        assert_eq!(card.library_checksum.as_deref(), Some("bbb"));
+        assert_eq!(card.colors, theme_share::from_bytes(SUNSET).unwrap().colors);
+        assert_ne!(card.logo, before.logo);
+        assert!(card.updated_at >= before.updated_at);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn reinstalling_leaves_my_copy_alone() {
+        let dir = temp_dir("copy");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let (installed, _) = install(NIGHT, ImportParts::ALL, &library("aaa"), &dir, &mut store, &mut themes);
+
+        // An edit to the installed theme saves a copy.
+        let mut live = card_of(&store, &installed.card).look();
+        live.background = None;
+        let SyncAction::CreateMine { name, look } = sync_action(&live, Some(&installed.card), &cards(&store), None) else {
+            panic!("an edit to an installed theme makes a copy");
+        };
+        let copy = new_mine(name, look, Utc::now()).unwrap();
+        store.insert(copy.clone());
+
+        install(SUNSET, ImportParts::ALL, &library("bbb"), &dir, &mut store, &mut themes);
+        assert_eq!(card_of(&store, &copy.id), &copy, "the copy is the user's own");
+        assert_eq!(store.themes().filter(|theme| theme.kind == ThemeKind::Library).count(), 1);
+        assert_eq!(card_of(&store, &installed.card).name, "Library sunset");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn importing_the_same_file_twice_reuses_its_card() {
+        let dir = temp_dir("twice");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let (first, _) = install(NIGHT, ImportParts::ALL, &file(NIGHT), &dir, &mut store, &mut themes);
+        let card = card_of(&store, &first.card).clone();
+        assert_eq!(card.kind, ThemeKind::Imported);
+        assert_eq!(card.library_id, None);
+        assert!(saved_themes::checked(card.clone()).is_some(), "it passes the saved list's checks");
+
+        let (again, written) = install(NIGHT, ImportParts::ALL, &file(NIGHT), &dir, &mut store, &mut themes);
+        assert_eq!(again.card, first.card);
+        assert_eq!(store.themes().count(), 1);
+        assert_eq!(card_of(&store, &again.card), &card, "the card is reused as it is");
+        assert!(written.is_empty(), "its images are there already");
+        assert_eq!(themes.custom_themes.len(), 1, "and so are its colors");
+
+        let (other, _) = install(SUNSET, ImportParts::ALL, &file(SUNSET), &dir, &mut store, &mut themes);
+        assert_ne!(other.card, first.card, "another file gets a card of its own");
+        assert_eq!(store.themes().count(), 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_mixed_import_keeps_the_original_and_saves_my_copy() {
+        let dir = temp_dir("mixed");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let mut config = AppConfig::default();
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "#00ff00".to_string();
+
+        // The user keeps their own logo.
+        let parts = ImportParts { logo: false, ..ImportParts::ALL };
+        let (installed, _) = install(NIGHT, parts, &file(NIGHT), &dir, &mut store, &mut themes);
+        wear(&installed, parts, &mut config);
+        let live = Look::from_config(&config, &themes);
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None);
+        let SyncAction::CreateMine { name, look } = action else {
+            panic!("a mixed look is saved as a copy, not {:?}", action);
+        };
+        assert_eq!(name, "Night drive (my copy)");
+        assert_eq!(look.logo.as_ref().unwrap().text_color, "#00ff00", "the copy has the user's logo");
+        assert!(look.background.is_some(), "and the theme's background");
+        let original = card_of(&store, &installed.card);
+        assert_eq!(original.logo.as_ref().unwrap().border_color, "#ff4fa3", "the installed theme keeps its own");
+
+        // A theme without a logo leaves the user's on, which mixes the look too.
+        let plain = theme_share::from_bytes(PLAIN).unwrap();
+        let (installed, _) = install(PLAIN, ImportParts::ALL, &file(PLAIN), &dir, &mut store, &mut themes);
+        wear(&installed, ImportParts::ALL, &mut config);
+        let live = Look::from_config(&config, &themes);
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None);
+        assert_eq!(creates(&action), Some(format!("{} (my copy)", plain.name).as_str()));
+
+        // With the user's own logo off, the look is the theme itself.
+        config.enable_logo_customization = false;
+        config.enable_background_customization = false;
+        let live = Look::from_config(&config, &themes);
+        assert_eq!(sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None), SyncAction::Nothing);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_installed_card_keeps_unticked_part_images() {
+        let dir = temp_dir("unticked");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let parts = ImportParts { background: false, ..ImportParts::ALL };
+        let (installed, _) = install(NIGHT, parts, &file(NIGHT), &dir, &mut store, &mut themes);
+
+        let card = card_of(&store, &installed.card);
+        let image = card.background.as_ref().unwrap().background_image.clone().unwrap();
+        assert!(image.starts_with("/custom-images/img-"), "{}", image);
+        assert!(dir.join(image.trim_start_matches("/custom-images/")).is_file(), "the background image is installed");
+        assert_eq!(installed.shown.background, None, "but not put on");
+
+        let mut config = AppConfig::default();
+        config.enable_background_customization = true;
+        config.background_customization.background_color = "#202020".to_string();
+        let before = config.clone();
+        wear(&installed, parts, &mut config);
+        assert_eq!(config.enable_background_customization, before.enable_background_customization);
+        assert_eq!(config.background_customization, before.background_customization);
+        assert!(config.enable_logo_customization, "the ticked logo is on");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_failed_reinstall_keeps_the_installed_version() {
+        let dir = temp_dir("failed");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        install(NIGHT, ImportParts::ALL, &library("aaa"), &dir, &mut store, &mut themes);
+        let installed_version = store.clone();
+        let images_before = files_in(&dir);
+
+        // The colors cannot be added: the images this install made go again.
+        let mut theme = theme_share::from_bytes(SUNSET).unwrap();
+        let written = theme_share::install_images_in(&mut theme, &dir).unwrap();
+        assert!(!written.is_empty());
+        let failed = add_installed(
+            theme,
+            &written,
+            ImportParts::ALL,
+            &library("bbb"),
+            |_, _| Err("The disk is full.".to_string()),
+            |upsert| {
+                upsert(&mut store);
+                Ok(())
+            }
+        );
+        assert_eq!(failed.unwrap_err(), "The disk is full.");
+        assert_eq!(store, installed_version);
+        assert_eq!(files_in(&dir), images_before, "the old images stay, the new ones are gone");
+
+        // The card cannot be saved: the list stays as it was, and the images
+        // stay for the clean-up of unused images.
+        let mut theme = theme_share::from_bytes(SUNSET).unwrap();
+        let written = theme_share::install_images_in(&mut theme, &dir).unwrap();
+        let failed = add_installed(
+            theme,
+            &written,
+            ImportParts::ALL,
+            &library("bbb"),
+            |colors, name| colors_choice(colors, name, &mut themes),
+            |upsert| {
+                let mut attempt = store.clone();
+                upsert(&mut attempt);
+                Err("Could not save your theme.".to_string())
+            }
+        );
+        assert_eq!(failed.unwrap_err(), "Could not save your theme.");
+        assert_eq!(store, installed_version);
+        assert!(written.iter().all(|image| image.is_file()));
+        assert_eq!(card_of(&store, &store.themes().next().unwrap().id).name, "Night drive");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

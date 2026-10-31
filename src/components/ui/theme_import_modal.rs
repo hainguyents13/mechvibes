@@ -12,8 +12,9 @@
 //! Either way nothing is put on until the user clicks Use this theme, and
 //! what is put on then is exactly the file the dialog showed. The dialog
 //! lists the colours, the logo and the background with a tick each; an
-//! unticked part brings nothing and leaves the user's own as it is. Once a
-//! theme is on, Undo puts back the look from before it.
+//! unticked part leaves the user's own as it is. The installed theme keeps
+//! every part either way, so it can be put on whole later. Once a theme is
+//! on, Undo puts back the look from before it.
 //!
 //! Reading, looking up and downloading can be cancelled. Each request has its
 //! own number, and a result that comes back after its request was cancelled
@@ -26,6 +27,7 @@ use crate::utils::config::use_config;
 use crate::utils::deep_link;
 use crate::utils::library_client;
 use crate::utils::theme::use_themes;
+use crate::utils::theme_library::ThemeSource;
 use crate::utils::theme_share::{ self, checklist, preview_stripes, ImportParts, SharedColors, SharedTheme };
 use dioxus::prelude::*;
 use lucide_dioxus::{ Download, Image as ImageIcon, Palette, Stamp, Undo2 };
@@ -35,6 +37,8 @@ use std::rc::Rc;
 #[derive(Debug, PartialEq)]
 struct Offer {
     theme: SharedTheme,
+    /// Where the theme came from, so installing it again finds its card.
+    source: ThemeSource,
     /// The picture that stands for the theme, as a `data:` URI, or `None` to
     /// show its colours.
     preview: Option<String>,
@@ -122,13 +126,24 @@ pub fn ThemeImportModal() -> Element {
                 };
                 parts.set(ImportParts::ALL);
                 spawn(async move {
+                    // The fingerprint is read off the window thread too, as it
+                    // hashes every image.
                     let opened = tokio::task
-                        ::spawn_blocking(move || theme_share::open(&path).map(with_preview)).await
+                        ::spawn_blocking(move || {
+                            theme_share::open(&path).map(|theme| (theme.fingerprint(), with_preview(theme)))
+                        }).await
                         .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
                     advance(stage, request, number, match opened {
-                        Ok((theme, preview)) =>
+                        Ok((fingerprint, (theme, preview))) =>
                             Stage::Confirm(
-                                Rc::new(Offer { theme, preview, author: None, description: None, size: None })
+                                Rc::new(Offer {
+                                    theme,
+                                    source: ThemeSource::File { fingerprint },
+                                    preview,
+                                    author: None,
+                                    description: None,
+                                    size: None,
+                                })
                             ),
                         Err(e) => Stage::Failed(e),
                     });
@@ -171,9 +186,16 @@ pub fn ThemeImportModal() -> Element {
                         Ok((mut theme, preview)) => {
                             // The name the library page showed, not the one inside the file.
                             theme.rename(&listed.name);
+                            // The id is the one the link asked for, which the
+                            // library's answer had to match, never one a file names.
+                            let source = ThemeSource::Library {
+                                id: listed.id.clone(),
+                                checksum: listed.checksum.trim().to_lowercase(),
+                            };
                             Stage::Confirm(
                                 Rc::new(Offer {
                                     theme,
+                                    source,
                                     preview,
                                     author: listed.author,
                                     description: listed.description,
@@ -207,11 +229,11 @@ pub fn ThemeImportModal() -> Element {
             return;
         }
         // Exactly the theme the dialog showed; nothing is read again.
-        let theme = offer.theme.clone();
+        let (theme, source) = (offer.theme.clone(), offer.source.clone());
         stage.set(Stage::Working);
         let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
-            stage.set(match put_on(theme, ticked, update_config, update_themes, theme_signal).await {
+            stage.set(match put_on(theme, ticked, source, update_config, update_themes, theme_signal).await {
                 Ok(name) => Stage::Done(name),
                 Err(e) => Stage::Failed(e),
             });
@@ -294,7 +316,7 @@ pub fn ThemeImportModal() -> Element {
                     }
                   }
                 }
-                div { class: "text-xs text-base-content/60 mt-3", "Untick a part to keep yours." }
+                div { class: "text-xs text-base-content/60 mt-3", "Your current theme stays in the Themes tab." }
               },
               Stage::Done(name) => rsx! {
                 div { class: "alert alert-success alert-soft", "{name} is on." }
@@ -441,7 +463,8 @@ mod tests {
     fn asking() -> Stage {
         let bytes = include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme");
         let theme = theme_share::from_bytes(bytes).unwrap();
-        Stage::Confirm(Rc::new(Offer { theme, preview: None, author: None, description: None, size: None }))
+        let source = ThemeSource::File { fingerprint: theme.fingerprint() };
+        Stage::Confirm(Rc::new(Offer { theme, source, preview: None, author: None, description: None, size: None }))
     }
 
     #[test]

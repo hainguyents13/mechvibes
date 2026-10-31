@@ -129,6 +129,39 @@ impl SharedTheme {
     pub fn parts(&self) -> ImportParts {
         ImportParts { colors: true, logo: self.logo.is_some(), background: self.background.is_some() }
     }
+
+    /// Tells the same theme imported twice apart from another one: the
+    /// SHA-256 of its name, colours, logo and background, with each image
+    /// named by the SHA-256 of its bytes rather than the name in the file.
+    /// Read it before the images are installed. It only spots a theme seen
+    /// before and proves nothing about where a file came from.
+    pub fn fingerprint(&self) -> String {
+        use sha2::{ Digest, Sha256 };
+        let hash = |bytes: &[u8]| crate::utils::update_installer::hex_encode(&Sha256::digest(bytes));
+        let by_content = |image: &mut Option<String>| {
+            if let Some(name) = image {
+                if let Some(bytes) = self.images.get(name.as_str()) {
+                    *name = hash(bytes);
+                }
+            }
+        };
+        let mut logo = self.logo.clone();
+        if let Some(logo) = &mut logo {
+            by_content(&mut logo.background_image);
+            by_content(&mut logo.muted_background_image);
+        }
+        let mut background = self.background.clone();
+        if let Some(background) = &mut background {
+            by_content(&mut background.background_image);
+        }
+        let shown = serde_json::json!({
+            "name": self.name,
+            "colors": self.colors,
+            "logo": logo,
+            "background": background,
+        });
+        hash(shown.to_string().as_bytes())
+    }
 }
 
 /// What a theme looks like, without a name or image bytes: the colours, and
@@ -877,7 +910,7 @@ pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>
     install_images_in(theme, &crate::state::paths::data::custom_images_dir())
 }
 
-fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
+pub(crate) fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     let mut installed = HashMap::new();
     let mut created = Vec::new();
     for (name, bytes) in &theme.images {
@@ -2275,6 +2308,37 @@ mod tests {
         assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))]);
         assert!(theme.images.is_empty());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_fingerprint_follows_what_a_theme_shows_not_its_image_names() {
+        let theme = look();
+        let bytes = include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme");
+        assert_eq!(
+            from_bytes(bytes).unwrap().fingerprint(),
+            from_bytes(bytes).unwrap().fingerprint(),
+            "the same file read twice"
+        );
+        assert_ne!(from_bytes(bytes).unwrap().fingerprint(), theme.fingerprint());
+
+        // The same picture under another name inside the file.
+        let mut renamed = look();
+        let picture = renamed.images.remove("logo.png").unwrap();
+        renamed.images.insert("image-1.png".to_string(), picture);
+        renamed.logo.as_mut().unwrap().background_image = Some("image-1.png".to_string());
+        assert_eq!(renamed.fingerprint(), theme.fingerprint());
+
+        let mut other_picture = look();
+        other_picture.images.insert("logo.png".to_string(), [PNG, b"!"].concat());
+        assert_ne!(other_picture.fingerprint(), theme.fingerprint());
+
+        let mut other_name = look();
+        other_name.rename("Day drive");
+        assert_ne!(other_name.fingerprint(), theme.fingerprint());
+
+        let mut fewer_parts = look();
+        fewer_parts.keep_parts(ImportParts { background: false, ..ImportParts::ALL });
+        assert_ne!(fewer_parts.fingerprint(), theme.fingerprint());
     }
 
     #[test]

@@ -9,77 +9,95 @@
 use crate::components::customize::look_editor;
 use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
+use crate::state::config_writer;
+use crate::state::saved_themes;
 use crate::state::themes::ThemesConfig;
 use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
 use crate::utils::theme::UpdateThemes;
+use crate::utils::theme_library::{ self, ThemeSource };
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-/// Put the ticked `parts` of an opened look on: their images saved, custom
-/// colours added to the list, then the theme and the rest of the config
-/// switched over. An unticked part brings nothing and changes nothing. Gives
-/// the look's name back. Images saved before a failure are removed again. The
-/// look from before is remembered, so `undo_look` can put it back.
+/// Install an opened theme and put its ticked `parts` on. Every part's images
+/// are installed and the theme gets a card holding all of it (see
+/// `theme_library::add_installed`), so an unticked part only stays off the
+/// look on screen. Then the config takes the ticked parts and points at the
+/// card. Gives the theme's name back.
+///
+/// The look from before is saved as a theme first and remembered, so
+/// `undo_look` can put it back. When the look on screen ends up mixing the
+/// theme with parts of the user's own, it is saved as "<name> (my copy)" and
+/// the installed card stays as the file has it. Nothing is installed while
+/// the saved themes cannot be written.
 pub async fn put_on(
-    mut look: SharedTheme,
+    mut theme: SharedTheme,
     parts: ImportParts,
+    source: ThemeSource,
     update_config: Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
     update_themes: UpdateThemes,
     mut theme_signal: Signal<Theme>
 ) -> Result<String, String> {
-    // The look from before is saved as a theme first, so it can be put on again.
     look_editor::save_look_on_screen();
-    look.keep_parts(parts);
-    let (look, written) = tokio::task
-        ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
+    if let Some(read_only) = saved_themes::current().read_only {
+        return Err(read_only.message().to_string());
+    }
+    let (full, written) = tokio::task
+        ::spawn_blocking(move || theme_share::install_images(&mut theme).map(|written| (theme, written))).await
         .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()))?;
 
-    let choice = match &look.colors {
-        _ if !parts.colors => None,
-        SharedColors::BuiltIn(theme) => Some(Theme::BuiltIn(theme.clone())),
-        SharedColors::Custom { css } => {
-            let added = Rc::new(RefCell::new(None));
-            let saved = update_themes(
-                Box::new({
-                    let added = added.clone();
-                    let (name, css) = (look.name.clone(), css.clone());
-                    move |themes| {
-                        *added.borrow_mut() = Some(themes.import_theme(&name, &css));
-                    }
-                })
-            );
-            let added = saved.and_then(|()| {
-                added.borrow_mut().take().unwrap_or_else(|| Err("Could not save the theme.".to_string()))
-            });
-            match added {
-                Ok(id) => Some(Theme::Custom(id)),
-                Err(e) => {
-                    theme_share::remove_images(&written);
-                    return Err(e);
-                }
-            }
-        }
-    };
+    let installed = theme_library::add_installed(
+        full,
+        &written,
+        parts,
+        &source,
+        |colors, name| add_colors(&update_themes, colors, name),
+        |upsert| saved_themes::apply(|store| upsert(store)).map(|_| ())
+    )?;
 
-    if let Some(choice) = &choice {
+    if let Some(choice) = &installed.colors {
         theme_signal.set(choice.clone());
     }
-    let name = look.name.clone();
-    // The look is remembered inside the write, so `before` is exactly what
-    // the config held right before this theme went on. The new look belongs
-    // to no saved theme yet, so the one from before is never saved over.
+    let name = installed.shown.name.clone();
+    // `before` is read inside the write, so it is exactly what the config
+    // held right before this theme went on.
+    let before = Rc::new(RefCell::new(None));
     update_config(
-        Box::new(move |cfg| {
-            let before = LookFields::of(cfg);
-            theme_share::apply_to_config(&look, choice, parts, cfg);
-            cfg.active_theme_id = None;
-            look_undo::remember(before, LookFields::of(cfg));
+        Box::new({
+            let before = before.clone();
+            move |cfg| {
+                *before.borrow_mut() = Some(LookFields::of(cfg));
+                theme_share::apply_to_config(&installed.shown, installed.colors, parts, cfg);
+                cfg.active_theme_id = Some(installed.card);
+            }
         })
     );
+    // A look that differs from the card is saved as a copy, before Undo
+    // remembers what this step left on screen.
+    look_editor::save_look_on_screen();
+    if let Some(before) = before.borrow_mut().take() {
+        look_undo::remember(before, LookFields::of(&config_writer::current()));
+    }
     Ok(name)
+}
+
+/// The theme `colors` take, added to the colors list under `name` unless the
+/// list has them already.
+fn add_colors(update_themes: &UpdateThemes, colors: &SharedColors, name: &str) -> Result<Theme, String> {
+    let chosen = Rc::new(RefCell::new(None));
+    let saved = update_themes(
+        Box::new({
+            let chosen = chosen.clone();
+            let (colors, name) = (colors.clone(), name.to_string());
+            move |themes| {
+                *chosen.borrow_mut() = Some(theme_library::colors_choice(&colors, &name, themes));
+            }
+        })
+    );
+    let chosen = chosen.borrow_mut().take();
+    saved.and_then(|()| chosen.unwrap_or_else(|| Err("Could not save the theme.".to_string())))
 }
 
 /// Go back to the look from before the last theme was put on, if nothing has
