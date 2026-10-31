@@ -259,7 +259,7 @@ struct ThemeCreatorModalProps {
     editing_theme_id: Signal<Option<String>>,
 }
 
-const THEME_DEFAULT_CSS: &str =
+pub(crate) const THEME_DEFAULT_CSS: &str =
     r#"/* Colors */
 --color-base-100: oklch(98% 0.02 240);
 --color-base-200: oklch(95% 0.03 240);

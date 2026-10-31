@@ -720,9 +720,12 @@ fn safe_color(value: &str, default: String) -> Result<String, String> {
     safe_css_value(value).ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
 }
 
-/// The colour declarations of a theme's CSS, one per line. Anything else,
-/// rules, at-rules and declarations whose value is not a plain colour or
-/// length, is dropped.
+/// The declarations of a theme's CSS this app knows, one per line: the
+/// `--color-*` colours, `color-scheme` and the daisyUI sizes, each with a
+/// value it can use. Anything else, rules, at-rules, other properties, a
+/// colour that draws nothing and a size out of range, is dropped, so a theme
+/// can change how the app looks but cannot hide its text or blow up its
+/// controls.
 pub fn safe_theme_css(css: &str) -> String {
     let mut without_comments = String::new();
     let mut rest = css;
@@ -743,19 +746,113 @@ pub fn safe_theme_css(css: &str) -> String {
         .filter_map(|declaration| {
             let (property, value) = declaration.split_once(':')?;
             let property = property.trim();
-            let custom = property
-                .strip_prefix("--")
-                .is_some_and(|name| {
-                    !name.is_empty() &&
-                        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                });
-            if !custom && property != "color-scheme" {
-                return None;
-            }
-            Some(format!("{}: {};", property, safe_css_value(value)?))
+            let value = safe_css_value(value)?;
+            theme_value_fits(property, &value).then(|| format!("{}: {};", property, value))
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The colour functions whose alpha comes after a `/`.
+const ALPHA_FUNCTIONS: [&str; 10] = [
+    "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color",
+];
+
+/// Whether `property` is a theme variable this app knows and `value`, already
+/// through `safe_css_value`, is one it can use.
+fn theme_value_fits(property: &str, value: &str) -> bool {
+    if let Some(name) = property.strip_prefix("--color-") {
+        return !name.is_empty() &&
+            name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') &&
+            !is_invisible_color(value);
+    }
+    let length_within = |low: f64, high: f64| length_px(value).is_some_and(|px| (low..=high).contains(&px));
+    match property {
+        "color-scheme" => value == "light" || value == "dark",
+        "--radius-selector" | "--radius-field" | "--radius-box" => length_within(0.0, 32.0),
+        "--size-selector" | "--size-field" => length_within(2.0, 8.0),
+        "--border" => length_within(0.5, 2.0),
+        "--depth" | "--noise" => value == "0" || value == "1",
+        _ => false,
+    }
+}
+
+/// A colour that draws nothing: `transparent`, a hex colour whose alpha is
+/// zero, or a colour function whose alpha is zero.
+pub(crate) fn is_invisible_color(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    if value == "transparent" {
+        return true;
+    }
+    if let Some(hex) = value.strip_prefix('#') {
+        return match hex.len() {
+            4 => hex.ends_with('0'),
+            8 => hex.ends_with("00"),
+            _ => false,
+        };
+    }
+    let Some(open) = value.find('(') else {
+        return false;
+    };
+    let Some(inside) = value[open + 1..].strip_suffix(')') else {
+        return false;
+    };
+    let function = value[..open].trim();
+    if !ALPHA_FUNCTIONS.contains(&function) {
+        return false;
+    }
+
+    // The alpha is what follows a `/`, or the fourth of the comma separated
+    // values of the older `rgba(r, g, b, a)` form, at the function's own level.
+    let mut depth: usize = 0;
+    let mut slash = None;
+    let mut commas = Vec::new();
+    for (i, c) in inside.char_indices() {
+        match c {
+            '(' => {
+                depth += 1;
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+            }
+            '/' if depth == 0 => {
+                slash = Some(i);
+            }
+            ',' if depth == 0 => commas.push(i),
+            _ => {}
+        }
+    }
+    let alpha = match (slash, commas.as_slice()) {
+        (Some(at), _) => &inside[at + 1..],
+        (None, [_, _, at]) => &inside[at + 1..],
+        _ => {
+            return false;
+        }
+    };
+    let alpha = alpha.trim();
+    plain_number(alpha.strip_suffix('%').unwrap_or(alpha)) == Some(0.0)
+}
+
+/// A plain length in px: `0`, or a number in `px` or `rem` (16px).
+fn length_px(value: &str) -> Option<f64> {
+    if value == "0" {
+        return Some(0.0);
+    }
+    match value.strip_suffix("rem") {
+        Some(number) => plain_number(number).map(|rem| rem * 16.0),
+        None => plain_number(value.strip_suffix("px")?),
+    }
+}
+
+/// A number written with digits and at most one point, such as `2`, `0.5`
+/// or `.25`. No sign, exponent or anything else.
+fn plain_number(text: &str) -> Option<f64> {
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, "0"));
+    let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    if text.is_empty() || fraction.is_empty() || !digits(whole) || !digits(fraction) {
+        return None;
+    }
+    text.parse().ok()
 }
 
 #[cfg(test)]
@@ -870,8 +967,23 @@ mod tests {
             v3_3_file!("library-rewritten"),
         ]
             .into_iter()
-            .map(|(name, bytes, expected)| (name, bytes, serde_json::from_str(expected).unwrap()))
+            .map(|(name, bytes, expected)| (name, bytes, as_this_build_reads(name, serde_json::from_str(expected).unwrap())))
             .collect()
+    }
+
+    /// The one place this build reads a 3.3 file differently on purpose:
+    /// theme CSS keeps only the variables this app knows, so the
+    /// `--sparkle-size` line of `unknown-fields` is left out.
+    fn as_this_build_reads(name: &str, mut expected: serde_json::Value) -> serde_json::Value {
+        if name == "unknown-fields" {
+            for snapshot in ["read", "written_again"] {
+                let css = &mut expected[snapshot]["colors"]["custom"]["css"];
+                let kept = css.as_str().unwrap().replace("\n--sparkle-size: 3rem;", "");
+                assert_ne!(css.as_str().unwrap(), kept, "{}: the line 3.3 kept", snapshot);
+                *css = kept.into();
+            }
+        }
+        expected
     }
 
     /// `base` with the theme, logo and background settings a snapshot's
@@ -1046,19 +1158,87 @@ mod tests {
 
     #[test]
     fn removing_a_comment_never_joins_a_new_one() {
-        let css = safe_theme_css("--a: red//**/*x;\n--b: blue;");
+        let css = safe_theme_css("--color-a: red//**/*x;\n--color-b: blue;");
         assert!(!css.contains("/*"), "{}", css);
-        assert!(css.ends_with("--b: blue;"));
+        assert!(css.ends_with("--color-b: blue;"));
     }
 
     #[test]
     fn theme_css_keeps_only_colour_declarations() {
         let css = "/* Colors */\n--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n\
-                   --evil: url(https://example.com/x);\n} body { display: none; }\n@import url(x);\n--last: #fff";
+                   --evil: url(https://example.com/x);\n} body { display: none; }\n@import url(x);\n--color-last: #fff";
         assert_eq!(
             safe_theme_css(css),
-            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n--last: #fff;"
+            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n--color-last: #fff;"
         );
+    }
+
+    #[test]
+    fn a_theme_cannot_hide_the_text() {
+        let css = "--color-base-content: transparent;\n--color-primary: #0000;\n\
+                   --color-base-100: oklch(50% 0.1 30 / 0);\n--size-field: 999rem;\n--evil: red;\n\
+                   --color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;";
+        assert_eq!(
+            safe_theme_css(css),
+            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;"
+        );
+    }
+
+    #[test]
+    fn colours_that_draw_nothing_are_recognised() {
+        for invisible in [
+            "transparent",
+            "TRANSPARENT",
+            "#0000",
+            "#ffffff00",
+            "rgb(0 0 0 / 0)",
+            "rgba(255, 0, 0, 0)",
+            "hsla(10, 50%, 50%, 0.0)",
+            "oklch(50% 0.1 30 / 0%)",
+            "oklch(from var(--color-primary) l c h / .0)",
+        ] {
+            assert!(is_invisible_color(invisible), "{}", invisible);
+        }
+        for visible in [
+            "#000",
+            "#00000001",
+            "red",
+            "rgb(0 0 0)",
+            "rgba(0, 0, 0, 0.5)",
+            "oklch(50% calc(0.2 / 2) 0)",
+            "oklch(from var(--color-primary) l c h / 0.05)",
+            "var(--color-base-100)",
+            "color-mix(in oklab, red 0%, blue)",
+        ] {
+            assert!(!is_invisible_color(visible), "{}", visible);
+        }
+    }
+
+    #[test]
+    fn theme_sizes_must_stay_in_range() {
+        let kept = |declaration: &str| !safe_theme_css(declaration).is_empty();
+        assert!(kept("--radius-box: 0;") && kept("--radius-box: 2rem;") && kept("--radius-field: 32px;"));
+        assert!(!kept("--radius-box: 2.5rem;") && !kept("--radius-box: -1px;") && !kept("--radius-box: 1em;"));
+        assert!(kept("--size-field: 0.125rem;") && kept("--size-selector: 8px;"));
+        assert!(!kept("--size-field: 0;") && !kept("--size-field: 1px;") && !kept("--size-field: 1e1px;"));
+        assert!(kept("--border: 0.5px;") && kept("--border: 2px;"));
+        assert!(!kept("--border: 0;") && !kept("--border: 3px;"));
+        assert!(kept("--depth: 1;") && kept("--noise: 0;"));
+        assert!(!kept("--depth: 2;") && !kept("--noise: 0.5;"));
+        assert!(kept("color-scheme: light;") && !kept("color-scheme: normal;"));
+        assert!(!kept("--color-: red;") && !kept("--color-a_b: red;") && !kept("--radius-other: 1px;"));
+    }
+
+    #[test]
+    fn the_default_colors_template_passes_the_filter() {
+        use crate::components::theme_toggler::THEME_DEFAULT_CSS;
+
+        let declarations: Vec<&str> = THEME_DEFAULT_CSS.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with("/*"))
+            .collect();
+        assert!(declarations.len() > 20);
+        assert_eq!(safe_theme_css(THEME_DEFAULT_CSS), declarations.join("\n"));
     }
 
     #[test]
