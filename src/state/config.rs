@@ -511,7 +511,12 @@ mod tests {
             // The theme's logo takes its border and text from classes.
             assert!(theme_class.contains("border-primary text-primary"));
             assert!(own_style.contains("border-color: var(--color-primary); color: var(--color-primary);"), "{}", own_style);
-            for declaration in theme_style.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+            let from_classes = ["border-color: revert-layer", "color: revert-layer"];
+            for declaration in theme_style
+                .split(';')
+                .map(str::trim)
+                .filter(|d| !d.is_empty() && !from_classes.contains(d))
+            {
                 assert!(own_style.contains(declaration), "{:?} missing from {:?}", declaration, own_style);
             }
             assert_eq!(theme_class.contains("opacity-50"), own_class.contains("opacity-50"), "sound on: {}", sound_on);

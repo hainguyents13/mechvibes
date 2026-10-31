@@ -13,17 +13,25 @@ pub enum Route {
     #[route("/settings")] Settings {},
 }
 
+/// Lets the stylesheet decide the background again, the same as writing no
+/// inline background at all.
+///
+/// Dioxus puts back any inline property that a new `style` value leaves out,
+/// and a `background` holding `var()` leaves every longhand out as far as it
+/// can tell. Going from an image to no style, or to a theme colour, kept the
+/// old image on screen. Every value here names each background longhand, so
+/// nothing from before survives.
+pub(crate) const THEME_BACKGROUND: &str = "background: revert-layer;";
+
 /// The inline `style` the layout carries for the app background.
 ///
-/// An empty return means "emit nothing and let the theme show through", which
-/// is the only way to defer to the theme: any declaration written here wins
-/// over the stylesheet.
+/// `THEME_BACKGROUND` means "let the theme show through".
 pub(crate) fn background_style_for(
     enabled: bool,
     bg: &crate::state::config::BackgroundCustomization
 ) -> String {
     if !enabled {
-        return String::new();
+        return THEME_BACKGROUND.to_string();
     }
 
     match &bg.background_image {
@@ -34,8 +42,8 @@ pub(crate) fn background_style_for(
         // an empty string here, and `background: ;` is invalid CSS - the whole
         // declaration is dropped, so the app kept the theme background while the
         // panel showed a customisation as active. Defer to the theme explicitly.
-        _ if bg.background_color.trim().is_empty() => String::new(),
-        _ => format!("background: {};", bg.background_color),
+        _ if bg.background_color.trim().is_empty() => THEME_BACKGROUND.to_string(),
+        _ => format!("{} background-color: {};", THEME_BACKGROUND, bg.background_color),
     }
 }
 
@@ -214,7 +222,7 @@ mod tests {
             "an empty colour must never reach the page as a broken declaration"
         );
         assert_eq!(
-            style, "background: var(--color-base-100);",
+            style, "background: revert-layer; background-color: var(--color-base-100);",
             "the default has to resolve to a real theme colour"
         );
     }
@@ -231,8 +239,8 @@ mod tests {
 
         assert_eq!(
             background_style_for(true, &stored),
-            "",
-            "an empty stored colour must emit nothing so the theme shows through"
+            THEME_BACKGROUND,
+            "an empty stored colour must let the theme show through"
         );
     }
 
@@ -249,12 +257,12 @@ mod tests {
 
         assert_eq!(
             background_style_for(false, &customised),
-            "",
+            THEME_BACKGROUND,
             "a disabled customisation must not style the page"
         );
         assert_eq!(
             background_style_for(true, &customised),
-            "background: var(--color-primary);",
+            "background: revert-layer; background-color: var(--color-primary);",
             "and turning it back on must restore the colour that was kept"
         );
     }
@@ -293,9 +301,37 @@ mod tests {
 
         assert_eq!(
             background_style_for(false, &pasted),
-            "",
+            THEME_BACKGROUND,
             "a disabled section must emit no background at all"
         );
+    }
+
+    /// Dioxus keeps an inline property that a new `style` value leaves out,
+    /// and a `background` with `var()` in it counts as leaving every longhand
+    /// out. So each background style has to name every longhand itself, or
+    /// the image from before stays on screen after Undo, Default or the
+    /// switch going off.
+    #[test]
+    fn every_background_style_covers_the_image_from_before() {
+        let image = BackgroundCustomization {
+            background_color: "var(--color-base-100)".to_string(),
+            background_image: Some("/custom-images/img-0.webp".to_string()),
+            use_image: true,
+        };
+        let colour = BackgroundCustomization { use_image: false, ..image.clone() };
+        let empty = BackgroundCustomization { background_color: String::new(), ..colour.clone() };
+
+        for style in [
+            background_style_for(false, &image),
+            background_style_for(true, &image),
+            background_style_for(true, &colour),
+            background_style_for(true, &empty),
+        ] {
+            assert!(
+                style.starts_with("background: ") && !style.starts_with("background: var("),
+                "a background shorthand with concrete longhands has to come first: {style}"
+            );
+        }
     }
 
     /// "Use image" can be on before a file has been picked. Falling through to
@@ -309,7 +345,10 @@ mod tests {
             use_image: true,
         };
 
-        assert_eq!(background_style_for(true, &pending), "background: var(--color-primary);");
+        assert_eq!(
+            background_style_for(true, &pending),
+            "background: revert-layer; background-color: var(--color-primary);"
+        );
     }
 
     #[test]

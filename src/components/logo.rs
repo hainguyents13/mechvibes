@@ -14,6 +14,11 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
     }
     let shadow = !pressed && sound_on;
 
+    // Every style below names the same properties, and the background ones
+    // through a shorthand with nothing deferred in it: Dioxus puts back any
+    // inline property a new `style` leaves out, which kept an own logo's image
+    // and border on screen after switching back to the theme's logo.
+    // `revert-layer` hands a property back to the stylesheet.
     let style = if let Some(logo) = logo {
         // Normal state uses the background image if it is on, otherwise the
         // colour; the muted state has its own pair.
@@ -23,9 +28,8 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
             (logo.use_muted_background_image, &logo.muted_background_image, &logo.muted_background)
         };
         let background_style = match image {
-            Some(img) if use_image =>
-                format!("background-image: url('{}'); background-size: cover; background-position: center", img),
-            _ => format!("background: {}", color),
+            Some(img) if use_image => format!("background: url('{}') center / cover", img),
+            _ => format!("background: revert-layer; background-color: {}", color),
         };
 
         if !sound_on {
@@ -36,14 +40,14 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
         }
 
         format!(
-            "border-color: {}; color: {}; {}; {}",
+            "border-color: {}; color: {}; {}; box-shadow: {}",
             logo.border_color,
             logo.text_color,
             background_style,
             if shadow {
-                format!("box-shadow: 0 5px 0 {}", logo.shadow_color)
+                format!("0 5px 0 {}", logo.shadow_color)
             } else {
-                String::new()
+                "revert-layer".to_string()
             }
         )
     } else {
@@ -52,11 +56,10 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
         if !sound_on {
             classes.push("logo-muted opacity-50");
         }
-        if shadow {
-            "box-shadow: 0 5px 0 var(--color-primary); background: oklch(from var(--color-primary) l c h / 0.05)".to_string()
-        } else {
-            "background: oklch(from var(--color-primary) l c h / 0.05)".to_string()
-        }
+        format!(
+            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: {}",
+            if shadow { "0 5px 0 var(--color-primary)" } else { "revert-layer" }
+        )
     };
 
     (classes.join(" "), style)
@@ -111,12 +114,47 @@ mod tests {
         assert_eq!(class, "border-primary text-primary bg-transparent");
         assert_eq!(
             style,
-            "box-shadow: 0 5px 0 var(--color-primary); background: oklch(from var(--color-primary) l c h / 0.05)"
+            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: 0 5px 0 var(--color-primary)"
         );
 
         let (class, style) = logo_style(None, false, false);
         assert_eq!(class, "logo-pressed border-primary text-primary bg-transparent logo-muted opacity-50");
-        assert_eq!(style, "background: oklch(from var(--color-primary) l c h / 0.05)");
+        assert!(style.ends_with("box-shadow: revert-layer"), "{}", style);
+    }
+
+    /// Dioxus keeps an inline property that a new `style` leaves out, so
+    /// every state of the logo has to name the same properties, each
+    /// background through a shorthand with nothing deferred in it. Otherwise
+    /// an own logo's image, border or shadow stays after it is turned off.
+    #[test]
+    fn every_logo_style_names_the_same_properties() {
+        fn properties(style: &str) -> Vec<String> {
+            style
+                .split(';')
+                .filter_map(|d| d.split_once(':'))
+                .map(|(property, _)| property.trim().to_string())
+                .filter(|property| property != "background-color")
+                .collect()
+        }
+        let image = LogoCustomization {
+            background_image: Some("/custom-images/a.png".to_string()),
+            use_background_image: true,
+            ..LogoCustomization::default()
+        };
+        let colour = LogoCustomization::default();
+        let mut styles = Vec::new();
+        for (sound_on, pressed) in [(true, false), (true, true), (false, false)] {
+            for logo in [None, Some(&image), Some(&colour)] {
+                styles.push(logo_style(logo, sound_on, pressed).1);
+            }
+        }
+
+        let expected = properties(&styles[0]);
+        for style in &styles {
+            assert_eq!(properties(style), expected, "{}", style);
+            let background = style.split(';').map(str::trim).find(|d| d.starts_with("background:")).unwrap();
+            assert!(!background.contains("var("), "{}", style);
+        }
     }
 
     #[test]
@@ -130,12 +168,12 @@ mod tests {
         };
         let (class, style) = logo_style(Some(&logo), false, false);
         assert_eq!(class, "logo-pressed logo-muted");
-        assert!(style.contains("background: red"), "{}", style);
-        assert!(!style.contains("box-shadow"), "{}", style);
+        assert!(style.contains("background-color: red"), "{}", style);
+        assert!(style.contains("box-shadow: revert-layer"), "{}", style);
 
         let logo = LogoCustomization { use_muted_background_image: true, dimmed_when_muted: true, ..logo };
         let (class, style) = logo_style(Some(&logo), false, false);
         assert_eq!(class, "logo-pressed logo-muted opacity-50");
-        assert!(style.contains("background-image: url('/custom-images/a.png')"), "{}", style);
+        assert!(style.contains("background: url('/custom-images/a.png') center / cover"), "{}", style);
     }
 }
