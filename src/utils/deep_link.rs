@@ -16,6 +16,7 @@
 use crate::state::paths;
 use crate::utils::constants::APP_PROTOCOL;
 use std::ffi::OsString;
+use std::path::PathBuf;
 use std::sync::{ Mutex, OnceLock };
 
 /// What a library link asks the app to install.
@@ -110,19 +111,28 @@ pub fn take_handed_over() -> Option<String> {
     link.filter(|_| fresh)
 }
 
-type Links = (
-    tokio::sync::mpsc::UnboundedSender<String>,
-    Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<String>>>,
+type Stream<T> = (
+    tokio::sync::mpsc::UnboundedSender<T>,
+    Mutex<Option<tokio::sync::mpsc::UnboundedReceiver<T>>>,
 );
 
+fn new_stream<T>() -> Stream<T> {
+    let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
+    (sender, Mutex::new(Some(receiver)))
+}
+
 /// One stream of ids per kind of link, each read by its own dialog.
-fn links(theme: bool) -> &'static Links {
-    static PACKS: OnceLock<Links> = OnceLock::new();
-    static THEMES: OnceLock<Links> = OnceLock::new();
-    (if theme { &THEMES } else { &PACKS }).get_or_init(|| {
-        let (sender, receiver) = tokio::sync::mpsc::unbounded_channel();
-        (sender, Mutex::new(Some(receiver)))
-    })
+fn links(theme: bool) -> &'static Stream<String> {
+    static PACKS: OnceLock<Stream<String>> = OnceLock::new();
+    static THEMES: OnceLock<Stream<String>> = OnceLock::new();
+    (if theme { &THEMES } else { &PACKS }).get_or_init(new_stream)
+}
+
+/// Theme files to show in the import dialog, from the Import button and
+/// anywhere else a file can come from.
+fn theme_files() -> &'static Stream<PathBuf> {
+    static FILES: OnceLock<Stream<PathBuf>> = OnceLock::new();
+    FILES.get_or_init(new_stream)
 }
 
 /// Pass a library id to the window, which asks the user before installing.
@@ -160,6 +170,17 @@ pub fn take_pack_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<Strin
 /// The stream of theme ids for the window. Only the first caller gets it.
 pub fn take_theme_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<String>> {
     links(true).1.lock().ok()?.take()
+}
+
+/// Pass a theme file to the window, which reads it and asks the user before
+/// putting it on. Safe to call before the window exists, like `deliver`.
+pub fn deliver_theme_file(path: PathBuf) {
+    let _ = theme_files().0.send(path);
+}
+
+/// The stream of theme files for the window. Only the first caller gets it.
+pub fn take_theme_file_receiver() -> Option<tokio::sync::mpsc::UnboundedReceiver<PathBuf>> {
+    theme_files().1.lock().ok()?.take()
 }
 
 #[cfg(test)]

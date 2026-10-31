@@ -1,10 +1,12 @@
-//! The Share and Import buttons for a whole look, and the dialog they open.
+//! The Share and Import buttons for a whole look, the dialog Share opens, and
+//! putting an opened look on.
 //!
 //! Share saves the theme colours, the logo and the background, images
-//! included, to one `.mvtheme` file. Import shows what a file holds and puts
-//! it on only after the user agrees.
+//! included, to one `.mvtheme` file. Import hands the file it picks to the
+//! import dialog at the root (`ui::theme_import_modal`), which shows what the
+//! file holds and puts it on only after the user agrees.
 
-use crate::libs::theme::{ use_theme, Theme };
+use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
 use crate::utils::config::use_config;
 use crate::utils::theme::{ use_themes, UpdateThemes };
@@ -21,17 +23,13 @@ enum Stage {
     Share,
     Sharing,
     Shared(String),
-    Opening,
-    Confirm(Rc<SharedTheme>),
-    Applying,
-    Applied(String),
     Failed(String),
 }
 
 impl Stage {
     /// Work is running that will set the next stage itself.
     fn busy(&self) -> bool {
-        matches!(self, Stage::Sharing | Stage::Opening | Stage::Applying)
+        matches!(self, Stage::Sharing)
     }
 }
 
@@ -88,9 +86,8 @@ pub async fn put_on(
 
 #[component]
 pub fn ThemeShareButtons() -> Element {
-    let (config, update_config) = use_config();
-    let (themes, update_themes) = use_themes();
-    let theme_signal = use_theme();
+    let (config, _) = use_config();
+    let (themes, _) = use_themes();
     let mut stage = use_signal(|| Stage::Hidden);
     let mut name = use_signal(String::new);
 
@@ -144,42 +141,18 @@ pub fn ThemeShareButtons() -> Element {
         });
     };
 
+    // The import dialog at the root reads the file and asks.
     let open_import = move |_| {
         spawn(async move {
-            let Some(handle) = rfd::AsyncFileDialog
-                ::new()
-                .add_filter("Mechvibes theme", &[FILE_EXTENSION])
-                .set_title("Import theme")
-                .pick_file().await else {
-                return;
-            };
-            let path = handle.path().to_path_buf();
-            if stage.peek().busy() {
-                return;
+            if
+                let Some(handle) = rfd::AsyncFileDialog
+                    ::new()
+                    .add_filter("Mechvibes theme", &[FILE_EXTENSION])
+                    .set_title("Import theme")
+                    .pick_file().await
+            {
+                crate::utils::deep_link::deliver_theme_file(handle.path().to_path_buf());
             }
-            stage.set(Stage::Opening);
-            let opened = tokio::task
-                ::spawn_blocking(move || theme_share::open(&path)).await
-                .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
-            stage.set(match opened {
-                Ok(look) => Stage::Confirm(Rc::new(look)),
-                Err(e) => Stage::Failed(e),
-            });
-        });
-    };
-
-    let apply = move |_| {
-        let Stage::Confirm(look) = stage() else {
-            return;
-        };
-        let look = (*look).clone();
-        stage.set(Stage::Applying);
-        let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
-        spawn(async move {
-            stage.set(match put_on(look, ImportParts::ALL, update_config, update_themes, theme_signal).await {
-                Ok(name) => Stage::Applied(name),
-                Err(e) => Stage::Failed(e),
-            });
         });
     };
 
@@ -208,13 +181,7 @@ pub fn ThemeShareButtons() -> Element {
       if current != Stage::Hidden {
       div { class: "modal modal-open",
         div { class: "modal-box",
-          h3 { class: "font-bold text-lg mb-4",
-            match &current {
-                Stage::Share | Stage::Sharing | Stage::Shared(_) => "Share theme",
-                Stage::Applied(_) => "Theme imported",
-                _ => "Import theme",
-            }
-          }
+          h3 { class: "font-bold text-lg mb-4", "Share theme" }
 
           match &current {
               Stage::Share | Stage::Sharing => rsx! {
@@ -260,46 +227,6 @@ pub fn ThemeShareButtons() -> Element {
                   "Saved as {file_name}. Send it to a friend, they open it with Import in Customize."
                 }
               },
-              Stage::Opening => rsx! {
-                div { class: "flex items-center gap-3 text-sm text-base-content/70",
-                  span { class: "loading loading-spinner loading-sm" }
-                  "Opening the theme..."
-                }
-              },
-              Stage::Confirm(look) => rsx! {
-                div { class: "card border border-base-300 bg-base-200 p-4 space-y-1",
-                  div { class: "font-medium text-base-content", "{look.name}" }
-                  ul { class: "text-sm text-base-content/70 list-disc ml-5",
-                    li { "Colors: {look.colors_label()}" }
-                    if let Some(logo) = &look.logo {
-                      li {
-                        if logo.use_background_image || logo.use_muted_background_image {
-                          "Logo style with images"
-                        } else {
-                          "Logo style"
-                        }
-                      }
-                    }
-                    if let Some(background) = &look.background {
-                      li {
-                        if background.use_image { "Background image" } else { "Background color" }
-                      }
-                    }
-                  }
-                }
-                div { class: "text-sm text-base-content/70 mt-3",
-                  "This replaces your current theme, logo and background. Your own themes stay in the list."
-                }
-              },
-              Stage::Applying => rsx! {
-                div { class: "flex items-center gap-3 text-sm text-base-content/70",
-                  span { class: "loading loading-spinner loading-sm" }
-                  "Importing..."
-                }
-              },
-              Stage::Applied(applied) => rsx! {
-                div { class: "alert alert-success alert-soft", "{applied} is on. Enjoy the new look!" }
-              },
               Stage::Failed(message) => rsx! {
                 div { class: "alert alert-error alert-soft", "{message}" }
               },
@@ -308,7 +235,7 @@ pub fn ThemeShareButtons() -> Element {
 
           div { class: "modal-action mt-6",
             button { class: "btn btn-sm btn-ghost", disabled: busy, onclick: close,
-              if matches!(current, Stage::Share | Stage::Confirm(_)) { "Cancel" } else { "Close" }
+              if current == Stage::Share { "Cancel" } else { "Close" }
             }
             match &current {
                 Stage::Share | Stage::Sharing => rsx! {
@@ -323,12 +250,6 @@ pub fn ThemeShareButtons() -> Element {
                       Share2 { class: "w-4 h-4 mr-2" }
                       "Save file"
                     }
-                  }
-                },
-                Stage::Confirm(_) => rsx! {
-                  button { class: "btn btn-sm btn-neutral", onclick: apply,
-                    Download { class: "w-4 h-4 mr-2" }
-                    "Use this theme"
                   }
                 },
                 _ => rsx! {},

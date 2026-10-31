@@ -70,6 +70,26 @@ impl SharedTheme {
         }
     }
 
+    /// What the look brings for the logo, as the import dialog shows it, or
+    /// `None` when it leaves the logo out.
+    pub fn logo_label(&self) -> Option<&'static str> {
+        self.logo.as_ref().map(|logo| {
+            if logo.use_background_image || logo.use_muted_background_image {
+                "Logo with images"
+            } else {
+                "Logo style"
+            }
+        })
+    }
+
+    /// What the look brings for the background, as the import dialog shows
+    /// it, or `None` when it leaves the background out.
+    pub fn background_label(&self) -> Option<&'static str> {
+        self.background
+            .as_ref()
+            .map(|background| if background.use_image { "Background image" } else { "Background color" })
+    }
+
     /// Give the look another name, tidied the way a name from a file is.
     /// Keeps the old one when nothing is left of `name` after tidying.
     pub fn rename(&mut self, name: &str) {
@@ -1637,6 +1657,25 @@ mod tests {
         let mut theme = look();
         theme.keep_parts(ImportParts::ALL);
         assert_eq!(theme, look());
+    }
+
+    /// The import dialog lists what the file holds, so a library theme shows
+    /// what will be put on rather than what the library page said.
+    #[test]
+    fn what_a_theme_holds_is_read_from_the_file() {
+        let theme = look();
+        assert_eq!(theme.colors_label(), "Custom colors");
+        assert_eq!(theme.logo_label(), Some("Logo with images"));
+        assert_eq!(theme.background_label(), Some("Background image"));
+
+        let mut theme = SharedTheme { colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave), background: None, ..look() };
+        theme.logo.as_mut().unwrap().use_background_image = false;
+        assert_eq!(theme.colors_label(), "Synthwave");
+        assert_eq!(theme.logo_label(), Some("Logo style"));
+        assert_eq!(theme.background_label(), None);
+
+        theme.background = Some(BackgroundCustomization { use_image: false, ..look().background.unwrap() });
+        assert_eq!(theme.background_label(), Some("Background color"));
     }
 
     #[test]
