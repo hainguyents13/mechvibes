@@ -4,12 +4,12 @@
 //!
 //! The same image saved twice is one file, and a name never says anything a
 //! file brought with it. Each save writes its own partial file first and then
-//! renames it into place, so a reader never sees half an image, even when two
+//! puts it into place, so a reader never sees half an image, even when two
 //! saves of the same image run at once.
 
 use sha2::{ Digest, Sha256 };
 use std::fs;
-use std::path::Path;
+use std::path::{ Path, PathBuf };
 use std::sync::atomic::{ AtomicU64, Ordering };
 
 /// Gives every partial file in this process its own name.
@@ -58,23 +58,51 @@ pub(crate) fn save_in(
             Ok((file_name, false))
         }
         Ok(_) => {
-            write_in_place(dir, &file_name, bytes)?;
+            let partial = write_partial(dir, &file_name, bytes)?;
+            replace_with(&partial, &path, bytes.len())?;
             Ok((file_name, false))
         }
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             crate::utils::path::ensure_directory_exists(dir)?;
-            write_in_place(dir, &file_name, bytes)?;
-            Ok((file_name, true))
+            let created = add_in_place(dir, &file_name, bytes)?;
+            Ok((file_name, created))
         }
         Err(e) => Err(format!("Could not save the image: {}", e)),
     }
 }
 
-/// Write `bytes` to a partial file of this call's own, then rename it to
-/// `file_name`. When the rename fails because another save of the same image
-/// got there first, that save's file is kept.
-fn write_in_place(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<(), String> {
+/// Put `bytes` in place as `file_name` without replacing a file another save
+/// put there in the meantime. Returns whether this call created the file, so
+/// only one of two saves of the same image at once says it did, and taking an
+/// import back never removes the file the other save stored.
+fn add_in_place(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<bool, String> {
     let path = dir.join(file_name);
+    let partial = write_partial(dir, file_name, bytes)?;
+    // A link, unlike a rename, fails when the name is taken.
+    match fs::hard_link(&partial, &path) {
+        Ok(()) => {
+            let _ = fs::remove_file(&partial);
+            Ok(true)
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+            if is_whole(&path, bytes.len()) {
+                let _ = fs::remove_file(&partial);
+            } else {
+                replace_with(&partial, &path, bytes.len())?;
+            }
+            Ok(false)
+        }
+        // A folder that cannot hold links gets the rename instead.
+        Err(_) => {
+            replace_with(&partial, &path, bytes.len())?;
+            Ok(true)
+        }
+    }
+}
+
+/// Write `bytes` to a partial file of this call's own next to `file_name`, so
+/// a reader never sees half an image under the real name.
+fn write_partial(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<PathBuf, String> {
     let partial = dir.join(
         format!(
             "{}.{}.{}.partial",
@@ -87,14 +115,24 @@ fn write_in_place(dir: &Path, file_name: &str, bytes: &[u8]) -> Result<(), Strin
         let _ = fs::remove_file(&partial);
         return Err(format!("Could not save the image: {}", e));
     }
-    if let Err(e) = fs::rename(&partial, &path) {
-        let _ = fs::remove_file(&partial);
-        let whole = fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == (bytes.len() as u64));
-        if !whole {
+    Ok(partial)
+}
+
+/// Rename `partial` over `path`. When the rename fails because another save
+/// of the same image got there first, that save's file is kept.
+fn replace_with(partial: &Path, path: &Path, len: usize) -> Result<(), String> {
+    if let Err(e) = fs::rename(partial, path) {
+        let _ = fs::remove_file(partial);
+        if !is_whole(path, len) {
             return Err(format!("Could not save the image: {}", e));
         }
     }
     Ok(())
+}
+
+/// Whether `path` is a file of `len` bytes: the image its name says, whole.
+fn is_whole(path: &Path, len: usize) -> bool {
+    fs::metadata(path).is_ok_and(|m| m.is_file() && m.len() == (len as u64))
 }
 
 /// A picked file's extension, lowercased, when it is a short plain word.
@@ -169,26 +207,37 @@ mod tests {
     }
 
     #[test]
-    fn two_saves_of_the_same_image_at_once_leave_one_whole_file() {
-        let dir = temp_dir("race");
+    fn two_saves_of_the_same_image_at_once_leave_one_whole_file_created_once() {
         let bytes: Vec<u8> = PNG.iter()
             .copied()
-            .chain((0..2_000_000u32).map(|i| (i % 251) as u8))
+            .chain((0..200_000u32).map(|i| (i % 251) as u8))
             .collect();
-        let saves: Vec<_> = (0..2)
-            .map(|_| {
-                let (dir, bytes) = (dir.clone(), bytes.clone());
-                std::thread::spawn(move || save_in(&dir, &bytes, None).unwrap().0)
-            })
-            .collect();
-        let names: Vec<String> = saves
-            .into_iter()
-            .map(|save| save.join().unwrap())
-            .collect();
-        assert_eq!(names[0], names[1]);
-        assert_eq!(files_in(&dir), [names[0].clone()]);
-        assert_eq!(fs::read(dir.join(&names[0])).unwrap(), bytes);
-        let _ = fs::remove_dir_all(&dir);
+        for _ in 0..10 {
+            let dir = temp_dir("race");
+            let start = std::sync::Arc::new(std::sync::Barrier::new(2));
+            let saves: Vec<_> = (0..2)
+                .map(|_| {
+                    let (dir, bytes, start) = (dir.clone(), bytes.clone(), start.clone());
+                    std::thread::spawn(move || {
+                        start.wait();
+                        save_in(&dir, &bytes, None).unwrap()
+                    })
+                })
+                .collect();
+            let results: Vec<(String, bool)> = saves
+                .into_iter()
+                .map(|save| save.join().unwrap())
+                .collect();
+            assert_eq!(results[0].0, results[1].0);
+            assert_eq!(
+                results.iter().filter(|(_, created)| *created).count(),
+                1,
+                "only one save may take the file back out"
+            );
+            assert_eq!(files_in(&dir), [results[0].0.clone()]);
+            assert_eq!(fs::read(dir.join(&results[0].0)).unwrap(), bytes);
+            let _ = fs::remove_dir_all(&dir);
+        }
     }
 
     #[test]
