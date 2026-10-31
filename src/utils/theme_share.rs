@@ -823,16 +823,22 @@ pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: Import
 // ===== Checks =====
 
 pub(crate) fn clean_name(name: &str) -> Option<String> {
-    let name: String = name
+    clean_text(name, MAX_NAME_CHARS)
+}
+
+/// `text` on one line, without control characters and cut to `max_chars`,
+/// or `None` when nothing is left.
+pub(crate) fn clean_text(text: &str, max_chars: usize) -> Option<String> {
+    let text: String = text
         .chars()
         .filter(|c| !c.is_control())
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    let name: String = name.chars().take(MAX_NAME_CHARS).collect();
-    let name = name.trim().to_string();
-    (!name.is_empty()).then_some(name)
+    let text: String = text.chars().take(max_chars).collect();
+    let text = text.trim().to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 /// The kind of image `bytes` holds, read from its first bytes rather than a
