@@ -554,35 +554,35 @@ fn read_entry<R: Read + std::io::Seek>(
 }
 
 /// Copy the look's images into this app's images folder and point the logo
-/// and background at the copies. Each copy gets a new name, so importing never
-/// replaces an image already in use. Returns the files written, so a caller
-/// that fails afterwards can take them back with `remove_images`.
+/// and background at the copies. Each copy is named after its content, so the
+/// same image imported twice is one file. Returns only the files this call
+/// created, so a caller that fails afterwards can take them back with
+/// `remove_images` without removing an image something else already uses.
 pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>, String> {
-    let dir = crate::state::paths::data::custom_images_dir();
-    crate::utils::path::ensure_directory_exists(&dir)?;
-    let stem: String = theme.name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
+    install_images_in(theme, &crate::state::paths::data::custom_images_dir())
+}
 
+fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     let mut installed = HashMap::new();
-    let mut written = Vec::new();
+    let mut created = Vec::new();
     for (name, bytes) in &theme.images {
-        let extension = image_extension(bytes).unwrap_or("png");
-        let file_name = format!("{}_{}.{}", stem, &uuid::Uuid::new_v4().simple().to_string()[..8], extension);
-        let path = dir.join(&file_name);
-        if let Err(e) = std::fs::write(&path, bytes) {
-            let _ = std::fs::remove_file(&path);
-            remove_images(&written);
-            return Err(format!("Could not save the theme's images: {}", e));
+        match crate::utils::custom_images::save_in(dir, bytes, None) {
+            Ok((file_name, is_new)) => {
+                if is_new {
+                    created.push(dir.join(&file_name));
+                }
+                installed.insert(name.clone(), format!("/custom-images/{}", file_name));
+            }
+            Err(e) => {
+                remove_images(&created);
+                return Err(format!("Could not save the theme's images. {}", e));
+            }
         }
-        written.push(path);
-        installed.insert(name.clone(), format!("/custom-images/{}", file_name));
     }
 
     relink_images(theme, &installed);
     theme.images.clear();
-    Ok(written)
+    Ok(created)
 }
 
 /// Point the logo and background image fields at the new names in `names`.
@@ -639,7 +639,7 @@ pub(crate) fn clean_name(name: &str) -> Option<String> {
 
 /// The kind of image `bytes` holds, read from its first bytes rather than a
 /// name the file could get wrong.
-fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {
@@ -1225,5 +1225,42 @@ mod tests {
         assert_eq!(config.logo_customization.text_color, "red");
         assert!(config.enable_background_customization);
         assert_eq!(config.background_customization.background_color, "#101010");
+    }
+
+    /// An empty folder of its own under the system temp folder.
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mechvibes-theme-{}-{}", name, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn installing_reports_only_files_it_created() {
+        let dir = temp_dir("install");
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+
+        let mut theme = look();
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        let logo = theme.logo.as_ref().unwrap().background_image.clone().unwrap();
+        let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
+        assert_eq!(logo, format!("/custom-images/{}", in_use), "the same image is not saved again");
+        assert!(background.starts_with("/custom-images/img-") && background.ends_with(".jpg"), "{}", background);
+        assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))]);
+        assert!(theme.images.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undoing_an_import_keeps_an_image_already_in_use() {
+        let dir = temp_dir("undo");
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+
+        let mut theme = look();
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        remove_images(&created);
+        assert_eq!(std::fs::read(dir.join(&in_use)).unwrap(), PNG);
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(left.len(), 1, "only the image that was there before");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

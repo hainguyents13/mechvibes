@@ -3,6 +3,7 @@ pub mod auto_updater;
 pub mod config;
 pub mod config_converter;
 pub mod constants;
+pub mod custom_images;
 pub mod data;
 pub mod deep_link;
 pub mod delay;
