@@ -328,9 +328,15 @@ fn Waiting(text: &'static str) -> Element {
 mod tests {
     use super::*;
 
+    fn asking() -> Stage {
+        let bytes = include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme");
+        let theme = theme_share::from_bytes(bytes).unwrap();
+        Stage::Confirm(Rc::new(Offer { theme, author: None, size: None }))
+    }
+
     #[test]
     fn a_new_request_waits_until_the_dialog_is_free() {
-        for stage in [Stage::Opening, Stage::LookingUp, Stage::Downloading, Stage::Working] {
+        for stage in [Stage::Opening, Stage::LookingUp, Stage::Downloading, asking(), Stage::Working] {
             assert!(stage.busy(), "{:?}", stage);
         }
         for stage in [Stage::Hidden, Stage::Done("Night".to_string()), Stage::Failed("No".to_string())] {
@@ -343,6 +349,7 @@ mod tests {
         assert!(Stage::Opening.cancellable());
         assert!(Stage::LookingUp.cancellable());
         assert!(Stage::Downloading.cancellable());
+        assert!(!asking().cancellable(), "nothing runs while the dialog asks");
         assert!(!Stage::Working.cancellable(), "half a theme is never left on");
         assert!(!Stage::Done("Night".to_string()).cancellable());
     }
