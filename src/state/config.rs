@@ -796,6 +796,104 @@ mod tests {
         );
     }
 
+    /// Every setting must count as a change in `data_equals`, or
+    /// `config_writer::apply` judges a real edit equal and rolls it back. A
+    /// hand-written list of fields cannot promise that, so this walks the
+    /// serialized config instead: a field added later is covered without
+    /// anyone remembering to add it here.
+    #[test]
+    fn every_config_field_counts_as_a_change() {
+        use serde_json::{ json, Value };
+
+        /// Fields that only describe the document, which `data_equals` skips
+        /// on purpose.
+        const METADATA: [&str; 3] = ["version", "last_updated", "commit"];
+
+        let default = AppConfig::default();
+        let document = serde_json::to_value(&default).expect("config serializes");
+        let fields = document.as_object().expect("config is a json object");
+
+        let mut auto_update = document["auto_update"].clone();
+        auto_update["last_check"] = json!(1_700_000_000u64);
+
+        // Values the generic edit below cannot make: a `null`, an empty list
+        // or map has nothing to change, and a built-in theme's name cannot
+        // just grow a letter.
+        let overrides: HashMap<&str, Value> = HashMap::from([
+            ("theme", json!({ "Custom": "my-colors" })),
+            ("selected_audio_device", json!("output_name:0b3a976597860826")),
+            ("soundpack_added_at", json!({ "keyboard/one": 1_700_000_000u64 })),
+            ("soundpacks_seen", json!(["keyboard/one"])),
+            ("enabled_keyboards", json!(["keyboard-1"])),
+            ("enabled_mice", json!(["mouse-1"])),
+            ("ambiance_active_sounds", json!({ "rain": 0.5 })),
+            ("auto_update", auto_update),
+        ]);
+
+        /// Another valid value of the same shape: a flipped bool, a number
+        /// plus one, a string with one more letter, or an object with its
+        /// first such leaf changed. `None` when there is nothing to change.
+        fn changed(value: &Value) -> Option<Value> {
+            match value {
+                Value::Bool(flag) => Some(Value::Bool(!flag)),
+                Value::Number(number) =>
+                    Some(
+                        if let Some(n) = number.as_u64() {
+                            json!(n + 1)
+                        } else if let Some(n) = number.as_i64() {
+                            json!(n + 1)
+                        } else {
+                            json!(number.as_f64()? + 1.0)
+                        }
+                    ),
+                Value::String(text) => Some(Value::String(format!("{}x", text))),
+                Value::Object(object) =>
+                    object.iter().find_map(|(key, leaf)| {
+                        let leaf = changed(leaf)?;
+                        let mut object = object.clone();
+                        object.insert(key.clone(), leaf);
+                        Some(Value::Object(object))
+                    }),
+                Value::Null | Value::Array(_) => None,
+            }
+        }
+
+        for key in overrides.keys() {
+            assert!(fields.contains_key(*key), "the override for '{}' names no config field", key);
+        }
+
+        for (key, value) in fields {
+            if METADATA.contains(&key.as_str()) {
+                continue;
+            }
+            let new_value = overrides
+                .get(key.as_str())
+                .cloned()
+                .or_else(|| changed(value))
+                .unwrap_or_else(|| panic!("'{}' has nothing to change: add an override for it", key));
+            assert_ne!(&new_value, value, "the override for '{}' must differ from the default", key);
+
+            let mut edited = document.clone();
+            edited[key.as_str()] = new_value.clone();
+            let config: AppConfig = serde_json
+                ::from_value(edited)
+                .unwrap_or_else(|e| panic!("the changed '{}' is not a valid value ({}): add an override for it", key, e));
+
+            let round_trip = serde_json::to_value(&config).expect("config serializes");
+            assert_eq!(
+                round_trip[key.as_str()],
+                new_value,
+                "the changed '{}' did not survive a round trip: add an override for it",
+                key
+            );
+            assert!(
+                !default.data_equals(&config),
+                "changing '{}' is not a change to data_equals, so config_writer would roll it back",
+                key
+            );
+        }
+    }
+
     /// A device saved as `output_{index}` cannot be trusted: the index is a
     /// position in the enumeration, so unplugging anything ahead of it makes
     /// it point somewhere else. Config load drops it rather than resolving it,
