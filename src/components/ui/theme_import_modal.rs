@@ -26,18 +26,29 @@ use crate::utils::config::use_config;
 use crate::utils::deep_link;
 use crate::utils::library_client;
 use crate::utils::theme::use_themes;
-use crate::utils::theme_share::{ self, checklist, ImportParts, SharedTheme };
+use crate::utils::theme_share::{ self, checklist, preview_stripes, ImportParts, SharedColors, SharedTheme };
 use dioxus::prelude::*;
-use lucide_dioxus::{ Download, Undo2 };
+use lucide_dioxus::{ Download, Image as ImageIcon, Palette, Stamp, Undo2 };
 use std::rc::Rc;
 
 /// A theme read and checked, waiting for the user's answer.
 #[derive(Debug, PartialEq)]
 struct Offer {
     theme: SharedTheme,
+    /// The picture that stands for the theme, as a `data:` URI, or `None` to
+    /// show its colours.
+    preview: Option<String>,
     /// Known only for a theme from the library.
     author: Option<String>,
+    description: Option<String>,
     size: Option<u64>,
+}
+
+/// A theme with its picture, made off the window thread with the reading,
+/// since shrinking a large wallpaper takes a moment.
+fn with_preview(theme: SharedTheme) -> (SharedTheme, Option<String>) {
+    let preview = theme.preview_data_uri();
+    (theme, preview)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -112,10 +123,13 @@ pub fn ThemeImportModal() -> Element {
                 parts.set(ImportParts::ALL);
                 spawn(async move {
                     let opened = tokio::task
-                        ::spawn_blocking(move || theme_share::open(&path)).await
+                        ::spawn_blocking(move || theme_share::open(&path).map(with_preview)).await
                         .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
                     advance(stage, request, number, match opened {
-                        Ok(theme) => Stage::Confirm(Rc::new(Offer { theme, author: None, size: None })),
+                        Ok((theme, preview)) =>
+                            Stage::Confirm(
+                                Rc::new(Offer { theme, preview, author: None, description: None, size: None })
+                            ),
                         Err(e) => Stage::Failed(e),
                     });
                 });
@@ -149,16 +163,22 @@ pub fn ThemeImportModal() -> Element {
                         // The same checks a theme file goes through.
                         Ok(bytes) =>
                             tokio::task
-                                ::spawn_blocking(move || theme_share::from_bytes(&bytes)).await
+                                ::spawn_blocking(move || theme_share::from_bytes(&bytes).map(with_preview)).await
                                 .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string())),
                         Err(e) => Err(e),
                     };
                     advance(stage, request, number, match opened {
-                        Ok(mut theme) => {
+                        Ok((mut theme, preview)) => {
                             // The name the library page showed, not the one inside the file.
                             theme.rename(&listed.name);
                             Stage::Confirm(
-                                Rc::new(Offer { theme, author: listed.author, size: Some(listed.size) })
+                                Rc::new(Offer {
+                                    theme,
+                                    preview,
+                                    author: listed.author,
+                                    description: listed.description,
+                                    size: Some(listed.size),
+                                })
                             )
                         }
                         Err(e) => Stage::Failed(e),
@@ -243,14 +263,11 @@ pub fn ThemeImportModal() -> Element {
                 Waiting { text: "Putting the theme on..." }
               },
               Stage::Confirm(offer) => rsx! {
-                div { class: "card border border-base-300 bg-base-200 p-4 space-y-1",
-                  div { class: "font-medium text-base-content", "{offer.theme.name}" }
-                  if let Some(author) = &offer.author {
-                    div { class: "text-sm text-base-content/70", "by {author}" }
-                  }
-                  if let Some(size) = offer.size {
-                    div { class: "text-xs text-base-content/60", "{format_size(size)}" }
-                  }
+                // A card of its own for each request. Dioxus keeps any inline
+                // style property a changed `style` leaves out, so a picture
+                // reused for the next theme could keep colours of the last one.
+                for number in [request()] {
+                  OfferCard { key: "{number}", offer: offer.clone() }
                 }
                 div { class: "space-y-3 mt-3",
                   for row in checklist(&offer.theme, &config()) {
@@ -313,6 +330,92 @@ pub fn ThemeImportModal() -> Element {
     }
 }
 
+/// The picture's frame has the app window's shape at its default size
+/// (470 x 820 pt), as on the theme library's cards.
+const FRAME_STYLE: &str = "width: 6rem; aspect-ratio: 47 / 82; align-self: flex-start;";
+const FRAME_CLASS: &str = "shrink-0 overflow-hidden rounded-lg border border-base-300 bg-base-100";
+
+/// The theme the way the theme library's card shows it: its picture, its
+/// name, who made it, its description and what it holds. The picture is the
+/// file's whole look, whatever the checklist below has ticked.
+#[component]
+fn OfferCard(offer: Rc<Offer>) -> Element {
+    let theme = &offer.theme;
+    let stripes = preview_stripes(&theme.colors);
+    // A built-in theme's colours come from its daisyUI theme. Custom colours
+    // are set on the frame itself, from CSS the file check already cut down
+    // to colour and size variables, so they reach only the stripes.
+    let (data_theme, colors_style) = match &theme.colors {
+        SharedColors::BuiltIn(built_in) => (Some(built_in.to_daisy_theme()), String::new()),
+        SharedColors::Custom { css } => (None, css.replace('\n', " ")),
+    };
+
+    rsx! {
+      div { class: "card border border-base-300 bg-base-200 p-4",
+        div { class: "flex gap-4",
+          if let Some(src) = &offer.preview {
+            div { class: FRAME_CLASS, style: FRAME_STYLE,
+              img { class: "w-full h-full object-cover", src: "{src}", alt: "" }
+            }
+          } else if stripes.is_empty() {
+            div {
+              class: "{FRAME_CLASS} flex items-center justify-center",
+              style: FRAME_STYLE,
+              Palette { class: "w-6 h-6 text-base-content/50" }
+            }
+          } else {
+            div {
+              class: "{FRAME_CLASS} flex flex-col",
+              style: "{FRAME_STYLE} {colors_style}",
+              "data-theme": data_theme,
+              for stripe in stripes {
+                span { key: "{stripe}", class: "w-full flex-1 {stripe}" }
+              }
+            }
+          }
+
+          div { class: "flex min-w-0 flex-1 flex-col gap-2",
+            div {
+              div { class: "truncate text-sm font-medium text-base-content", title: "{theme.name}",
+                "{theme.name}"
+              }
+              if let Some(author) = &offer.author {
+                div { class: "truncate text-xs text-base-content/60", "by {author}" }
+              }
+            }
+            if let Some(description) = &offer.description {
+              div {
+                class: "text-sm text-base-content/70",
+                style: "display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;",
+                "{description}"
+              }
+            }
+            div {
+              class: "flex flex-wrap items-center text-xs text-base-content/60",
+              style: "column-gap: 0.75rem; row-gap: 0.25rem;",
+              span { class: "badge badge-sm", "{theme.colors_label()}" }
+              if theme.logo.is_some() {
+                span { class: "flex items-center gap-1",
+                  Stamp { class: "w-3 h-3" }
+                  "Logo"
+                }
+              }
+              if theme.background.is_some() {
+                span { class: "flex items-center gap-1",
+                  ImageIcon { class: "w-3 h-3" }
+                  "Background"
+                }
+              }
+              if let Some(size) = offer.size {
+                span { "{format_size(size)}" }
+              }
+            }
+          }
+        }
+      }
+    }
+}
+
 /// A spinner with a line saying what the dialog is waiting for.
 #[component]
 fn Waiting(text: &'static str) -> Element {
@@ -331,7 +434,7 @@ mod tests {
     fn asking() -> Stage {
         let bytes = include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme");
         let theme = theme_share::from_bytes(bytes).unwrap();
-        Stage::Confirm(Rc::new(Offer { theme, author: None, size: None }))
+        Stage::Confirm(Rc::new(Offer { theme, preview: None, author: None, description: None, size: None }))
     }
 
     #[test]
