@@ -899,7 +899,35 @@ fn safe_color(value: &str, default: String) -> Result<String, String> {
     if value.trim().is_empty() {
         return Ok(default);
     }
-    safe_css_value(value).ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
+    safe_css_value(value)
+        .filter(|value| is_one_value(value))
+        .ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
+}
+
+/// Whether `value` is one value rather than a list or several: no comma or
+/// space outside a function's brackets. The logo puts its colours in a
+/// `box-shadow`, which takes a list, so `red, 0 0 0 100vmax black` would add
+/// a shadow of its own over the page.
+pub(crate) fn is_one_value(value: &str) -> bool {
+    let mut depth: usize = 0;
+    for c in value.trim().chars() {
+        match c {
+            '(' => {
+                depth += 1;
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+            }
+            ',' if depth == 0 => {
+                return false;
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
 }
 
 /// The declarations of a theme's CSS this app knows, one per line: the
@@ -963,6 +991,7 @@ fn theme_value_fits(property: &str, value: &str) -> bool {
     if let Some(name) = property.strip_prefix("--color-") {
         return !name.is_empty() &&
             name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') &&
+            is_one_value(value) &&
             !is_invisible_color(value);
     }
     let length_within = |low: f64, high: f64| length_px(value).is_some_and(|px| (low..=high).contains(&px));
@@ -1462,6 +1491,31 @@ mod tests {
         assert!(!is_invisible_color("rgb(0 0 0 / 1e0)"));
         assert_eq!(safe_theme_css("--color-base-content: transparent !important;"), "");
         assert_eq!(safe_theme_css("--color-base-content: red !important;"), "");
+    }
+
+    #[test]
+    fn a_colour_is_one_colour_not_a_list() {
+        let list = "red, 0 0 0 100vmax rgb(0 0 0)";
+        assert_eq!(safe_theme_css(&format!("--color-primary: {};", list)), "");
+        assert_eq!(safe_theme_css("--color-primary: red blue;"), "");
+        assert_eq!(
+            safe_theme_css("--color-primary: color-mix(in oklab, red 40%, blue);"),
+            "--color-primary: color-mix(in oklab, red 40%, blue);"
+        );
+
+        let mut theme = look();
+        theme.logo.as_mut().unwrap().shadow_color = list.to_string();
+        assert_eq!(
+            from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(),
+            "This theme file has a color this app cannot use."
+        );
+        let mut theme = look();
+        theme.background.as_mut().unwrap().background_color = list.to_string();
+        assert!(from_bytes(&to_bytes(&theme).unwrap()).is_err());
+
+        let mut theme = look();
+        theme.logo.as_mut().unwrap().shadow_color = "oklch(from var(--color-primary) l c h / 0.05)".to_string();
+        assert!(from_bytes(&to_bytes(&theme).unwrap()).is_ok(), "spaces inside a function are fine");
     }
 
     #[test]

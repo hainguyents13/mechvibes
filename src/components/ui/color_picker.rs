@@ -1,4 +1,4 @@
-use crate::utils::theme_share::safe_css_value;
+use crate::utils::theme_share::{ is_one_value, safe_css_value };
 use dioxus::html::Key;
 use dioxus::{document::eval, prelude::*};
 use lucide_dioxus::ChevronDown;
@@ -47,7 +47,11 @@ pub(crate) fn is_complete_color(value: &str) -> bool {
     let lower = value.to_ascii_lowercase();
     if let Some(open) = lower.find('(') {
         let function = &lower[..open];
-        let closed = lower.ends_with(')') && lower.len() > open + 2 && safe_css_value(value).is_some();
+        let closed =
+            lower.ends_with(')') &&
+            lower.len() > open + 2 &&
+            safe_css_value(value).is_some() &&
+            is_one_value(value);
         if function == "var" {
             return closed && lower.starts_with("var(--color-");
         }
@@ -232,5 +236,6 @@ mod tests {
         assert!(!is_complete_color("url(x.png)"));
         assert!(!is_complete_color("var(--size-field)"));
         assert!(!is_complete_color("rgb(0,0,0);color:red)"));
+        assert!(!is_complete_color("rgb(1 2 3), rgb(0 0 0)"), "a list would not import");
     }
 }
