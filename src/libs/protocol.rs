@@ -171,22 +171,29 @@ MimeType=x-scheme-handler/{};{};
     }
     crate::always_print!("🐧 Registering {}// protocol and theme files on Linux...", APP_PROTOCOL);
 
-    // The entry first: links matter most, and a failure below leaves the
-    // MIME file to be written on the next start.
+    // The entry first: links matter most.
     if entry_changed {
         fs::create_dir_all(&apps_dir)?;
         fs::write(&desktop_file_path, desktop_content)?;
         let _ = Command::new("update-desktop-database").arg(&apps_dir).output();
     }
-    if mime_changed {
-        fs::create_dir_all(&mime_packages_dir)?;
-        fs::write(&mime_file_path, THEME_MIME_XML)?;
-        // Best effort: a minimal system may not have shared-mime-info.
-        let _ = Command::new("update-mime-database").arg(&mime_dir).output();
-    }
+    // A MIME folder that cannot be written must not keep links from opening
+    // here, so its error waits until the defaults below are set. The MIME
+    // file is then tried again on the next start.
+    let mime_written = if mime_changed {
+        let written = fs::create_dir_all(&mime_packages_dir).and_then(|()| fs::write(&mime_file_path, THEME_MIME_XML));
+        if written.is_ok() {
+            // Best effort: a minimal system may not have shared-mime-info.
+            let _ = Command::new("update-mime-database").arg(&mime_dir).output();
+        }
+        written
+    } else {
+        Ok(())
+    };
     for mime_type in [format!("x-scheme-handler/{}", APP_PROTOCOL), THEME_MIME_TYPE.to_string()] {
         let _ = Command::new("xdg-mime").args(["default", &entry_name, &mime_type]).output();
     }
+    mime_written?;
 
     crate::always_print!("✅ Protocol {}// and theme files registered successfully", APP_PROTOCOL);
     Ok(())
