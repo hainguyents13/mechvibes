@@ -461,6 +461,34 @@ pub fn app() -> Element {
         }
     });
 
+    // The images of the themes that come with the app, for their cards:
+    // /starter-themes/{slug}/{image name}. Served from the copy built into the
+    // app, and only a name a starter's own file holds, so no path is read.
+    use_asset_handler(crate::utils::starter_themes::IMAGE_ROUTE, |request, response| {
+        let path = request.uri().path().trim_start_matches('/');
+        let found = match path.split('/').collect::<Vec<_>>().as_slice() {
+            [route, slug, name] if *route == crate::utils::starter_themes::IMAGE_ROUTE => {
+                crate::utils::starter_themes::image(slug, name)
+            }
+            _ => None,
+        };
+        let built = match found {
+            Some((bytes, media_type)) =>
+                Response::builder()
+                    .header("Content-Type", media_type)
+                    .header("Cache-Control", "public, max-age=3600")
+                    .body(bytes.to_vec()),
+            None =>
+                Response::builder()
+                    .status(404)
+                    .header("Content-Type", "text/plain")
+                    .body(b"Not Found".to_vec()),
+        };
+        if let Ok(built) = built {
+            response.respond(built);
+        }
+    });
+
     rsx! {
         // Loading overlay (shown while CSS loads)
         if is_loading() {

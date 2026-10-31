@@ -125,6 +125,37 @@ impl SharedTheme {
         self.images.retain(|name, _| used.contains(name));
     }
 
+    /// The bytes of the image this look names `name`.
+    pub fn image(&self, name: &str) -> Option<&[u8]> {
+        self.images.get(name).map(Vec::as_slice)
+    }
+
+    /// Every image this look holds, by the name its fields use.
+    pub fn images(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.images.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+    }
+
+    /// What this look puts on, with each image field that names an image it
+    /// holds pointing where `url` says that image is, or cleared when `url`
+    /// gives no place. Any other image field is kept as it is.
+    pub fn look_at(&self, url: impl Fn(&str, &[u8]) -> Option<String>) -> Look {
+        let place = |image: &mut Option<String>| {
+            if let Some(bytes) = image.as_deref().and_then(|name| self.images.get(name)) {
+                *image = url(image.as_deref().unwrap_or_default(), bytes);
+            }
+        };
+        let mut logo = self.logo.clone();
+        if let Some(logo) = &mut logo {
+            place(&mut logo.background_image);
+            place(&mut logo.muted_background_image);
+        }
+        let mut background = self.background.clone();
+        if let Some(background) = &mut background {
+            place(&mut background.background_image);
+        }
+        Look { colors: LookColors::Known(self.colors.clone()), logo, background }
+    }
+
     /// The parts this look brings. Every look has colours.
     pub fn parts(&self) -> ImportParts {
         ImportParts { colors: true, logo: self.logo.is_some(), background: self.background.is_some() }
@@ -724,7 +755,8 @@ fn exif_orientation(app1: &[u8]) -> Option<u16> {
     None
 }
 
-fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
+/// The `theme.json` Share writes for `theme`, byte for byte.
+pub(crate) fn manifest_json(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
@@ -732,9 +764,11 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
         logo: theme.logo.as_ref().map(LogoV1::from_config),
         background: theme.background.as_ref().map(BackgroundV1::from_config),
     };
-    let json = serde_json
-        ::to_vec_pretty(&manifest)
-        .map_err(|e| format!("Could not write the theme: {}", e))?;
+    serde_json::to_vec_pretty(&manifest).map_err(|e| format!("Could not write the theme: {}", e))
+}
+
+fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
+    let json = manifest_json(theme)?;
 
     let failed = |e: zip::result::ZipError| format!("Could not write the theme: {}", e);
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));

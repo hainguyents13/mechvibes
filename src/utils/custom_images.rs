@@ -34,12 +34,17 @@ pub fn save(bytes: &[u8], fallback_ext: Option<&str>) -> Result<(String, bool), 
     Ok((format!("/custom-images/{}", file_name), created))
 }
 
-/// `save` into `dir`. Returns the file name and whether this call created it.
-pub(crate) fn save_in(
-    dir: &Path,
-    bytes: &[u8],
-    fallback_ext: Option<&str>
-) -> Result<(String, bool), String> {
+/// The URL `save` stores for `bytes`, an image of a type this app knows,
+/// worked out without writing anything. A theme that comes with the app is
+/// compared with the look on screen this way before its images are saved.
+pub fn url_for(bytes: &[u8]) -> Option<String> {
+    crate::utils::theme_share::image_extension(bytes)?;
+    file_name_for(bytes, None).ok().map(|file_name| format!("/custom-images/{}", file_name))
+}
+
+/// The name `save` gives `bytes`: the hash of the content, and the extension
+/// of the image type, or `fallback_ext` when the bytes do not say.
+fn file_name_for(bytes: &[u8], fallback_ext: Option<&str>) -> Result<String, String> {
     let extension = match crate::utils::theme_share::image_extension(bytes) {
         Some(extension) => extension.to_string(),
         None =>
@@ -48,7 +53,16 @@ pub(crate) fn save_in(
                 .ok_or_else(|| "This is not a PNG, JPEG, GIF, WebP or BMP image.".to_string())?,
     };
     let hash = crate::utils::update_installer::hex_encode(&Sha256::digest(bytes));
-    let file_name = format!("img-{}.{}", &hash[..32], extension);
+    Ok(format!("img-{}.{}", &hash[..32], extension))
+}
+
+/// `save` into `dir`. Returns the file name and whether this call created it.
+pub(crate) fn save_in(
+    dir: &Path,
+    bytes: &[u8],
+    fallback_ext: Option<&str>
+) -> Result<(String, bool), String> {
+    let file_name = file_name_for(bytes, fallback_ext)?;
     let path = dir.join(&file_name);
 
     match fs::metadata(&path) {
@@ -238,6 +252,39 @@ mod tests {
             assert_eq!(fs::read(dir.join(&results[0].0)).unwrap(), bytes);
             let _ = fs::remove_dir_all(&dir);
         }
+    }
+
+    #[test]
+    fn the_url_of_an_image_is_known_before_it_is_saved() {
+        let dir = temp_dir("url");
+        let url = url_for(PNG).unwrap();
+        let (name, _) = save_in(&dir, PNG, None).unwrap();
+        assert_eq!(url, format!("/custom-images/{}", name));
+        assert_eq!(url_for(b"an image the bytes do not name"), None);
+        assert_eq!(files_in(&dir), [name], "working out the url writes nothing");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn applying_a_starter_twice_writes_no_new_images() {
+        let dir = temp_dir("starter");
+        let theme = crate::utils::theme_share
+            ::from_bytes(include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme"))
+            .unwrap();
+        let card = theme.look_at(|_, bytes| url_for(bytes));
+
+        let mut first = theme.clone();
+        let created = crate::utils::theme_share::install_images_in(&mut first, &dir).unwrap();
+        assert!(!created.is_empty());
+        let images = files_in(&dir);
+        let worn = first.look_at(|_, _| None);
+        assert_eq!(worn, card, "its images land where its card says they are");
+
+        let mut second = theme.clone();
+        let created = crate::utils::theme_share::install_images_in(&mut second, &dir).unwrap();
+        assert!(created.is_empty());
+        assert_eq!(files_in(&dir), images);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

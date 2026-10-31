@@ -19,6 +19,7 @@ pub mod soundpack;
 pub mod soundpack_installer;
 pub mod soundpack_validator;
 pub mod spacing;
+pub mod starter_themes;
 pub mod telemetry;
 pub mod theme;
 pub mod theme_library;

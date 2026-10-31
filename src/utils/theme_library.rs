@@ -19,6 +19,7 @@ use crate::state::config::AppConfig;
 use crate::state::config_writer;
 use crate::state::saved_themes::{ self, checked_look, SavedTheme, SavedThemes, ThemeKind };
 use crate::state::themes::ThemesConfig;
+use crate::utils::starter_themes::{ self, StarterTheme };
 use crate::utils::theme;
 use crate::utils::theme_share::{ self, safe_theme_css, ImportParts, Look, LookColors, SharedColors, SharedTheme, MAX_NAME_CHARS };
 use chrono::{ DateTime, Utc };
@@ -72,11 +73,24 @@ impl CardLook {
             updated_at: theme.updated_at,
         }
     }
+
+    /// A theme that comes with the app, with its images where putting it on
+    /// saves them.
+    pub fn starter(starter: &StarterTheme) -> Self {
+        Self {
+            pointer: starter.pointer(),
+            name: starter.name().to_string(),
+            kind: CardKind::Starter,
+            look: starter.look(),
+            updated_at: DateTime::default(),
+        }
+    }
 }
 
-/// Every card the look on screen can belong to.
+/// Every card the look on screen can belong to: the saved themes, then the
+/// ones that come with the app.
 pub fn cards(store: &SavedThemes) -> Vec<CardLook> {
-    store.themes().map(CardLook::saved).collect()
+    store.themes().map(CardLook::saved).chain(starter_themes::all().iter().map(CardLook::starter)).collect()
 }
 
 /// What to do so that the look on screen is never lost.
@@ -776,6 +790,26 @@ mod tests {
         assert_eq!(sync_action(&look_with_logo("red"), None, &cards, None), SyncAction::Point {
             pointer: "starter:retro-beige".to_string(),
         });
+    }
+
+    #[test]
+    fn the_themes_that_come_with_the_app_are_cards() {
+        let cards = cards(&SavedThemes::default());
+        let starters: Vec<&str> = cards
+            .iter()
+            .filter(|card| card.kind == CardKind::Starter)
+            .map(|card| card.pointer.as_str())
+            .collect();
+        assert_eq!(starters, ["starter:retro-beige", "starter:midnight-blue", "starter:rgb-night", "starter:rainy-cafe"]);
+
+        // A starter put on, its colors added to the colors list, is that starter.
+        let starter = &starter_themes::all()[0];
+        let (mut themes, mut config) = (ThemesConfig::default(), AppConfig::default());
+        let colors = colors_choice(&starter.theme.colors, starter.name(), &mut themes).unwrap();
+        starter.look().write_to(colors, &mut config);
+        let live = Look::from_config(&config, &themes);
+        assert_eq!(sync_action(&live, Some(&starter.pointer()), &cards, None), SyncAction::Nothing);
+        assert_eq!(sync_action(&live, None, &cards, None), SyncAction::Point { pointer: starter.pointer() });
     }
 
     #[test]
