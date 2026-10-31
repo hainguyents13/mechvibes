@@ -630,6 +630,31 @@ mod tests {
         let theme = crate::utils::theme_share
             ::from_bytes(include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme"))
             .unwrap();
+        let starter = crate::utils::starter_themes::StarterTheme { slug: "night", bytes: &[], theme };
+
+        let made = starter.save_images_in(&dir, &owned_list(&dir)).unwrap();
+        assert_eq!(made.len(), 3);
+        let images = files_in(&dir);
+        let look = starter.look();
+        let logo = look.logo.unwrap();
+        let named = [logo.background_image, logo.muted_background_image, look.background.unwrap().background_image];
+        for url in named {
+            let url = url.expect("the starter's look names its images");
+            let file = url.strip_prefix("/custom-images/").unwrap();
+            assert!(dir.join(file).is_file(), "{} is where its card says", url);
+        }
+
+        assert!(starter.save_images_in(&dir, &owned_list(&dir)).unwrap().is_empty());
+        assert_eq!(files_in(&dir), images);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_installed_theme_lands_where_its_look_says() {
+        let dir = temp_dir("installed");
+        let theme = crate::utils::theme_share
+            ::from_bytes(include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme"))
+            .unwrap();
         let card = theme.look_at(|_, bytes| url_for(bytes));
 
         let mut first = theme.clone();

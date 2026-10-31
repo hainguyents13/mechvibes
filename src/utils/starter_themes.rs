@@ -6,8 +6,10 @@
 //! its images are saved to the images folder only when it is put on. A
 //! pointer to a starter a later version no longer has counts as none.
 
+use crate::state::paths;
 use crate::utils::custom_images;
 use crate::utils::theme_share::{ self, Look, SharedTheme };
+use std::path::Path;
 use std::sync::OnceLock;
 
 /// How the config's `active_theme_id` names a starter.
@@ -103,10 +105,23 @@ impl StarterTheme {
 
     /// Save its images to the images folder, where `look` says they are.
     pub fn save_images(&self) -> Result<(), String> {
+        self.save_images_in(&paths::data::custom_images_dir(), &paths::data::owned_images_json()).map(|_| ())
+    }
+
+    /// `save_images` into `dir`, noting the images it made in the list of
+    /// owned images at `owned`. Returns the names of the images this call
+    /// made.
+    pub(crate) fn save_images_in(&self, dir: &Path, owned: &Path) -> Result<Vec<String>, String> {
+        let mut made = Vec::new();
         for (_, bytes) in self.theme.images() {
-            custom_images::save(bytes, None).map_err(|e| format!("Could not save the theme's images. {}", e))?;
+            let (name, created) = custom_images
+                ::save_in(dir, owned, bytes, None)
+                .map_err(|e| format!("Could not save the theme's images. {}", e))?;
+            if created {
+                made.push(name);
+            }
         }
-        Ok(())
+        Ok(made)
     }
 }
 
@@ -153,15 +168,26 @@ mod tests {
         assert_eq!(all()[1].pointer(), "starter:midnight-blue");
     }
 
+    /// The images of `starter` that are neither WebP nor JPEG.
+    fn heavy_images(starter: &StarterTheme) -> Vec<&str> {
+        starter.theme
+            .images()
+            .filter(|(_, bytes)| !matches!(theme_share::image_extension(bytes), Some("webp" | "jpg")))
+            .map(|(name, _)| name)
+            .collect()
+    }
+
     #[test]
     fn starter_images_are_webp_or_jpeg() {
         for starter in all() {
+            assert_eq!(heavy_images(starter), Vec::<&str>::new(), "{}", starter.slug);
             for (name, bytes) in starter.theme.images() {
-                let extension = theme_share::image_extension(bytes);
-                assert!(matches!(extension, Some("webp" | "jpg")), "{}: {} is {:?}", starter.slug, name, extension);
                 assert_eq!(image(starter.slug, name).map(|(served, _)| served), Some(bytes));
             }
         }
+        // Today no starter has an image, so this shows the check would catch one.
+        let theme = theme_share::from_bytes(include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme")).unwrap();
+        assert_eq!(heavy_images(&StarterTheme { slug: "night", bytes: &[], theme }), ["logo.png"]);
     }
 
     #[test]
