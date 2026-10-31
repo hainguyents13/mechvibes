@@ -21,7 +21,7 @@ The custom colors use only `--color-*`, `color-scheme` and the daisyUI variables
 Each `<fixture>.expected.json` holds what 3.3 made of the file:
 
 - `read`: the name, colors, logo and background `from_bytes` returned, and the SHA-256 of each image it kept.
-- `start` and `applied`: the theme, logo and background settings of a config before and after `apply_to_config` with every part. `start` differs from the defaults everywhere a theme reaches, so settings kept for a part that is switched off stay visible. Custom colors are applied as `Custom("imported-colors")`.
+- `start` and `applied`: the theme, logo and background settings of a config before and after `apply_to_config` with every part. `start` has its own colors, logo and background, all switched on and mostly away from the defaults, so settings kept for a part that is switched off stay visible. Custom colors are applied as `Custom("imported-colors")`.
 - `written_again`: `theme.json` of `to_bytes(from_bytes(file))`.
 
 ## How they were made
