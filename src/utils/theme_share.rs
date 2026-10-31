@@ -885,6 +885,28 @@ fn safe_color(value: &str, default: String) -> Result<String, String> {
 /// can change how the app looks but cannot hide its text or blow up its
 /// controls.
 pub fn safe_theme_css(css: &str) -> String {
+    without_comments(css)
+        .split(';')
+        .filter_map(|declaration| {
+            let (property, value) = declaration.split_once(':')?;
+            let property = property.trim();
+            let value = safe_css_value(value)?;
+            theme_value_fits(property, &value).then(|| format!("{}: {};", property, value))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// How many declarations `css` holds, kept or not, so a caller can tell
+/// whether `safe_theme_css` left any out.
+pub(crate) fn theme_css_declarations(css: &str) -> usize {
+    without_comments(css)
+        .split(';')
+        .filter(|declaration| !declaration.trim().is_empty())
+        .count()
+}
+
+fn without_comments(css: &str) -> String {
     let mut without_comments = String::new();
     let mut rest = css;
     // A comment reads as a space, as in CSS itself, so removing one never
@@ -898,17 +920,7 @@ pub fn safe_theme_css(css: &str) -> String {
         };
     }
     without_comments.push_str(rest);
-
     without_comments
-        .split(';')
-        .filter_map(|declaration| {
-            let (property, value) = declaration.split_once(':')?;
-            let property = property.trim();
-            let value = safe_css_value(value)?;
-            theme_value_fits(property, &value).then(|| format!("{}: {};", property, value))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
 }
 
 /// The colour functions whose alpha comes after a `/`.
@@ -1445,7 +1457,7 @@ mod tests {
 
     #[test]
     fn the_default_colors_template_passes_the_filter() {
-        use crate::components::theme_toggler::THEME_DEFAULT_CSS;
+        use crate::components::customize::colors_editor_modal::THEME_DEFAULT_CSS;
 
         let declarations: Vec<&str> = THEME_DEFAULT_CSS.lines()
             .map(str::trim)

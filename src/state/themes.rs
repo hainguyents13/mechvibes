@@ -160,13 +160,13 @@ impl ThemesConfig {
         css: String,
     ) -> Result<String, String> {
         if name.trim().is_empty() {
-            return Err("Theme name cannot be empty".to_string());
+            return Err("Give it a name first.".to_string());
         }
 
         // Check for duplicate names
         for theme in self.custom_themes.values() {
             if theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("A theme with this name already exists".to_string());
+                return Err("You already have one with this name. Pick another name.".to_string());
             }
         }
 
@@ -196,13 +196,13 @@ impl ThemesConfig {
         css: String,
     ) -> Result<(), String> {
         if name.trim().is_empty() {
-            return Err("Theme name cannot be empty".to_string());
+            return Err("Give it a name first.".to_string());
         }
 
         // Check for duplicate names (excluding current theme)
         for (theme_id, theme) in &self.custom_themes {
             if theme_id != id && theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("A theme with this name already exists".to_string());
+                return Err("You already have one with this name. Pick another name.".to_string());
             }
         }
 

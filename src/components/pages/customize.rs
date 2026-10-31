@@ -1,6 +1,5 @@
-use crate::components::customize::{ CurrentThemeRow, CustomizeTab, CustomizeTabs, ThemesTab, CURRENT_TAB };
+use crate::components::customize::{ ColorsTab, CurrentThemeRow, CustomizeTab, CustomizeTabs, ThemesTab, CURRENT_TAB };
 use crate::components::logo::logo_style;
-use crate::components::theme_toggler::ThemeToggler;
 use crate::components::ui::{ ColorPicker, FillField, PageHeader, Toggler, THEME_COLOR_OPTIONS };
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
@@ -26,7 +25,7 @@ pub fn CustomizePage() -> Element {
                   ThemesTab {}
                 },
                 CustomizeTab::Colors => rsx! {
-                  ThemeToggler {}
+                  ColorsTab {}
                 },
                 CustomizeTab::Logo => rsx! {
                   LogoCustomizationSection {}
