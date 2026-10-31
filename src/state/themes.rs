@@ -72,7 +72,8 @@ impl ThemesConfig {
                 .map_err(|e| format!("Failed to create data directory: {}", e))?;
         }
 
-        data::save_json_to_file(self, &themes_path)?;
+        // Atomic, so a failed write leaves the old list rather than half of one.
+        data::save_json_to_file_atomically(self, &themes_path)?;
         crate::always_print!("💾 Saved themes configuration to {}", themes_path.display());
         Ok(())
     }

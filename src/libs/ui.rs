@@ -39,6 +39,10 @@ pub fn app() -> Element {
     });
     use_context_provider(|| global_config);
 
+    // Messages from `utils::notice` on their way to the screen; the poll loop
+    // below fills it and `Toasts` shows it.
+    let notices = use_signal(Vec::<crate::utils::notice::Notice>::new);
+    use_context_provider(|| notices);
 
     // Create global keyboard state using signals
     let keyboard_state = use_signal(|| KeyboardState::new());
@@ -139,6 +143,13 @@ pub fn app() -> Element {
                     if !global_config.peek().data_equals(&latest) {
                         global_config.set(latest);
                     }
+                }
+
+                // Messages reported off this thread, such as a failed save,
+                // reach the screen the same way.
+                let new_notices = crate::utils::notice::take_new();
+                if !new_notices.is_empty() {
+                    crate::components::ui::toast::show_notices(notices, new_notices);
                 }
 
                 // The state of the last key event seen this tick.
@@ -455,6 +466,7 @@ pub fn app() -> Element {
         // Answer mechvibes://install and mechvibes://theme links whatever page is showing.
         crate::components::ui::LibraryInstallModal {}
         crate::components::ui::LibraryThemeModal {}
+        crate::components::ui::Toasts {}
     }
 }
 

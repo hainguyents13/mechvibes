@@ -8,6 +8,7 @@ pub mod progress_step;
 pub mod soundpack_import_modal;
 pub mod soundpack_manager;
 pub mod soundpack_table;
+pub mod toast;
 pub mod toggler;
 
 pub use collapse::Collapse;
@@ -21,4 +22,5 @@ pub use progress_step::ProgressStep;
 pub use soundpack_import_modal::SoundpackImportModal;
 pub use soundpack_manager::SoundpackManager;
 pub use soundpack_table::SoundpackTable;
+pub use toast::Toasts;
 pub use toggler::Toggler;

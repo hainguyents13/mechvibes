@@ -7,6 +7,8 @@ use dioxus::document::eval;
 use dioxus::prelude::*;
 use crate::components::theme_share::ThemeShareButtons;
 use lucide_dioxus::{ Ellipsis, ExternalLink, Palette, Pencil, Trash2 };
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[component]
 pub fn ThemeToggler() -> Element {
@@ -111,7 +113,8 @@ pub fn ThemeToggler() -> Element {
                             let theme_id = theme_data.id.clone();
                             let update_themes = update_themes.clone();
                             move |_| {
-                                update_themes(
+                                // A failed save is shown by the updater itself.
+                                let _ = update_themes(
                                     Box::new({
                                         let theme_id = theme_id.clone();
                                         move |themes: &mut ThemesConfig| {
@@ -338,28 +341,37 @@ fn ThemeCreatorModal(props: ThemeCreatorModalProps) -> Element {
             saving.set(true);
             error.set(String::new());
 
-            if let Some(editing_id) = editing_theme_id.read().as_ref() {
+            // What the list said about the change, such as a name in use.
+            let outcome = Rc::new(RefCell::new(Ok(())));
+            let editing_id = editing_theme_id.read().clone();
+            let saved = if let Some(editing_id) = editing_id {
                 // Update existing theme
-                let editing_id = editing_id.clone();
                 update_themes(
-                    Box::new(move |themes: &mut ThemesConfig| {
-                        if let Err(e) = themes.update_theme(&editing_id, name, "".to_string(), css) {
-                            crate::always_eprint!("Failed to update theme: {}", e);
+                    Box::new({
+                        let outcome = outcome.clone();
+                        move |themes: &mut ThemesConfig| {
+                            *outcome.borrow_mut() = themes.update_theme(&editing_id, name, "".to_string(), css);
                         }
                     })
-                );
+                )
             } else {
                 // Create new theme
                 update_themes(
-                    Box::new(move |themes: &mut ThemesConfig| {
-                        if let Err(e) = themes.add_theme(name, "".to_string(), css) {
-                            crate::always_eprint!("Failed to create theme: {}", e);
+                    Box::new({
+                        let outcome = outcome.clone();
+                        move |themes: &mut ThemesConfig| {
+                            *outcome.borrow_mut() = themes.add_theme(name, "".to_string(), css).map(|_| ());
                         }
                     })
-                );
-            }
+                )
+            };
 
             saving.set(false);
+            // The dialog stays open on a failure, so nothing typed is lost.
+            if let Err(e) = saved.and_then(|()| outcome.replace(Ok(()))) {
+                error.set(e);
+                return;
+            }
             editing_theme_id.set(None); // Clear editing state
             eval("theme_creator_modal.close()");
         }

@@ -6,9 +6,8 @@
 
 use crate::libs::theme::{ use_theme, Theme };
 use crate::state::config::AppConfig;
-use crate::state::themes::ThemesConfig;
 use crate::utils::config::use_config;
-use crate::utils::theme::use_themes;
+use crate::utils::theme::{ use_themes, UpdateThemes };
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
 use lucide_dioxus::{ Download, Share2 };
@@ -44,7 +43,7 @@ pub async fn put_on(
     mut look: SharedTheme,
     parts: ImportParts,
     update_config: Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
-    update_themes: Rc<dyn Fn(Box<dyn FnOnce(&mut ThemesConfig)>)>,
+    update_themes: UpdateThemes,
     mut theme_signal: Signal<Theme>
 ) -> Result<String, String> {
     look.keep_parts(parts);
@@ -57,7 +56,7 @@ pub async fn put_on(
         SharedColors::BuiltIn(theme) => Some(Theme::BuiltIn(theme.clone())),
         SharedColors::Custom { css } => {
             let added = Rc::new(RefCell::new(None));
-            update_themes(
+            let saved = update_themes(
                 Box::new({
                     let added = added.clone();
                     let (name, css) = (look.name.clone(), css.clone());
@@ -66,12 +65,14 @@ pub async fn put_on(
                     }
                 })
             );
-            let added = added.borrow_mut().take();
+            let added = saved.and_then(|()| {
+                added.borrow_mut().take().unwrap_or_else(|| Err("Could not save the theme.".to_string()))
+            });
             match added {
-                Some(Ok(id)) => Some(Theme::Custom(id)),
-                failed => {
+                Ok(id) => Some(Theme::Custom(id)),
+                Err(e) => {
                     theme_share::remove_images(&written);
-                    return Err(failed.and_then(Result::err).unwrap_or_else(|| "Could not save the theme.".to_string()));
+                    return Err(e);
                 }
             }
         }

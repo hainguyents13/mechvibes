@@ -70,6 +70,11 @@ fn ImagePicker(
                                     }
                                     Err(e) => {
                                         crate::always_eprint!("Failed to copy image: {}", e);
+                                        crate::utils::notice::report(
+                                            crate::utils::notice::NoticeKind::Error,
+                                            "Could not use this image. Try another one.",
+                                            None,
+                                        );
                                     }
                                 }
                             }
