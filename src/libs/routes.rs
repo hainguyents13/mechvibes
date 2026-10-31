@@ -16,7 +16,7 @@ pub enum Route {
 /// An empty return means "emit nothing and let the theme show through", which
 /// is the only way to defer to the theme: any declaration written here wins
 /// over the stylesheet.
-fn background_style_for(
+pub(crate) fn background_style_for(
     enabled: bool,
     bg: &crate::state::config::BackgroundCustomization
 ) -> String {

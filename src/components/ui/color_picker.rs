@@ -176,7 +176,7 @@ pub fn ColorPicker(
                 input {
                     r#type: "text",
                     class: "input",
-                    placeholder: "Or enter custom color (e.g., #ff0000, rgb(255,0,0))",
+                    placeholder: "Or type a color, like #ff0000",
                     value: draft().unwrap_or(saved_text),
                     // Saved as soon as it is a whole colour, so the logo
                     // follows along, but never half typed.

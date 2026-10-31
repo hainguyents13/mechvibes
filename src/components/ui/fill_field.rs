@@ -44,7 +44,7 @@ pub fn FillField(
                     label: String::new(),
                     selected_value: color,
                     options: THEME_COLOR_OPTIONS.to_vec(),
-                    placeholder: "Select a color...".to_string(),
+                    placeholder: "Pick a color".to_string(),
                     on_change: on_color,
                     field,
                     description: None,

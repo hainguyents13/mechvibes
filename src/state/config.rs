@@ -59,6 +59,26 @@ impl Default for LogoCustomization {
     }
 }
 
+impl LogoCustomization {
+    /// What the logo looks like while the user's own logo is off: the
+    /// theme's main colour with a faint fill of it, faded when sound is off.
+    /// Customize starts from this when the saved settings are still the
+    /// defaults, so the first change does not turn the logo another colour.
+    pub fn theme_look() -> Self {
+        let main = "var(--color-primary)".to_string();
+        let fill = "oklch(from var(--color-primary) l c h / 0.05)".to_string();
+        Self {
+            border_color: main.clone(),
+            text_color: main.clone(),
+            shadow_color: main,
+            background_color: fill.clone(),
+            muted_background: fill,
+            dimmed_when_muted: true,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackgroundCustomization {
     pub background_color: String,
@@ -479,6 +499,24 @@ impl Default for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_theme_look_matches_the_logo_with_customization_off() {
+        use crate::components::logo::logo_style;
+
+        let look = LogoCustomization::theme_look();
+        for sound_on in [true, false] {
+            let (theme_class, theme_style) = logo_style(None, sound_on, false);
+            let (own_class, own_style) = logo_style(Some(&look), sound_on, false);
+            // The theme's logo takes its border and text from classes.
+            assert!(theme_class.contains("border-primary text-primary"));
+            assert!(own_style.contains("border-color: var(--color-primary); color: var(--color-primary);"), "{}", own_style);
+            for declaration in theme_style.split(';').map(str::trim).filter(|d| !d.is_empty()) {
+                assert!(own_style.contains(declaration), "{:?} missing from {:?}", declaration, own_style);
+            }
+            assert_eq!(theme_class.contains("opacity-50"), own_class.contains("opacity-50"), "sound on: {}", sound_on);
+        }
+    }
 
     /// Why `save()` is `pub(in crate::state)` and `config_writer::apply` is the
     /// only public way to write.
