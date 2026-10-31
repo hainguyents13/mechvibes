@@ -152,6 +152,9 @@ pub struct AppConfig {
     pub enable_logo_customization: bool, // Enable/disable logo customization panel
     pub background_customization: BackgroundCustomization,
     pub enable_background_customization: bool, // Enable/disable background customization panel
+    /// The saved theme the look on screen belongs to: a saved theme id, or
+    /// "starter:<slug>". None means the Default theme or a look not saved yet.
+    pub active_theme_id: Option<String>,
     // Music player settings
     pub music_player: MusicPlayerConfig, // Ambiance settings
     pub ambiance_active_sounds: HashMap<String, f32>, // sound_id -> volume (0.0 to 1.0)
@@ -303,6 +306,7 @@ impl AppConfig {
             && self.enable_logo_customization == other.enable_logo_customization
             && self.background_customization == other.background_customization
             && self.enable_background_customization == other.enable_background_customization
+            && self.active_theme_id == other.active_theme_id
             && self.music_player == other.music_player
             && self.ambiance_active_sounds == other.ambiance_active_sounds
             && self.ambiance_global_volume == other.ambiance_global_volume
@@ -482,6 +486,7 @@ impl Default for AppConfig {
             enable_logo_customization: false, // Default logo customization disabled
             background_customization: BackgroundCustomization::default(),
             enable_background_customization: false, // Default background customization disabled
+            active_theme_id: None,
             music_player: MusicPlayerConfig::default(),
             ambiance_active_sounds: HashMap::new(),
             ambiance_global_volume: 0.5, // Default global ambiance volume to 50%
@@ -588,6 +593,35 @@ mod tests {
         toggled.enable_telemetry = !original.enable_telemetry;
 
         assert!(!toggled.data_equals(&original), "the toggle must mark the config dirty");
+    }
+
+    /// Pointing at another saved theme must be saved, or the app forgets
+    /// which theme is on screen as soon as it restarts.
+    #[test]
+    fn changing_the_active_theme_counts_as_a_change_worth_saving() {
+        let original = AppConfig::default();
+        let mut pointed = original.clone();
+        pointed.active_theme_id = Some("starter:retro-beige".to_string());
+        assert!(!pointed.data_equals(&original), "pointing at a theme must mark the config dirty");
+
+        let mut moved = pointed.clone();
+        moved.active_theme_id = Some("0b6f6a3e-4c1e-4d0b-9a55-2f0d0c1b7e11".to_string());
+        assert!(!moved.data_equals(&pointed), "pointing at another theme must mark the config dirty");
+    }
+
+    /// A config from before saved themes has no pointer, which means the
+    /// Default theme or a look not saved yet.
+    #[test]
+    fn an_old_config_loads_with_no_active_theme() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        let object = value.as_object_mut().expect("config is a json object");
+        object.remove("active_theme_id");
+        object.insert("enable_logo_customization".to_string(), serde_json::json!(true));
+
+        let restored = parse_lenient(&value.to_string()).expect("an old config must load");
+
+        assert_eq!(restored.active_theme_id, None);
+        assert!(restored.enable_logo_customization, "the rest of the config must be kept");
     }
 
     /// The fix: re-read immediately before mutating, so the concurrent change
@@ -870,6 +904,7 @@ mod tests {
             ("enabled_keyboards", json!(["keyboard-1"])),
             ("enabled_mice", json!(["mouse-1"])),
             ("ambiance_active_sounds", json!({ "rain": 0.5 })),
+            ("active_theme_id", json!("starter:retro-beige")),
             ("auto_update", auto_update),
         ]);
 
