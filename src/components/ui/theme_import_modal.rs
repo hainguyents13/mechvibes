@@ -10,7 +10,9 @@
 //! checked against its checksum before the dialog asks, and what the dialog
 //! lists comes from that file, not from what the library says about it.
 //! Either way nothing is put on until the user clicks Use this theme, and
-//! what is put on then is exactly the file the dialog showed.
+//! what is put on then is exactly the file the dialog showed. The dialog
+//! lists the colours, the logo and the background with a tick each; an
+//! unticked part brings nothing and leaves the user's own as it is.
 //!
 //! Reading, looking up and downloading can be cancelled. Each request has its
 //! own number, and a result that comes back after its request was cancelled
@@ -23,7 +25,7 @@ use crate::utils::config::use_config;
 use crate::utils::deep_link;
 use crate::utils::library_client;
 use crate::utils::theme::use_themes;
-use crate::utils::theme_share::{ self, ImportParts, SharedTheme };
+use crate::utils::theme_share::{ self, checklist, ImportParts, SharedTheme };
 use dioxus::prelude::*;
 use lucide_dioxus::Download;
 use std::rc::Rc;
@@ -87,11 +89,13 @@ fn advance(mut stage: Signal<Stage>, request: Signal<u64>, number: u64, next: St
 
 #[component]
 pub fn ThemeImportModal() -> Element {
-    let (_, update_config) = use_config();
+    let (config, update_config) = use_config();
     let (_, update_themes) = use_themes();
     let theme_signal = use_theme();
     let mut stage = use_signal(|| Stage::Hidden);
     let mut request = use_signal(|| 0u64);
+    // The parts ticked in the checklist. Every new request starts with all.
+    let mut parts = use_signal(|| ImportParts::ALL);
 
     // Theme files: read and checked off the window thread. Each read is a
     // task of its own, so one that hangs never holds up the stream.
@@ -104,6 +108,7 @@ pub fn ThemeImportModal() -> Element {
                 let Some(number) = begin(stage, request, Stage::Opening) else {
                     continue;
                 };
+                parts.set(ImportParts::ALL);
                 spawn(async move {
                     let opened = tokio::task
                         ::spawn_blocking(move || theme_share::open(&path)).await
@@ -127,6 +132,7 @@ pub fn ThemeImportModal() -> Element {
                 let Some(number) = begin(stage, request, Stage::LookingUp) else {
                     continue;
                 };
+                parts.set(ImportParts::ALL);
                 spawn(async move {
                     let listed = match library_client::fetch_theme(&id).await {
                         Ok(listed) => listed,
@@ -165,12 +171,16 @@ pub fn ThemeImportModal() -> Element {
         let Stage::Confirm(offer) = stage() else {
             return;
         };
+        let ticked = parts();
+        if !ticked.any() {
+            return;
+        }
         // Exactly the theme the dialog showed; nothing is read again.
         let theme = offer.theme.clone();
         stage.set(Stage::Working);
         let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
-            stage.set(match put_on(theme, ImportParts::ALL, update_config, update_themes, theme_signal).await {
+            stage.set(match put_on(theme, ticked, update_config, update_themes, theme_signal).await {
                 Ok(name) => Stage::Done(name),
                 Err(e) => Stage::Failed(e),
             });
@@ -227,22 +237,32 @@ pub fn ThemeImportModal() -> Element {
                   if let Some(author) = &offer.author {
                     div { class: "text-sm text-base-content/70", "by {author}" }
                   }
-                  ul { class: "text-sm text-base-content/70 list-disc", style: "margin-left: 1.25rem;",
-                    li { "Colors: {offer.theme.colors_label()}" }
-                    if let Some(logo) = offer.theme.logo_label() {
-                      li { "{logo}" }
-                    }
-                    if let Some(background) = offer.theme.background_label() {
-                      li { "{background}" }
-                    }
-                  }
                   if let Some(size) = offer.size {
                     div { class: "text-xs text-base-content/60", "{format_size(size)}" }
                   }
                 }
-                div { class: "text-sm text-base-content/70 mt-3",
-                  "This replaces your current theme, logo and background. Your own themes stay in the list."
+                div { class: "space-y-3 mt-3",
+                  for row in checklist(&offer.theme, &config()) {
+                    label { key: "{row.part:?}", class: "flex items-start gap-3 cursor-pointer",
+                      input {
+                        r#type: "checkbox",
+                        class: "checkbox",
+                        checked: parts().has(row.part),
+                        onchange: move |evt| {
+                            let ticked = parts().with(row.part, evt.checked());
+                            parts.set(ticked);
+                        },
+                      }
+                      div { class: "min-w-0",
+                        div { class: "text-sm text-base-content", "{row.label}" }
+                        if let Some(note) = row.note {
+                          div { class: "text-xs text-base-content/60", "{note}" }
+                        }
+                      }
+                    }
+                  }
                 }
+                div { class: "text-xs text-base-content/60 mt-3", "Untick a part to keep yours." }
               },
               Stage::Done(name) => rsx! {
                 div { class: "alert alert-success alert-soft", "{name} is on." }
@@ -262,7 +282,7 @@ pub fn ThemeImportModal() -> Element {
             }
             match &current {
                 Stage::Confirm(_) => rsx! {
-                  button { class: "btn btn-sm btn-neutral", onclick: apply,
+                  button { class: "btn btn-sm btn-neutral", disabled: !parts().any(), onclick: apply,
                     Download { class: "w-4 h-4 mr-2" }
                     "Use this theme"
                   }

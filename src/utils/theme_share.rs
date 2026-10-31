@@ -167,6 +167,73 @@ pub struct ImportParts {
 
 impl ImportParts {
     pub const ALL: Self = Self { colors: true, logo: true, background: true };
+
+    pub fn has(&self, part: Part) -> bool {
+        match part {
+            Part::Colors => self.colors,
+            Part::Logo => self.logo,
+            Part::Background => self.background,
+        }
+    }
+
+    /// These parts with `part` ticked or not.
+    pub fn with(mut self, part: Part, ticked: bool) -> Self {
+        match part {
+            Part::Colors => self.colors = ticked,
+            Part::Logo => self.logo = ticked,
+            Part::Background => self.background = ticked,
+        }
+        self
+    }
+
+    /// At least one part is ticked, so using the theme would change something.
+    pub fn any(&self) -> bool {
+        self.colors || self.logo || self.background
+    }
+}
+
+/// One part of a theme, as the import dialog lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    Colors,
+    Logo,
+    Background,
+}
+
+/// A line of the import dialog's checklist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartRow {
+    pub part: Part,
+    /// What the theme brings for this part, or the part's name when it
+    /// brings nothing.
+    pub label: String,
+    /// What ticking it does to the user's own part, when that is worth saying.
+    pub note: Option<&'static str>,
+}
+
+/// The checklist the import dialog shows for `theme`, one line per part,
+/// read from the theme itself so what is listed is what gets put on. `config`
+/// says which of the user's own parts are on, and so get replaced.
+pub fn checklist(theme: &SharedTheme, config: &AppConfig) -> [PartRow; 3] {
+    let row = |part: Part, name: &str, label: Option<&str>, yours_on: bool, replaces: &'static str| PartRow {
+        part,
+        label: label.unwrap_or(name).to_string(),
+        note: match label {
+            Some(_) => yours_on.then_some(replaces),
+            None => Some("Not in this theme. Will turn off yours."),
+        },
+    };
+    [
+        PartRow { part: Part::Colors, label: format!("Colors: {}", theme.colors_label()), note: None },
+        row(Part::Logo, "Logo", theme.logo_label(), config.enable_logo_customization, "Replaces your logo"),
+        row(
+            Part::Background,
+            "Background",
+            theme.background_label(),
+            config.enable_background_customization,
+            "Replaces your background"
+        ),
+    ]
 }
 
 /// The name a share starts with: the custom theme's name, or the built-in one.
@@ -1676,6 +1743,62 @@ mod tests {
 
         theme.background = Some(BackgroundCustomization { use_image: false, ..look().background.unwrap() });
         assert_eq!(theme.background_label(), Some("Background color"));
+    }
+
+    #[test]
+    fn a_part_that_is_on_says_it_will_be_replaced() {
+        let theme = look();
+        let mut config = AppConfig::default();
+        config.enable_logo_customization = true;
+        let [colors, logo, background] = checklist(&theme, &config);
+        assert_eq!((colors.part, colors.label.as_str(), colors.note), (Part::Colors, "Colors: Custom colors", None));
+        assert_eq!((logo.part, logo.label.as_str(), logo.note), (Part::Logo, "Logo with images", Some("Replaces your logo")));
+        assert_eq!((background.part, background.label.as_str(), background.note), (Part::Background, "Background image", None));
+
+        config.enable_logo_customization = false;
+        config.enable_background_customization = true;
+        let [_, logo, background] = checklist(&theme, &config);
+        assert_eq!(logo.note, None);
+        assert_eq!(background.note, Some("Replaces your background"));
+    }
+
+    #[test]
+    fn a_library_part_the_api_left_out_is_not_installed() {
+        // The library listed a logo (`has_logo: true`), but the file it served
+        // has none. The checklist only ever reads the file.
+        let dir = temp_dir("library");
+        let mut theme = SharedTheme { logo: None, ..look() };
+        let [_, logo, _] = checklist(&theme, &my_config());
+        assert_eq!(logo.label, "Logo");
+        assert_eq!(logo.note, Some("Not in this theme. Will turn off yours."));
+
+        theme.keep_parts(ImportParts::ALL);
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
+        assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))], "no logo image is saved");
+        let mut config = my_config();
+        apply_to_config(&theme, None, ImportParts::ALL, &mut config);
+        assert!(!config.enable_logo_customization);
+        assert_eq!(config.logo_customization, my_config().logo_customization, "nothing of a logo is put on");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // The library said there is no logo (`has_logo: false`), but the file
+        // has one: the dialog lists the file's logo, which is what gets put on.
+        let [_, logo, _] = checklist(&look(), &AppConfig::default());
+        assert_eq!(logo.label, "Logo with images");
+        assert_eq!(logo.note, None);
+    }
+
+    #[test]
+    fn parts_are_ticked_one_at_a_time() {
+        let parts = ImportParts::ALL.with(Part::Logo, false);
+        assert_eq!(parts, ImportParts { logo: false, ..ImportParts::ALL });
+        assert!(!parts.has(Part::Logo) && parts.has(Part::Colors) && parts.has(Part::Background));
+        assert!(parts.any());
+
+        let none = parts.with(Part::Colors, false).with(Part::Background, false);
+        assert!(!none.any(), "nothing ticked leaves nothing to use");
+        assert!(none.with(Part::Background, true).any());
     }
 
     #[test]
