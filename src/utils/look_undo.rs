@@ -48,8 +48,14 @@ struct UndoStep {
 }
 
 impl UndoStep {
-    fn remember(&mut self, before: LookFields, after: LookFields) {
+    /// A step that changed nothing leaves the last one in place, so it stays
+    /// the way back.
+    fn remember(&mut self, before: LookFields, after: LookFields) -> bool {
+        if before == after {
+            return false;
+        }
         self.step = Some((before, after));
+        true
     }
 
     fn take_undo(&mut self, now: &LookFields) -> Option<LookFields> {
@@ -62,11 +68,13 @@ impl UndoStep {
 /// mutation on another thread, so it sits behind a lock.
 static LAST: Mutex<UndoStep> = Mutex::new(UndoStep { step: None });
 
-/// Remember one step. Replaces whatever was remembered before.
-pub fn remember(before: LookFields, after: LookFields) {
+/// Remember one step, when it changed the look. Replaces whatever was
+/// remembered before. Returns whether it was remembered, so the caller offers
+/// Undo only for a step that did something.
+pub fn remember(before: LookFields, after: LookFields) -> bool {
     LAST.lock()
         .unwrap_or_else(|e| e.into_inner())
-        .remember(before, after);
+        .remember(before, after)
 }
 
 /// The look to go back to, only while the look on screen is still the one
@@ -120,6 +128,15 @@ mod tests {
         last.remember(before.clone(), after.clone());
         last.remember(after.clone(), before.clone());
         assert_eq!(last.take_undo(&before), Some(after));
+    }
+
+    #[test]
+    fn a_step_that_changes_nothing_keeps_the_way_back() {
+        let (before, after) = looks();
+        let mut last = UndoStep::default();
+        assert!(last.remember(before.clone(), after.clone()));
+        assert!(!last.remember(after.clone(), after.clone()), "a second click on the same look");
+        assert_eq!(last.take_undo(&after), Some(before));
     }
 
     #[test]

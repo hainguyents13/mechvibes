@@ -9,6 +9,8 @@ use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
 use dioxus::prelude::*;
 use lucide_dioxus::ExternalLink;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// The look the app starts with: the default colours, and the theme's own
 /// logo and background. The user's logo and background settings stay, so
@@ -32,15 +34,22 @@ pub fn ThemesTab() -> Element {
 
     let use_default = move |_| {
         // Remembered inside the write, like a theme being put on, so Undo
-        // goes back to exactly what the config held.
+        // goes back to exactly what the config held. A click while the
+        // default look is already on changes nothing and keeps the way back.
+        let changed = Rc::new(Cell::new(false));
         update_config(
-            Box::new(|cfg| {
-                let before = LookFields::of(cfg);
-                put_on_default_look(cfg);
-                look_undo::remember(before, LookFields::of(cfg));
+            Box::new({
+                let changed = changed.clone();
+                move |cfg| {
+                    let before = LookFields::of(cfg);
+                    put_on_default_look(cfg);
+                    changed.set(look_undo::remember(before, LookFields::of(cfg)));
+                }
             })
         );
-        notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
+        if changed.get() {
+            notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
+        }
     };
 
     rsx! {
