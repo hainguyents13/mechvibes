@@ -1,0 +1,105 @@
+{
+  "applied": {
+    "background_customization": {
+      "background_color": "#fff7ed",
+      "background_image": "image-2.webp",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#ffedd5",
+      "background_image": "image-1.webp",
+      "border_color": "#f97316",
+      "dimmed_when_muted": false,
+      "muted_background": "#fed7aa",
+      "muted_background_image": null,
+      "shadow_color": "#f97316",
+      "text_color": "#7c2d12",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "Custom": "imported-colors"
+    }
+  },
+  "read": {
+    "background": {
+      "background_color": "#fff7ed",
+      "background_image": "image-2.webp",
+      "use_image": true
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-primary: oklch(70% 0.19 45);\n--color-secondary: oklch(60% 0.2 10);\ncolor-scheme: light;"
+      }
+    },
+    "images": {
+      "image-1.webp": "86be52bdb7547413cafb3ed175a806a798c65de98b40849e0b974c47d187de65",
+      "image-2.webp": "c90cff659645a312a28804965f3dbc34061338f7234ff5d6ddb2c57e9eadec15"
+    },
+    "logo": {
+      "background_color": "#ffedd5",
+      "background_image": "image-1.webp",
+      "border_color": "#f97316",
+      "dimmed_when_muted": false,
+      "muted_background": "#fed7aa",
+      "muted_background_image": null,
+      "shadow_color": "#f97316",
+      "text_color": "#7c2d12",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "name": "Library sunset"
+  },
+  "start": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Retro"
+    }
+  },
+  "written_again": {
+    "background": {
+      "background_color": "#fff7ed",
+      "background_image": "image-2.webp",
+      "use_image": true
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-primary: oklch(70% 0.19 45);\n--color-secondary: oklch(60% 0.2 10);\ncolor-scheme: light;"
+      }
+    },
+    "format": 1,
+    "logo": {
+      "background_color": "#ffedd5",
+      "background_image": "image-1.webp",
+      "border_color": "#f97316",
+      "dimmed_when_muted": false,
+      "muted_background": "#fed7aa",
+      "muted_background_image": null,
+      "shadow_color": "#f97316",
+      "text_color": "#7c2d12",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "name": "Library sunset"
+  }
+}

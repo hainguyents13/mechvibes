@@ -1,0 +1,106 @@
+{
+  "applied": {
+    "background_customization": {
+      "background_color": "#101018",
+      "background_image": "background.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "var(--color-base-200)",
+      "background_image": "logo.png",
+      "border_color": "#ff4fa3",
+      "dimmed_when_muted": true,
+      "muted_background": "#2a2a3a",
+      "muted_background_image": "logo-muted.jpg",
+      "shadow_color": "rgb(255 79 163 / 0.6)",
+      "text_color": "oklch(90% 0.05 330)",
+      "use_background_image": true,
+      "use_muted_background_image": true
+    },
+    "theme": {
+      "Custom": "imported-colors"
+    }
+  },
+  "read": {
+    "background": {
+      "background_color": "#101018",
+      "background_image": "background.jpg",
+      "use_image": true
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-base-100: oklch(22% 0.03 280);\n--color-base-200: oklch(18% 0.03 280);\n--color-base-300: oklch(14% 0.03 280);\n--color-base-content: oklch(92% 0.02 280);\n--color-primary: oklch(65% 0.25 330);\n--color-primary-content: oklch(98% 0.01 330);\n--color-secondary: oklch(70% 0.2 200);\n--color-secondary-content: oklch(20% 0.05 200);\n--color-accent: oklch(80% 0.18 90);\n--color-accent-content: oklch(20% 0.05 90);\n--color-neutral: oklch(30% 0.05 280);\n--color-neutral-content: oklch(95% 0.01 280);\n--color-success: oklch(65% 0.25 140);\n--color-success-content: oklch(98% 0.01 140);\n--color-warning: oklch(80% 0.25 80);\n--color-warning-content: oklch(20% 0.05 80);\n--color-error: oklch(65% 0.3 30);\n--color-error-content: oklch(98% 0.01 30);\ncolor-scheme: dark;\n--radius-selector: 1rem;\n--radius-field: 0.25rem;\n--radius-box: 0.5rem;\n--size-selector: 0.25rem;\n--size-field: 0.25rem;\n--border: 1px;\n--depth: 1;\n--noise: 0;"
+      }
+    },
+    "images": {
+      "background.jpg": "7b44d6ebd1255e533c84bec4d43bcb3d9e3c1d37666b3b7130a3227d004a1ae4",
+      "logo-muted.jpg": "62866374d6f4bdfdf3a4755cf8e27a965a743c8b56516bca85a74383448215ec",
+      "logo.png": "8394ce11820ef70e1c0ae6552bf9609e45813ec190fd3be21134220e88cbfc73"
+    },
+    "logo": {
+      "background_color": "var(--color-base-200)",
+      "background_image": "logo.png",
+      "border_color": "#ff4fa3",
+      "dimmed_when_muted": true,
+      "muted_background": "#2a2a3a",
+      "muted_background_image": "logo-muted.jpg",
+      "shadow_color": "rgb(255 79 163 / 0.6)",
+      "text_color": "oklch(90% 0.05 330)",
+      "use_background_image": true,
+      "use_muted_background_image": true
+    },
+    "name": "Night drive"
+  },
+  "start": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Retro"
+    }
+  },
+  "written_again": {
+    "background": {
+      "background_color": "#101018",
+      "background_image": "background.jpg",
+      "use_image": true
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-base-100: oklch(22% 0.03 280);\n--color-base-200: oklch(18% 0.03 280);\n--color-base-300: oklch(14% 0.03 280);\n--color-base-content: oklch(92% 0.02 280);\n--color-primary: oklch(65% 0.25 330);\n--color-primary-content: oklch(98% 0.01 330);\n--color-secondary: oklch(70% 0.2 200);\n--color-secondary-content: oklch(20% 0.05 200);\n--color-accent: oklch(80% 0.18 90);\n--color-accent-content: oklch(20% 0.05 90);\n--color-neutral: oklch(30% 0.05 280);\n--color-neutral-content: oklch(95% 0.01 280);\n--color-success: oklch(65% 0.25 140);\n--color-success-content: oklch(98% 0.01 140);\n--color-warning: oklch(80% 0.25 80);\n--color-warning-content: oklch(20% 0.05 80);\n--color-error: oklch(65% 0.3 30);\n--color-error-content: oklch(98% 0.01 30);\ncolor-scheme: dark;\n--radius-selector: 1rem;\n--radius-field: 0.25rem;\n--radius-box: 0.5rem;\n--size-selector: 0.25rem;\n--size-field: 0.25rem;\n--border: 1px;\n--depth: 1;\n--noise: 0;"
+      }
+    },
+    "format": 1,
+    "logo": {
+      "background_color": "var(--color-base-200)",
+      "background_image": "logo.png",
+      "border_color": "#ff4fa3",
+      "dimmed_when_muted": true,
+      "muted_background": "#2a2a3a",
+      "muted_background_image": "logo-muted.jpg",
+      "shadow_color": "rgb(255 79 163 / 0.6)",
+      "text_color": "oklch(90% 0.05 330)",
+      "use_background_image": true,
+      "use_muted_background_image": true
+    },
+    "name": "Night drive"
+  }
+}

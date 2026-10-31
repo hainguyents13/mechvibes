@@ -835,6 +835,101 @@ mod tests {
         assert_eq!(plain["colors"], serde_json::json!({ "built_in": "Synthwave" }));
     }
 
+    /// A file from `theme_share/fixtures/v1/` and what Mechvibes 3.3 made of
+    /// it. The README there says how they were made.
+    macro_rules! v3_3_file {
+        ($name:literal) => {
+            (
+                $name,
+                include_bytes!(concat!("theme_share/fixtures/v1/", $name, ".mvtheme")).as_slice(),
+                include_str!(concat!("theme_share/fixtures/v1/", $name, ".expected.json")),
+            )
+        };
+    }
+
+    fn v3_3_files() -> Vec<(&'static str, &'static [u8], serde_json::Value)> {
+        [
+            v3_3_file!("custom-full"),
+            v3_3_file!("built-in-plain"),
+            v3_3_file!("logo-colors-only"),
+            v3_3_file!("background-color-only"),
+            v3_3_file!("older-empty-colors"),
+            v3_3_file!("unknown-fields"),
+            v3_3_file!("library-rewritten"),
+        ]
+            .into_iter()
+            .map(|(name, bytes, expected)| (name, bytes, serde_json::from_str(expected).unwrap()))
+            .collect()
+    }
+
+    /// `base` with the theme, logo and background settings a snapshot's
+    /// `start` or `applied` holds.
+    fn with_look(base: &AppConfig, look: &serde_json::Value) -> AppConfig {
+        let field = |key: &str| look[key].clone();
+        let mut config = base.clone();
+        config.theme = serde_json::from_value(field("theme")).unwrap();
+        config.enable_logo_customization = serde_json::from_value(field("enable_logo_customization")).unwrap();
+        config.logo_customization = serde_json::from_value(field("logo_customization")).unwrap();
+        config.enable_background_customization = serde_json::from_value(field("enable_background_customization")).unwrap();
+        config.background_customization = serde_json::from_value(field("background_customization")).unwrap();
+        config
+    }
+
+    #[test]
+    fn format_one_files_from_v3_3_read_the_same() {
+        use sha2::{ Digest, Sha256 };
+
+        for (name, bytes, expected) in v3_3_files() {
+            let read = from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e));
+            let expected = &expected["read"];
+
+            assert_eq!(read.name, expected["name"], "{}: name", name);
+            let colors = match &read.colors {
+                SharedColors::BuiltIn(theme) => serde_json::json!({ "built_in": format!("{:?}", theme) }),
+                SharedColors::Custom { css } => serde_json::json!({ "custom": { "css": css } }),
+            };
+            assert_eq!(colors, expected["colors"], "{}: colors", name);
+            let logo: Option<LogoCustomization> = serde_json::from_value(expected["logo"].clone()).unwrap();
+            assert_eq!(read.logo, logo, "{}: logo", name);
+            let background: Option<BackgroundCustomization> = serde_json
+                ::from_value(expected["background"].clone())
+                .unwrap();
+            assert_eq!(read.background, background, "{}: background", name);
+            let images: serde_json::Map<String, serde_json::Value> = read.images
+                .iter()
+                .map(|(image, bytes)| {
+                    (image.clone(), crate::utils::update_installer::hex_encode(&Sha256::digest(bytes)).into())
+                })
+                .collect();
+            assert_eq!(serde_json::Value::Object(images), expected["images"], "{}: images", name);
+        }
+    }
+
+    #[test]
+    fn format_one_files_apply_the_same_as_v3_3() {
+        let base = AppConfig::default();
+        for (name, bytes, expected) in v3_3_files() {
+            let theme = from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e));
+            let choice = match &theme.colors {
+                SharedColors::BuiltIn(built_in) => Theme::BuiltIn(built_in.clone()),
+                SharedColors::Custom { .. } => Theme::Custom("imported-colors".to_string()),
+            };
+            let mut config = with_look(&base, &expected["start"]);
+            apply_to_config(&theme, choice, &mut config);
+            assert_eq!(config, with_look(&base, &expected["applied"]), "{}", name);
+        }
+    }
+
+    /// A file read and written again holds what 3.3 wrote back, so a file
+    /// that passes through this build still opens in 3.3 as it did.
+    #[test]
+    fn writing_a_v3_3_file_again_keeps_its_fields() {
+        for (name, bytes, expected) in v3_3_files() {
+            let written = to_bytes(&from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e))).unwrap();
+            assert_eq!(manifest_json(&written), expected["written_again"], "{}", name);
+        }
+    }
+
     #[test]
     fn an_unknown_built_in_name_is_damaged() {
         let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Neon"}}"#;

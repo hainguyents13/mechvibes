@@ -1,0 +1,98 @@
+{
+  "applied": {
+    "background_customization": {
+      "background_color": "var(--color-base-100)",
+      "background_image": null,
+      "use_image": false
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "var(--color-base-200)",
+      "background_image": null,
+      "border_color": "var(--color-base-content)",
+      "dimmed_when_muted": false,
+      "muted_background": "var(--color-base-300)",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "var(--color-base-content)",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Cupcake"
+    }
+  },
+  "read": {
+    "background": {
+      "background_color": "var(--color-base-100)",
+      "background_image": null,
+      "use_image": false
+    },
+    "colors": {
+      "built_in": "Cupcake"
+    },
+    "images": {},
+    "logo": {
+      "background_color": "var(--color-base-200)",
+      "background_image": null,
+      "border_color": "var(--color-base-content)",
+      "dimmed_when_muted": false,
+      "muted_background": "var(--color-base-300)",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "var(--color-base-content)",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "name": "From an older config"
+  },
+  "start": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Retro"
+    }
+  },
+  "written_again": {
+    "background": {
+      "background_color": "var(--color-base-100)",
+      "background_image": null,
+      "use_image": false
+    },
+    "colors": {
+      "built_in": "Cupcake"
+    },
+    "format": 1,
+    "logo": {
+      "background_color": "var(--color-base-200)",
+      "background_image": null,
+      "border_color": "var(--color-base-content)",
+      "dimmed_when_muted": false,
+      "muted_background": "var(--color-base-300)",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "var(--color-base-content)",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "name": "From an older config"
+  }
+}
