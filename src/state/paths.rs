@@ -484,6 +484,12 @@ pub mod data {
         get_writable_data_dir().join("themes.json")
     }
 
+    /// Saved themes: the user's own, and the ones installed from files or the
+    /// theme library
+    pub fn saved_themes_json() -> PathBuf {
+        get_writable_data_dir().join("saved_themes.json")
+    }
+
     /// Soundpack cache file
     pub fn soundpack_cache_json() -> PathBuf {
         get_writable_data_dir().join("soundpack_cache.json")

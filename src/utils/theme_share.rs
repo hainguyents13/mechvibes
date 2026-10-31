@@ -12,6 +12,7 @@ use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use crate::state::themes::ThemesConfig;
 use crate::utils::soundpack_validator::is_portable_name;
+use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 use std::io::{ Cursor, Read, Write };
 use std::path::{ Path, PathBuf };
@@ -44,8 +45,10 @@ const CSS_FUNCTIONS: [&str; 16] = [
 ];
 
 /// The theme colours a look uses. In a file they are written as
-/// `wire_v1::ColorsV1`.
-#[derive(Debug, Clone, PartialEq)]
+/// `wire_v1::ColorsV1`; the saved themes list stores them with this serde
+/// shape, `{ "built_in": "Dark" }` or `{ "custom": { "css": "..." } }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SharedColors {
     BuiltIn(BuiltInTheme),
     Custom {
@@ -995,7 +998,7 @@ pub fn safe_css_value(value: &str) -> Option<String> {
 
 /// A colour from a shared file. Configs from before the defaults became theme
 /// variables can hold an empty colour, which means the default.
-fn safe_color(value: &str, default: String) -> Result<String, String> {
+pub(crate) fn safe_color(value: &str, default: String) -> Result<String, String> {
     if value.trim().is_empty() {
         return Ok(default);
     }
