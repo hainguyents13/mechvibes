@@ -1,11 +1,22 @@
 //! The Themes tab: a gallery of every theme the user can switch to. The
 //! default look and the themes that come with the app first, then the user's
 //! own, then the ones they installed, and a way to find more. Clicking a card
-//! puts that theme on; the look from before stays in the gallery.
+//! puts that theme on; the look from before stays in the gallery. Each card's
+//! menu shares, renames, duplicates or deletes it, as its kind allows.
 
 use crate::components::customize::current_theme_row::FIND_MORE_URL;
-use crate::components::customize::look_editor::{ use_look_editor, use_saved_themes, Card };
-use crate::components::customize::theme_card::{ CardPreview, ThemeCard, FRAME_CLASS, FRAME_STYLE, PICTURE_STYLE };
+use crate::components::customize::look_editor::{ self, use_look_editor, use_saved_themes, Card };
+use crate::components::customize::rename_modal::RenameModal;
+use crate::components::customize::theme_card::{
+    CardAction,
+    CardPreview,
+    ThemeCard,
+    FRAME_CLASS,
+    FRAME_STYLE,
+    PICTURE_STYLE,
+};
+use crate::components::theme_share::share_card;
+use crate::components::ui::ConfirmModal;
 use crate::state::saved_themes::{ SavedThemes, ThemeKind };
 use crate::utils::config::use_config;
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
@@ -55,6 +66,20 @@ fn gallery(store: &SavedThemes) -> Vec<Group> {
         .collect()
 }
 
+/// What a card's menu offers. Only the user's own themes can be renamed, and
+/// only saved themes deleted; every card can be shared and duplicated.
+fn actions(card: &Card) -> &'static [CardAction] {
+    use CardAction::*;
+    match card {
+        Card::Default | Card::Starter(_) => &[Share, Duplicate],
+        Card::Saved(saved) =>
+            match saved.kind {
+                ThemeKind::Mine => &[Share, Rename, Duplicate, Delete],
+                ThemeKind::Imported | ThemeKind::Library => &[Share, Duplicate, Delete],
+            }
+    }
+}
+
 /// A card as the gallery draws it.
 struct Shown {
     key: String,
@@ -69,14 +94,46 @@ pub fn ThemesTab() -> Element {
     let (config, _) = use_config();
     let saved_themes = use_saved_themes();
     let editor = use_look_editor();
+    // The id and name of the saved theme being renamed, or waiting for the
+    // user to confirm its deletion.
+    let mut renaming = use_signal(|| None::<(String, String)>);
+    let mut deleting = use_signal(|| None::<(String, String)>);
+    // The save dialog and the writing take a moment; one share at a time.
+    let mut sharing = use_signal(|| false);
 
     // The look from before is saved first, so its card can be clicked again.
     // Only the default look offers Undo, since it is the one card that keeps
     // nothing of the look before it. A click on the card already on changes
     // nothing and keeps the way back.
-    let put_on = move |card: Card| {
-        if editor.apply_card(&card) == Ok(true) && card == Card::Default {
-            notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
+    let put_on = {
+        let editor = editor.clone();
+        move |card: Card| {
+            if editor.apply_card(&card) == Ok(true) && card == Card::Default {
+                notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
+            }
+        }
+    };
+
+    let on_action = move |card: Card, action: CardAction| {
+        match (action, card) {
+            (CardAction::Share, card) => {
+                if *sharing.peek() {
+                    return;
+                }
+                sharing.set(true);
+                spawn(async move {
+                    share_card(card).await;
+                    sharing.set(false);
+                });
+            }
+            // The copy shows up under "My themes". A failed one has told the
+            // user why.
+            (CardAction::Duplicate, card) => {
+                let _ = look_editor::duplicate(&card);
+            }
+            (CardAction::Rename, Card::Saved(saved)) => renaming.set(Some((saved.id, saved.name))),
+            (CardAction::Delete, Card::Saved(saved)) => deleting.set(Some((saved.id, saved.name))),
+            (CardAction::Rename | CardAction::Delete, _) => {}
         }
     };
 
@@ -111,10 +168,15 @@ pub fn ThemesTab() -> Element {
                   name: shown.name,
                   preview: shown.preview,
                   active: shown.active,
+                  actions: actions(&shown.card),
                   on_apply: {
                       let put_on = put_on.clone();
-                      let card = shown.card;
+                      let card = shown.card.clone();
                       move |_| put_on(card.clone())
+                  },
+                  on_action: {
+                      let (card, mut on_action) = (shown.card, on_action);
+                      move |action| on_action(card.clone(), action)
                   },
                 }
               }
@@ -125,6 +187,25 @@ pub fn ThemesTab() -> Element {
           }
         }
         div { class: "text-sm text-base-content/70", "{THEME_FILE_HINT}" }
+        if let Some((id, name)) = renaming() {
+          RenameModal { id, name, on_close: move |_| renaming.set(None) }
+        }
+        if let Some((id, name)) = deleting() {
+          ConfirmModal {
+            title: format!("Delete {}?", name),
+            message: "This cannot be undone.".to_string(),
+            confirm_label: "Delete".to_string(),
+            on_confirm: {
+                let editor = editor.clone();
+                move |_| {
+                    deleting.set(None);
+                    // A failed delete has told the user why.
+                    let _ = editor.delete_theme(&id);
+                }
+            },
+            on_cancel: move |_| deleting.set(None),
+          }
+        }
       }
     }
 }
@@ -212,5 +293,17 @@ mod tests {
         assert_eq!(titles, ["Ready-made", "My themes", "Installed"]);
         assert_eq!(pointers(&groups[1]), [Some("new mine".to_string()), Some("old mine".to_string())]);
         assert_eq!(pointers(&groups[2]), [Some("library".to_string()), Some("file".to_string())]);
+    }
+
+    #[test]
+    fn each_kind_of_card_offers_its_own_menu() {
+        use CardAction::*;
+        let starter = &starter_themes::all()[0];
+        assert_eq!(actions(&Card::Default), [Share, Duplicate]);
+        assert_eq!(actions(&Card::Starter(starter)), [Share, Duplicate]);
+        assert_eq!(actions(&Card::Saved(saved("mine", ThemeKind::Mine, 0))), [Share, Rename, Duplicate, Delete]);
+        for kind in [ThemeKind::Imported, ThemeKind::Library] {
+            assert_eq!(actions(&Card::Saved(saved("installed", kind, 0))), [Share, Duplicate, Delete]);
+        }
     }
 }

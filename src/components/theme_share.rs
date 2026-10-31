@@ -1,12 +1,13 @@
-//! Sharing the look on screen, picking a theme file to import, and putting
-//! an opened look on.
+//! Sharing a theme, picking a theme file to import, and putting an opened
+//! look on.
 //!
 //! Share saves the theme colours, the logo and the background, images
-//! included, to one `.mvtheme` file. Import hands the file it picks to the
+//! included, to one `.mvtheme` file, from any card or from the look on
+//! screen. Import hands the file it picks to the
 //! import dialog at the root (`ui::theme_import_modal`), which shows what the
 //! file holds and puts it on only after the user agrees.
 
-use crate::components::customize::look_editor;
+use crate::components::customize::look_editor::{ self, Card };
 use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
 use crate::state::config_writer;
@@ -15,7 +16,7 @@ use crate::state::themes::ThemesConfig;
 use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
 use crate::utils::theme::UpdateThemes;
-use crate::utils::theme_library::{ self, ThemeSource };
+use crate::utils::theme_library::{ self, ThemeSource, DEFAULT_NAME };
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -132,13 +133,46 @@ pub fn undo_look(
     }
 }
 
-/// Save the look on screen to a `.mvtheme` file. The save dialog opens
-/// straight away, and the theme in the file takes the name the user gives
-/// the file. A toast says how it went and, once saved, offers to show the
-/// file.
+/// What a share writes to the file.
+enum Shared {
+    /// A look, gathered with its images into a theme named after the file.
+    Look(Look),
+    /// A theme file as it comes with the app, written out unchanged.
+    File(&'static [u8]),
+}
+
+/// Save the look on screen to a `.mvtheme` file, named after its colors.
+/// Used when the look is no card's; otherwise the current theme row shares
+/// the card (`share_card`).
 pub async fn share_current(config: AppConfig, themes: ThemesConfig) {
     let look = Look::from_config(&config, &themes);
-    let suggested = format!("{}.{}", theme_share::default_name(&config, &themes), FILE_EXTENSION);
+    share(&theme_share::default_name(&config, &themes), Shared::Look(look)).await;
+}
+
+/// Save a card's theme to a `.mvtheme` file. A theme that comes with the
+/// app is written exactly as it comes, under its own name; any other card
+/// is gathered from its look, the Default card from the default look.
+pub async fn share_card(card: Card) {
+    match card {
+        Card::Starter(starter) => share(starter.name(), Shared::File(starter.bytes)).await,
+        Card::Default => share(DEFAULT_NAME, Shared::Look(Look::default())).await,
+        Card::Saved(saved) => share(&saved.name, Shared::Look(saved.look())).await,
+    }
+}
+
+/// `name` with the characters a file name cannot hold on some systems
+/// swapped for a dash, so the save dialog takes it as a file name.
+fn file_name_for(name: &str) -> String {
+    name.chars()
+        .map(|c| if matches!(c, '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*') { '-' } else { c })
+        .collect()
+}
+
+/// Ask where to save, suggesting a file named `name`, then write it. A
+/// gathered theme takes the name the user gives the file. A toast says how
+/// it went and, once saved, offers to show the file.
+async fn share(name: &str, shared: Shared) {
+    let suggested = format!("{}.{}", file_name_for(name), FILE_EXTENSION);
     let Some(handle) = rfd::AsyncFileDialog
         ::new()
         .add_filter("Mechvibes theme", &[FILE_EXTENSION])
@@ -155,14 +189,25 @@ pub async fn share_current(config: AppConfig, themes: ThemesConfig) {
         }
     };
 
-    let result = match theme_share::gather(&name, &look).await {
-        Ok(theme) => {
+    let result = match shared {
+        Shared::Look(look) =>
+            match theme_share::gather(&name, &look).await {
+                Ok(theme) => {
+                    let path = path.clone();
+                    tokio::task
+                        ::spawn_blocking(move || theme_share::save(&theme, &path)).await
+                        .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
+                }
+                Err(e) => Err(e),
+            }
+        Shared::File(bytes) => {
             let path = path.clone();
             tokio::task
-                ::spawn_blocking(move || theme_share::save(&theme, &path)).await
+                ::spawn_blocking(move || {
+                    std::fs::write(&path, bytes).map_err(|e| format!("Could not save the file: {}", e))
+                }).await
                 .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
         }
-        Err(e) => Err(e),
     };
     match result {
         Ok(()) =>
@@ -186,5 +231,16 @@ pub async fn pick_theme_file() {
             .pick_file().await
     {
         crate::utils::deep_link::deliver_theme_file(handle.path().to_path_buf());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_theme_name_makes_a_file_name_the_save_dialog_takes() {
+        assert_eq!(file_name_for("Night drive (my copy)"), "Night drive (my copy)");
+        assert_eq!(file_name_for("Day/Night: \"v2\"?"), "Day-Night- -v2--");
     }
 }

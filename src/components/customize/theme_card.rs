@@ -1,5 +1,6 @@
 //! A card in the Themes tab: a small picture of the theme, its name and its
-//! colours. Clicking it puts the theme on.
+//! colours. Clicking it puts the theme on; its "..." menu shares, renames,
+//! duplicates or deletes it.
 //!
 //! The picture is drawn with the theme's own values: its colours on the
 //! picture alone (a daisyUI theme by name, or custom colours set inline, never
@@ -12,7 +13,7 @@ use crate::libs::theme::BuiltInTheme;
 use crate::state::config::{ BackgroundCustomization, LogoCustomization };
 use crate::utils::theme_share::{ Look, LookColors, SharedColors };
 use dioxus::prelude::*;
-use lucide_dioxus::Check;
+use lucide_dioxus::{ Check, CopyPlus, Ellipsis, Pencil, Share2, Trash2 };
 use std::hash::{ Hash, Hasher };
 
 /// What a card's picture shows.
@@ -76,23 +77,96 @@ pub(crate) const FRAME_STYLE: &str = "border-width: 2px;";
 /// The picture's shape.
 pub(crate) const PICTURE_STYLE: &str = "aspect-ratio: 4 / 3;";
 
+/// What a card's "..." menu can do.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardAction {
+    Share,
+    Rename,
+    Duplicate,
+    Delete,
+}
+
+impl CardAction {
+    fn label(self) -> &'static str {
+        match self {
+            CardAction::Share => "Share",
+            CardAction::Rename => "Rename",
+            CardAction::Duplicate => "Duplicate",
+            CardAction::Delete => "Delete",
+        }
+    }
+}
+
 #[component]
-pub fn ThemeCard(name: String, preview: CardPreview, active: bool, on_apply: EventHandler<()>) -> Element {
+pub fn ThemeCard(
+    name: String,
+    preview: CardPreview,
+    active: bool,
+    actions: &'static [CardAction],
+    on_apply: EventHandler<()>,
+    on_action: EventHandler<CardAction>
+) -> Element {
     let border = if active { "border-primary" } else { "border-base-300" };
     let key = preview.key();
 
     rsx! {
-      button {
-        class: "{FRAME_CLASS} {border}",
-        style: FRAME_STYLE,
-        title: "{name}",
-        "aria-pressed": if active { "true" } else { "false" },
-        onclick: move |_| on_apply.call(()),
-        // Drawn anew whenever the look changes. Dioxus keeps any inline
-        // style property a changed `style` leaves out, so a picture reused
-        // for a new look could keep colours or a wallpaper of the old one.
-        for key in [key] {
-          CardFace { key: "{key}", name: name.clone(), preview: preview.clone(), active }
+      // The menu sits beside the card's button, not in it, and outside its
+      // frame, which would clip the open menu.
+      div { class: "relative",
+        button {
+          class: "{FRAME_CLASS} {border}",
+          style: FRAME_STYLE,
+          title: "{name}",
+          "aria-pressed": if active { "true" } else { "false" },
+          onclick: move |_| on_apply.call(()),
+          // Drawn anew whenever the look changes. Dioxus keeps any inline
+          // style property a changed `style` leaves out, so a picture reused
+          // for a new look could keep colours or a wallpaper of the old one.
+          for key in [key] {
+            CardFace { key: "{key}", name: name.clone(), preview: preview.clone(), active }
+          }
+        }
+        if !actions.is_empty() {
+          div { class: "absolute top-2 right-2",
+            div { class: "dropdown dropdown-left",
+              div {
+                class: "btn btn-xs btn-circle shadow-sm",
+                tabindex: "0",
+                role: "button",
+                title: "More",
+                "aria-label": "More for {name}",
+                Ellipsis { class: "w-4 h-4" }
+              }
+              ul {
+                class: "dropdown-content menu bg-base-100 rounded-box z-1 p-2 shadow-sm",
+                style: "min-width: 9rem;",
+                tabindex: "0",
+                for action in actions.iter().copied() {
+                  li { key: "{action.label()}",
+                    a {
+                      class: if action == CardAction::Delete { "text-error" } else { "" },
+                      onclick: move |_| on_action.call(action),
+                      match action {
+                          CardAction::Share => rsx! {
+                            Share2 { class: "w-4 h-4 mr-1" }
+                          },
+                          CardAction::Rename => rsx! {
+                            Pencil { class: "w-4 h-4 mr-1" }
+                          },
+                          CardAction::Duplicate => rsx! {
+                            CopyPlus { class: "w-4 h-4 mr-1" }
+                          },
+                          CardAction::Delete => rsx! {
+                            Trash2 { class: "w-4 h-4 mr-1" }
+                          },
+                      }
+                      "{action.label()}"
+                    }
+                  }
+                }
+              }
+            }
+          }
         }
       }
     }

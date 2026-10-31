@@ -9,14 +9,16 @@
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::config_writer;
-use crate::state::saved_themes::{ SavedTheme, SavedThemes };
+use crate::state::saved_themes::{ self, SavedTheme, SavedThemes };
+use crate::state::themes::ThemesConfig;
 use crate::utils::config::use_config;
 use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeKind };
-use crate::utils::starter_themes::StarterTheme;
+use crate::utils::starter_themes::{ self, StarterTheme };
 use crate::utils::theme;
-use crate::utils::theme_library::{ self, colors_choice, shows_default, SyncDebounce, DEFAULT_NAME };
+use crate::utils::theme_library::{ self, colors_choice, same_look, shows_default, SyncDebounce, DEFAULT_NAME };
 use crate::utils::theme_share::{ Look, SharedColors };
+use chrono::Utc;
 use dioxus::prelude::*;
 use once_cell::sync::Lazy;
 use std::cell::Cell;
@@ -143,6 +145,86 @@ impl LookEditor {
         );
         Ok(changed.get())
     }
+
+    /// Delete a saved theme. Its images and colors stay (see
+    /// `theme_library::delete_theme`). When it is the theme on screen, the
+    /// Default theme goes on first, with no Undo, since the theme it would go
+    /// back to is gone. An edit still waiting is saved first, so an edit to
+    /// an installed theme lives on in its copy.
+    pub fn delete_theme(&self, id: &str) -> Result<(), String> {
+        save_look_on_screen();
+        refuse_while_read_only()?;
+        let id = id.to_string();
+        (self.update_config)(
+            Box::new({
+                let id = id.clone();
+                move |cfg| theme_library::after_deleting_theme(cfg, &id)
+            })
+        );
+        saved_themes::apply(|store| {
+            theme_library::delete_theme(store, &id);
+        }).map(|_| ())
+    }
+}
+
+/// Save a copy of `card` as a theme of the user's own, "<name> (copy)". The
+/// copy is not put on. A starter's images are saved first, since the copy
+/// points where putting the starter on saves them.
+pub fn duplicate(card: &Card) -> Result<(), String> {
+    refuse_while_read_only()?;
+    if let Card::Starter(starter) = card {
+        if let Err(e) = starter.save_images() {
+            notice::report(NoticeKind::Error, format!("Could not copy {}. {}", starter.name(), e), None);
+            return Err(e);
+        }
+    }
+    let name = theme_library::duplicate_name(card.name(), &theme_library::cards(&saved_themes::current()));
+    let Some(copy) = theme_library::new_mine(name, card.look(), Utc::now()) else {
+        return Err("This theme has no colors to copy.".to_string());
+    };
+    saved_themes::apply(|store| store.insert(copy)).map(|_| ())
+}
+
+/// `Err` while the saved themes cannot be written this session. The user
+/// heard why once at startup; a change they ask for tells them again.
+fn refuse_while_read_only() -> Result<(), String> {
+    match saved_themes::current().read_only {
+        Some(read_only) => {
+            notice::report(NoticeKind::Error, read_only.message(), None);
+            Err(read_only.message().to_string())
+        }
+        None => Ok(()),
+    }
+}
+
+/// The card the look on screen is, once an edit still waiting is saved.
+/// `None` when the look is no card's, as while saved themes cannot be
+/// written.
+pub fn card_on_screen() -> Option<Card> {
+    save_look_on_screen();
+    card_showing(&config_writer::current(), &theme::get_themes_config(), &saved_themes::current())
+}
+
+/// The card `config` points at, if the look it shows is that card's, or the
+/// Default card when it shows the Default theme.
+fn card_showing(config: &AppConfig, themes: &ThemesConfig, store: &SavedThemes) -> Option<Card> {
+    if shows_default(config) {
+        return Some(Card::Default);
+    }
+    let pointer = config.active_theme_id.as_deref()?;
+    let card = store
+        .themes()
+        .find(|saved| saved.id == pointer)
+        .cloned()
+        .map(Card::Saved)
+        .or_else(|| {
+            starter_themes
+                ::all()
+                .iter()
+                .find(|starter| starter.pointer() == pointer)
+                .map(Card::Starter)
+        })?;
+    same_look(&Look::from_config(config, themes), &card.look()).then_some(card)
 }
 
 /// What putting `card` on writes, with `theme` as the theme its colors became.
@@ -289,6 +371,25 @@ mod tests {
         let look = starter.look();
         assert_eq!(config.enable_logo_customization.then(|| config.logo_customization.clone()), look.logo);
         assert_eq!(config.enable_background_customization, look.background.is_some());
+    }
+
+    #[test]
+    fn the_current_theme_shares_the_card_on_screen() {
+        let (store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let mut config = AppConfig::default();
+        assert_eq!(card_showing(&config, &themes, &store), Some(Card::Default));
+
+        // A starter on screen is shared as the file that comes with the app.
+        let starter = &crate::utils::starter_themes::all()[0];
+        let colors = colors_choice(&starter.theme.colors, starter.name(), &mut themes).unwrap();
+        put_card_on(&Card::Starter(starter), colors, &mut config);
+        assert_eq!(card_showing(&config, &themes, &store), Some(Card::Starter(starter)));
+
+        // An edit not saved as a theme yet is no card's look.
+        config.enable_logo_customization = !config.enable_logo_customization;
+        assert_eq!(card_showing(&config, &themes, &store), None);
+        config.active_theme_id = Some("gone".to_string());
+        assert_eq!(card_showing(&config, &themes, &store), None);
     }
 
     #[test]

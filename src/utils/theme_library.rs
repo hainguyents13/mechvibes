@@ -217,8 +217,19 @@ pub fn same_look(a: &Look, b: &Look) -> bool {
 
 /// "<name> (my copy)", or "(my copy 2)" and on when a card has that name.
 pub fn copy_name(name: &str, cards: &[CardLook]) -> String {
+    numbered(name, "my copy", cards)
+}
+
+/// The name of a theme made with Duplicate: "<name> (copy)", or "(copy 2)"
+/// and on when a card has that name.
+pub fn duplicate_name(name: &str, cards: &[CardLook]) -> String {
+    numbered(name, "copy", cards)
+}
+
+/// "<name> (<label>)", or "(<label> 2)" and on when a card has that name.
+fn numbered(name: &str, label: &str, cards: &[CardLook]) -> String {
     first_free_name(cards, |n| {
-        with_suffix(name, &if n == 1 { " (my copy)".to_string() } else { format!(" (my copy {})", n) })
+        with_suffix(name, &if n == 1 { format!(" ({})", label) } else { format!(" ({} {})", label, n) })
     })
 }
 
@@ -268,6 +279,24 @@ pub fn active_card_name(config: &AppConfig, cards: &[CardLook]) -> Option<String
         // A pointer to a card that is gone counts as none.
         None if has_default_look(config) => Some(DEFAULT_NAME.to_string()),
         None => None,
+    }
+}
+
+/// Take the saved theme with this id off the list. Its images and its colors
+/// stay where they are: another theme or the config may use them, and the
+/// clean-up of unused images removes an image once nothing names it.
+/// Returns false when there is no such theme.
+pub fn delete_theme(store: &mut SavedThemes, id: &str) -> bool {
+    store.remove(id)
+}
+
+/// What deleting the saved theme with this id does to the config: when it
+/// is the theme on screen, the Default theme goes on, with the logo and
+/// background settings kept for later.
+pub fn after_deleting_theme(config: &mut AppConfig, id: &str) {
+    if config.active_theme_id.as_deref() == Some(id) {
+        Look::default().write_to(Theme::BuiltIn(BuiltInTheme::System), config);
+        config.active_theme_id = None;
     }
 }
 
@@ -730,6 +759,15 @@ mod tests {
         cards.push(card("m", "My theme", CardKind::Mine, look_with_logo("green")));
         let action = sync_action(&look_with_logo("blue"), None, &cards, None);
         assert_eq!(creates(&action), Some("My theme 2"));
+    }
+
+    #[test]
+    fn duplicates_are_named_apart() {
+        let mut cards = vec![card("n", "Night", CardKind::Mine, look_with_logo("red"))];
+        assert_eq!(duplicate_name("Night", &cards), "Night (copy)");
+        cards.push(card("c1", "Night (copy)", CardKind::Mine, look_with_logo("red")));
+        assert_eq!(duplicate_name("Night", &cards), "Night (copy 2)");
+        assert_eq!(copy_name("Night", &cards), "Night (my copy)", "a copy made by an edit is named its own way");
     }
 
     #[test]
@@ -1200,6 +1238,42 @@ mod tests {
         assert_eq!(store, installed_version);
         assert!(written.iter().all(|image| image.is_file()));
         assert_eq!(card_of(&store, &store.themes().next().unwrap().id).name, "Night drive");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn deleting_the_active_theme_goes_back_to_default() {
+        let mut config = AppConfig::default();
+        config.theme = Theme::Custom("night".to_string());
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "#ff0000".to_string();
+        config.enable_background_customization = true;
+        config.background_customization.background_color = "#101020".to_string();
+        config.active_theme_id = Some("night-drive".to_string());
+        let before = config.clone();
+
+        after_deleting_theme(&mut config, "another-theme");
+        assert_eq!(config, before, "deleting another theme leaves the look alone");
+
+        after_deleting_theme(&mut config, "night-drive");
+        assert!(shows_default(&config), "the Default theme is on");
+        assert_eq!(config.logo_customization, before.logo_customization, "the logo settings are kept");
+        assert_eq!(config.background_customization, before.background_customization, "and the background ones");
+    }
+
+    #[test]
+    fn deleting_a_theme_never_deletes_images() {
+        let dir = temp_dir("delete");
+        let (mut store, mut themes) = (SavedThemes::default(), ThemesConfig::default());
+        let (installed, written) = install(NIGHT, ImportParts::ALL, &file(NIGHT), &dir, &mut store, &mut themes);
+        assert!(!written.is_empty());
+        let (images, colors) = (files_in(&dir), themes.clone());
+
+        assert!(delete_theme(&mut store, &installed.card));
+        assert_eq!(store.themes().count(), 0);
+        assert_eq!(files_in(&dir), images, "the images wait for the clean-up of unused images");
+        assert_eq!(themes, colors, "and the colors stay in the colors list");
+        assert!(!delete_theme(&mut store, &installed.card), "nothing is left to delete");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
