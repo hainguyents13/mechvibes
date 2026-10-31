@@ -425,12 +425,24 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
 
 /// Read and check a `.mvtheme`. Nothing is installed yet; the user sees what
 /// the file holds first.
+///
+/// The checks run on the opened file itself, so it cannot be swapped between
+/// the check and the read, and at most one byte past the limit is read. A
+/// folder, a pipe or a file that keeps growing is refused rather than read
+/// without end.
 pub fn open(path: &Path) -> Result<SharedTheme, String> {
-    let size = std::fs::metadata(path).map_err(|e| format!("Could not open the file: {}", e))?.len();
-    if size > MAX_FILE_BYTES {
+    let failed = |e: std::io::Error| format!("Could not open the file: {}", e);
+    let file = std::fs::File::open(path).map_err(failed)?;
+    if !file.metadata().map_err(failed)?.is_file() {
+        return Err("This is not a Mechvibes theme file.".to_string());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(failed)?;
+    if (bytes.len() as u64) > MAX_FILE_BYTES {
         return Err("This theme file is too large.".to_string());
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("Could not open the file: {}", e))?;
     from_bytes(&bytes)
 }
 
@@ -1261,6 +1273,34 @@ mod tests {
         assert_eq!(std::fs::read(dir.join(&in_use)).unwrap(), PNG);
         let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
         assert_eq!(left.len(), 1, "only the image that was there before");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_is_not_opened_as_a_theme() {
+        let dir = temp_dir("folder");
+        let folder = dir.join("looks-like-a.mvtheme");
+        std::fs::create_dir_all(&folder).unwrap();
+        let error = open(&folder).unwrap_err();
+        // Windows will not open a folder as a file at all. Elsewhere it opens,
+        // and the check on the opened handle refuses it.
+        if !cfg!(windows) {
+            assert_eq!(error, "This is not a Mechvibes theme file.");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_refused_without_reading_it_all() {
+        let dir = temp_dir("large");
+        let path = dir.join("large.mvtheme");
+        std::fs::File::create(&path).unwrap().set_len(MAX_FILE_BYTES * 4).unwrap();
+        assert_eq!(open(&path).unwrap_err(), "This theme file is too large.");
+
+        let theme = look();
+        let path = dir.join("fine.mvtheme");
+        std::fs::write(&path, to_bytes(&theme).unwrap()).unwrap();
+        assert_eq!(open(&path).unwrap(), theme);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
