@@ -1,6 +1,9 @@
 pub mod collapse;
 pub mod color_picker;
 pub mod confirm_delete_modal;
+pub mod confirm_modal;
+pub mod fill_field;
+pub mod image_picker;
 pub mod library_install_modal;
 pub mod page_header;
 pub mod progress_step;
@@ -12,8 +15,10 @@ pub mod toast;
 pub mod toggler;
 
 pub use collapse::Collapse;
-pub use color_picker::ColorPicker;
+pub use color_picker::{ ColorPicker, THEME_COLOR_OPTIONS };
 pub use confirm_delete_modal::ConfirmDeleteModal;
+pub use confirm_modal::ConfirmModal;
+pub use fill_field::FillField;
 pub use library_install_modal::LibraryInstallModal;
 pub use page_header::PageHeader;
 pub use progress_step::ImportStep;

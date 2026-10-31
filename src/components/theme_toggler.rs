@@ -6,6 +6,7 @@ use crate::utils::theme::use_themes;
 use dioxus::document::eval;
 use dioxus::prelude::*;
 use crate::components::theme_share::ThemeShareButtons;
+use crate::components::ui::ConfirmModal;
 use lucide_dioxus::{ Ellipsis, ExternalLink, Palette, Pencil, Trash2 };
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -23,6 +24,9 @@ pub fn ThemeToggler() -> Element {
 
     // State for editing themes
     let mut editing_theme = use_signal(|| None::<String>); // Theme ID being edited
+    // The id and name of the custom theme waiting for the user to confirm
+    // its deletion.
+    let mut deleting = use_signal(|| None::<(String, String)>);
 
     rsx! {
       div { class: "space-y-8 mt-4",
@@ -111,18 +115,8 @@ pub fn ThemeToggler() -> Element {
                         },
                         on_delete: {
                             let theme_id = theme_data.id.clone();
-                            let update_themes = update_themes.clone();
-                            move |_| {
-                                // A failed save is shown by the updater itself.
-                                let _ = update_themes(
-                                    Box::new({
-                                        let theme_id = theme_id.clone();
-                                        move |themes: &mut ThemesConfig| {
-                                            let _ = themes.delete_theme(&theme_id);
-                                        }
-                                    }),
-                                );
-                            }
+                            let name = theme_data.name.clone();
+                            move |_| deleting.set(Some((theme_id.clone(), name.clone())))
                         },
                         on_edit: {
                             let theme_id = theme_data.id.clone();
@@ -142,6 +136,29 @@ pub fn ThemeToggler() -> Element {
           }
           // Create new theme button
           CreateThemeButton { editing_theme_id: editing_theme }
+        }
+        if let Some((theme_id, name)) = deleting() {
+          ConfirmModal {
+            title: format!("Delete {}?", name),
+            message: "This cannot be undone.".to_string(),
+            confirm_label: "Delete".to_string(),
+            on_confirm: {
+                let update_themes = update_themes.clone();
+                move |_| {
+                    deleting.set(None);
+                    // A failed save is shown by the updater itself.
+                    let _ = update_themes(
+                        Box::new({
+                            let theme_id = theme_id.clone();
+                            move |themes: &mut ThemesConfig| {
+                                let _ = themes.delete_theme(&theme_id);
+                            }
+                        }),
+                    );
+                }
+            },
+            on_cancel: move |_| deleting.set(None),
+          }
         }
       }
     }

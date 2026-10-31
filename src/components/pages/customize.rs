@@ -1,91 +1,10 @@
+use crate::components::logo::logo_style;
 use crate::components::theme_toggler::ThemeToggler;
-use crate::components::ui::{ Collapse, ColorPicker, PageHeader, Toggler };
+use crate::components::ui::{ Collapse, ColorPicker, FillField, PageHeader, Toggler, THEME_COLOR_OPTIONS };
 use crate::utils::config::use_config;
-use crate::utils::path;
 use dioxus::prelude::*;
-use lucide_dioxus::{ Palette, RotateCcw, Upload };
+use lucide_dioxus::{ Palette, RotateCcw };
 use std::rc::Rc;
-
-/// Reusable image picker component with file dialog and URL input
-///
-/// The field publishes on every change rather than debouncing. A debounce here
-/// meant a write could still be in flight when the user pressed Reset or
-/// switched the section off, and it then landed afterwards and restored the
-/// image that had just been cleared - which is why resetting appeared to work
-/// only after changing tabs, the one action that unmounts the pending task.
-/// Nothing is gained by deferring: a URL is pasted or typed once, not dragged
-/// like a volume slider, and `config_writer::apply` already skips the disk
-/// write when a mutation leaves the data unchanged.
-#[component]
-fn ImagePicker(
-    label: String,
-    value: Option<String>,
-    on_change: EventHandler<Option<String>>,
-    dialog_title: String,
-) -> Element {
-    rsx! {
-        div { class: "space-y-2",
-            div {
-                div { class: "text-sm font-medium text-base-content", "{label}" }
-                div { class: "text-xs text-base-content/50", "Select an image file or enter a URL" }
-            }
-            div { class: "flex gap-2",
-                input {
-                    r#type: "text",
-                    placeholder: "Enter image URL or path...",
-                    class: "input w-full input-sm",
-                    // Rendered straight from the config, so a Reset that clears
-                    // the stored path empties the field with it.
-                    value: value.clone().unwrap_or_default(),
-                    oninput: move |evt| {
-                        let typed = evt.value();
-                        let new_value = if typed.is_empty() { None } else { Some(typed) };
-                        on_change.call(new_value);
-                    },
-                }
-                button {
-                    class: "btn btn-neutral btn-sm",
-                    onclick: move |_| {
-                        let on_change = on_change.clone();
-                        let title = dialog_title.clone();
-                        spawn(async move {
-                            let file_dialog = rfd::AsyncFileDialog::new()
-                                .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-                                .set_title(&title)
-                                .pick_file()
-                                .await;
-
-                            if let Some(file_handle) = file_dialog {
-                                let source_path = file_handle.path().to_string_lossy().to_string();
-
-                                // Copy image to custom images directory and get asset URL.
-                                // Reading and hashing a large image takes a moment, so it
-                                // runs off the window's thread.
-                                let copied = tokio::task
-                                    ::spawn_blocking(move || path::copy_to_custom_images(&source_path)).await
-                                    .unwrap_or_else(|e| Err(format!("Could not copy the image: {}", e)));
-                                match copied {
-                                    Ok(asset_url) => {
-                                        on_change.call(Some(asset_url));
-                                    }
-                                    Err(e) => {
-                                        crate::always_eprint!("Failed to copy image: {}", e);
-                                        crate::utils::notice::report(
-                                            crate::utils::notice::NoticeKind::Error,
-                                            "Could not use this image. Try another one.",
-                                            None,
-                                        );
-                                    }
-                                }
-                            }
-                        });
-                    },
-                    Upload { class: "w-4 h-4" }
-                }
-            }
-        }
-    }
-}
 
 #[component]
 pub fn CustomizePage() -> Element {
@@ -260,23 +179,7 @@ fn LogoCustomizationPanel() -> Element {
         })
     };
 
-    // Theme-based color options using CSS variables
-    let color_options = vec![
-        ("Primary", "var(--color-primary)"),
-        ("Primary Content", "var(--color-primary-content)"),
-        ("Secondary", "var(--color-secondary)"),
-        ("Secondary Content", "var(--color-secondary-content)"),
-        ("Base Content", "var(--color-base-content)"),
-        ("Base 100", "var(--color-base-100)"),
-        ("Base 200", "var(--color-base-200)"),
-        ("Base 300", "var(--color-base-300)"),
-        ("Success", "var(--color-success)"),
-        ("Success Content", "var(--color-success-content)"),
-        ("Warning", "var(--color-warning)"),
-        ("Warning Content", "var(--color-warning-content)"),
-        ("Error", "var(--color-error)"),
-        ("Error Content", "var(--color-error-content)")
-    ];
+    let color_options = THEME_COLOR_OPTIONS.to_vec();
     let on_reset = {
         let update_config = update_config.clone();
         move |_| {
@@ -289,6 +192,12 @@ fn LogoCustomizationPanel() -> Element {
         }
     };
 
+    // The preview is styled exactly as the real logo, only smaller.
+    let preview_base =
+        "select-none border-3 font-black py-2 px-4 text-2xl rounded-box flex justify-center items-center w-full mt-1 ";
+    let (normal_class, normal_style) = logo_style(Some(&logo()), true, false);
+    let (muted_class, muted_style) = logo_style(Some(&logo()), false, false);
+
     rsx! {
       div { class: "space-y-4",
         // Preview
@@ -299,25 +208,8 @@ fn LogoCustomizationPanel() -> Element {
             div {
               div { class: "text-xs text-base-content/70", "Normal" }
               div {
-                class: "select-none border-3 font-black py-2 px-4 text-2xl rounded-box flex justify-center items-center w-full mt-1",
-                style: format!(
-                    "border-color: {}; color: {}; {}; box-shadow: 0 3px 0 {}",
-                    logo().border_color,
-                    logo().text_color,
-                    if logo().use_background_image {
-                        if let Some(ref img) = logo().background_image {
-                            format!(
-                                "background-image: url('{}'); background-size: cover; background-position: center",
-                                img,
-                            )
-                        } else {
-                            format!("background: {}", logo().background_color)
-                        }
-                    } else {
-                        format!("background: {}", logo().background_color)
-                    },
-                    logo().shadow_color,
-                ),
+                class: "{preview_base}{normal_class}",
+                style: "{normal_style}",
                 "Mechvibes"
               }
             }
@@ -325,27 +217,8 @@ fn LogoCustomizationPanel() -> Element {
             div {
               div { class: "text-xs text-base-content/70", "Muted" }
               div {
-                class: format!(
-                    "select-none border-3 font-black py-2 px-4 text-2xl rounded-box flex justify-center items-center w-full mx-auto mt-1{}",
-                    if logo().dimmed_when_muted { " opacity-50" } else { "" },
-                ),
-                style: format!(
-                    "border-color: {}; color: {}; {}",
-                    logo().border_color,
-                    logo().text_color,
-                    if logo().use_muted_background_image {
-                        if let Some(ref img) = logo().muted_background_image {
-                            format!(
-                                "background-image: url('{}'); background-size: cover; background-position: center",
-                                img,
-                            )
-                        } else {
-                            format!("background: {}", logo().muted_background)
-                        }
-                    } else {
-                        format!("background: {}", logo().muted_background)
-                    },
-                ),
+                class: "{preview_base}{muted_class}",
+                style: "{muted_style}",
                 "Mechvibes"
               }
             }
@@ -391,93 +264,57 @@ fn LogoCustomizationPanel() -> Element {
         }
         // Background Section
         div { class: "space-y-3 p-3 border border-base-300 rounded-box bg-base-100",
-          h4 { class: "text-sm font-semibold text-base-content", "Background (Normal)" }
-          // Toggle between color and image for normal background
-          Toggler {
-            title: "Use image".to_string(),
-            description: Some("Use image instead of solid color".to_string()),
-            checked: logo().use_background_image,
-            on_change: {
+          FillField {
+            label: "Background (Normal)".to_string(),
+            description: None,
+            use_image: logo().use_background_image,
+            color: logo().background_color,
+            image: logo().background_image,
+            on_use_image: {
               let set_logo = set_logo.clone();
               move |new_value: bool| {
                   set_logo(Box::new(move |l| { l.use_background_image = new_value; }))
               }
             },
-          }
-          // Background Color Picker (shown when not using image)
-          if !logo().use_background_image {
-            ColorPicker {
-              label: "Color".to_string(),
-              selected_value: logo().background_color,
-              options: color_options.clone(),
-              placeholder: "Select a color...".to_string(),
-              on_change: {
-                let set_logo = set_logo.clone();
-                move |value: String| set_logo(Box::new(move |l| { l.background_color = value; }))
-              },
-              field: "background_color".to_string(),
-              description: None,
-            }
-          }
-          // Background Image Selector (shown when using image)
-          if logo().use_background_image {
-            ImagePicker {
-              label: "Background Image".to_string(),
-              value: logo().background_image,
-              on_change: {
-                let set_logo = set_logo.clone();
-                move |value: Option<String>| {
-                    set_logo(Box::new(move |l| { l.background_image = value; }))
-                }
-              },
-              dialog_title: "Select Background Image".to_string(),
-            }
+            on_color: {
+              let set_logo = set_logo.clone();
+              move |value: String| set_logo(Box::new(move |l| { l.background_color = value; }))
+            },
+            on_image: {
+              let set_logo = set_logo.clone();
+              move |value: Option<String>| {
+                  set_logo(Box::new(move |l| { l.background_image = value; }))
+              }
+            },
+            field: "background_color".to_string(),
           }
         }
 
         // Muted Background Section
         div { class: "space-y-3 p-3 border border-base-300 rounded-box bg-base-100",
-          h4 { class: "text-sm font-semibold text-base-content", "Background (Muted)" }
-          // Toggle between color and image for muted background
-          Toggler {
-            title: "Use image".to_string(),
-            description: Some("Use image instead of solid color".to_string()),
-            checked: logo().use_muted_background_image,
-            on_change: {
+          FillField {
+            label: "Background (Muted)".to_string(),
+            description: Some("Shown when sound is off".to_string()),
+            use_image: logo().use_muted_background_image,
+            color: logo().muted_background,
+            image: logo().muted_background_image,
+            on_use_image: {
               let set_logo = set_logo.clone();
               move |new_value: bool| {
                   set_logo(Box::new(move |l| { l.use_muted_background_image = new_value; }))
               }
             },
-          }
-          // Muted Background Color Picker (shown when not using image)
-          if !logo().use_muted_background_image {
-            ColorPicker {
-              label: "Color".to_string(),
-              selected_value: logo().muted_background,
-              options: color_options.clone(),
-              placeholder: "Select a color...".to_string(),
-              on_change: {
-                let set_logo = set_logo.clone();
-                move |value: String| set_logo(Box::new(move |l| { l.muted_background = value; }))
-              },
-              field: "muted_background".to_string(),
-              description: Some("Background color when sound is disabled".to_string()),
-            }
-          }
-          // Muted Background Image Selector (shown when using image)
-          if logo().use_muted_background_image {
-            ImagePicker {
-              label: "Image".to_string(),
-              value: logo().muted_background_image,
-              on_change: {
-                let set_logo = set_logo.clone();
-                move |value: Option<String>| {
-                    set_logo(Box::new(move |l| { l.muted_background_image = value; }))
-                }
-              },
-              dialog_title: "Select Muted Background Image".to_string(),
-            }
+            on_color: {
+              let set_logo = set_logo.clone();
+              move |value: String| set_logo(Box::new(move |l| { l.muted_background = value; }))
+            },
+            on_image: {
+              let set_logo = set_logo.clone();
+              move |value: Option<String>| {
+                  set_logo(Box::new(move |l| { l.muted_background_image = value; }))
+              }
+            },
+            field: "muted_background".to_string(),
           }
         }
         // Dimmed logo when muted option
@@ -567,24 +404,6 @@ fn BackgroundCustomizationPanel() -> Element {
         })
     };
 
-    // Theme-based color options using CSS variables (same as logo)
-    let color_options = vec![
-        ("Primary", "var(--color-primary)"),
-        ("Primary Content", "var(--color-primary-content)"),
-        ("Secondary", "var(--color-secondary)"),
-        ("Secondary Content", "var(--color-secondary-content)"),
-        ("Base Content", "var(--color-base-content)"),
-        ("Base 100", "var(--color-base-100)"),
-        ("Base 200", "var(--color-base-200)"),
-        ("Base 300", "var(--color-base-300)"),
-        ("Success", "var(--color-success)"),
-        ("Success Content", "var(--color-success-content)"),
-        ("Warning", "var(--color-warning)"),
-        ("Warning Content", "var(--color-warning-content)"),
-        ("Error", "var(--color-error)"),
-        ("Error Content", "var(--color-error-content)")
-    ];
-
     let on_reset = {
         let update_config = update_config.clone();
         move |_| {
@@ -599,45 +418,27 @@ fn BackgroundCustomizationPanel() -> Element {
 
     rsx! {
       div { class: "space-y-4",
-        // Toggle between color and image
-        Toggler {
-          title: "Use image".to_string(),
-          description: Some("Use image instead of solid color".to_string()),
-          checked: bg().use_image,
-          on_change: {
+        FillField {
+          label: "Background".to_string(),
+          description: None,
+          use_image: bg().use_image,
+          color: bg().background_color,
+          image: bg().background_image,
+          on_use_image: {
             let set_bg = set_bg.clone();
             move |new_value: bool| set_bg(Box::new(move |b| { b.use_image = new_value; }))
           },
-        }
-
-        // Background Color Picker (shown when not using image)
-        if !bg().use_image {
-          ColorPicker {
-            label: "Background Color".to_string(),
-            selected_value: bg().background_color,
-            options: color_options.clone(),
-            placeholder: "Select a color...".to_string(),
-            on_change: {
-              let set_bg = set_bg.clone();
-              move |color: String| set_bg(Box::new(move |b| { b.background_color = color; }))
-            },
-            field: "background_color".to_string(),
-            description: None,
-          }
-        }
-        // Background Image Selector (shown when using image)
-        if bg().use_image {
-          ImagePicker {
-            label: "Background Image".to_string(),
-            value: bg().background_image,
-            on_change: {
-              let set_bg = set_bg.clone();
-              move |value: Option<String>| {
-                  set_bg(Box::new(move |b| { b.background_image = value; }))
-              }
-            },
-            dialog_title: "Select Background Image".to_string(),
-          }
+          on_color: {
+            let set_bg = set_bg.clone();
+            move |color: String| set_bg(Box::new(move |b| { b.background_color = color; }))
+          },
+          on_image: {
+            let set_bg = set_bg.clone();
+            move |value: Option<String>| {
+                set_bg(Box::new(move |b| { b.background_image = value; }))
+            }
+          },
+          field: "background_color".to_string(),
         }
 
         // Action buttons

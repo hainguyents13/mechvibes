@@ -1,6 +1,25 @@
 use dioxus::{document::eval, prelude::*};
 use lucide_dioxus::ChevronDown;
 
+/// The theme's colours a logo or background colour can follow, so it changes
+/// with the theme.
+pub const THEME_COLOR_OPTIONS: [(&str, &str); 14] = [
+    ("Main color", "var(--color-primary)"),
+    ("Text on main color", "var(--color-primary-content)"),
+    ("Second color", "var(--color-secondary)"),
+    ("Text on second color", "var(--color-secondary-content)"),
+    ("Text", "var(--color-base-content)"),
+    ("Background", "var(--color-base-100)"),
+    ("Panel", "var(--color-base-200)"),
+    ("Panel edge", "var(--color-base-300)"),
+    ("Success", "var(--color-success)"),
+    ("Text on success", "var(--color-success-content)"),
+    ("Warning", "var(--color-warning)"),
+    ("Text on warning", "var(--color-warning-content)"),
+    ("Error", "var(--color-error)"),
+    ("Text on error", "var(--color-error-content)"),
+];
+
 #[component]
 pub fn ColorPicker(
     label: String,
@@ -22,7 +41,9 @@ pub fn ColorPicker(
 
     rsx! {
         div { class: "space-y-2",
-            div { class: "text-sm text-base-content", "{label}" }
+            if !label.is_empty() {
+                div { class: "text-sm text-base-content", "{label}" }
+            }
             div { class: "grid grid-cols-2 gap-2",
                 div {
                     class: format!(
