@@ -63,8 +63,10 @@ pub fn Toasts() -> Element {
           div {
             key: "{notice.id}",
             class: if notice.kind == NoticeKind::Error { "alert alert-error alert-soft text-sm" } else { "alert alert-success alert-soft text-sm" },
-            div { class: "flex items-center gap-1",
-              span { class: "grow", "{notice.text}" }
+            div { class: "flex items-center gap-1 min-w-0",
+              // A long file path breaks anywhere, so the buttons stay in
+              // the window.
+              span { class: "grow min-w-0", style: "overflow-wrap: anywhere;", "{notice.text}" }
               if let Some(NoticeAction::ShowFile(path)) = notice.action.clone() {
                 button {
                   class: "btn btn-xs btn-ghost shrink-0",
