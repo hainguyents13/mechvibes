@@ -208,7 +208,7 @@ pub fn parse_lenient(contents: &str) -> Result<AppConfig, String> {
 }
 
 /// Outcome of trying to move an unparseable config out of the way.
-enum Preserved {
+pub(crate) enum Preserved {
     /// There was no file to preserve - a first run, or it was deleted.
     Nothing,
     /// The user's bytes now live at this path and are safe to overwrite from.
@@ -224,8 +224,8 @@ enum Preserved {
 /// default file without a window where both are half-written. An existing
 /// `.corrupt` from an earlier failure is never clobbered - the first failure
 /// usually holds the settings worth recovering, so later ones get a numbered
-/// suffix instead.
-fn preserve_corrupt_config(config_path: &std::path::Path) -> Preserved {
+/// suffix instead. Works on any file, and the colors list uses it too.
+pub(crate) fn preserve_corrupt_config(config_path: &std::path::Path) -> Preserved {
     if !config_path.exists() {
         return Preserved::Nothing;
     }
