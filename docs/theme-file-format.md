@@ -67,6 +67,16 @@ Everything in a file is untrusted. On import the app:
 
 An image the sharer set by web address is downloaded when sharing and stored in the file, so importing never contacts that address.
 
+## Image sizes when sharing
+
+Share cuts images down to what the app can show before writing the file (`shrink_images` in `src/utils/theme_share.rs`):
+
+- The wallpaper is cropped around its center to the widest shape of the app window, 470 x 600 pt, which the app fills with `center / cover`, and sized to at most 1692 x 2160 px (2x a 1080 pt tall window). A taller window only trims more off the sides. A smaller wallpaper is never enlarged.
+- Logo images are shrunk to fit 960 x 960 px and never cropped.
+- A photo stored sideways with an EXIF orientation is turned upright first, since the copy carries no EXIF.
+- The result is JPEG, or PNG when the image has transparency or is a PNG logo, and the file name's extension follows.
+- An animation (GIF, animated PNG or animated WebP), an image over 40 megapixels or one the app cannot decode, and an image that comes out no smaller, are kept as they are.
+
 ## Files from the theme library
 
 The theme library at [mechvibes.com/themes](https://mechvibes.com/themes) checks an upload with the rules above, then writes the file again so it holds no more than the app can show. A file downloaded from the library is still a format 1 `.mvtheme`, but it is not byte for byte the file that was uploaded:
@@ -79,9 +89,9 @@ The theme library at [mechvibes.com/themes](https://mechvibes.com/themes) checks
 
 A 1 MB upload with a 4K wallpaper comes out at about 22 KB. The rewritten file passes the same checks again before the library publishes it.
 
-### Install links (planned)
+### Install links
 
-The library will link to `mechvibes://theme/<id>` once a released app handles it. A theme id is `th-` and 32 lowercase hex characters (`^th-[0-9a-f]{32}$`); ids never change and never collide with sound pack ids (`mv-`). For such a link the app:
+The library links to `mechvibes://theme/<id>`, which the app handles from 3.3.0 on Windows and Linux. A theme id is `th-` and 32 lowercase hex characters (`^th-[0-9a-f]{32}$`); ids never change and never collide with sound pack ids (`mv-`). For such a link the app:
 
 1. Reads the id from the path and ignores the link unless it matches the pattern.
 2. Shows a confirm dialog from `GET https://mechvibes.com/api/themes/<id>` (`{ "theme": { "id", "name", "description", "author", "colorsLabel", "hasLogo", "hasBackground", "size", "checksum", "previewUrl", ... } }`, `404` when the theme is not published).

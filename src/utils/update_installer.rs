@@ -190,7 +190,7 @@ pub fn verify_file_sha256(path: &Path, expected: &str) -> Result<(), StageError>
 }
 
 /// Lowercase hex, without pulling in a `hex` crate for eight lines.
-fn hex_encode(bytes: &[u8]) -> String {
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     use fmt::Write as _;
     let mut out = String::with_capacity(bytes.len() * 2);
     for byte in bytes {

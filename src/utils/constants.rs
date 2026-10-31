@@ -22,8 +22,9 @@ pub const APP_IDENTIFIER: &str = "com.hainguyents13.mechvibesdx";
 /// The protocol scheme for deep linking
 pub const APP_PROTOCOL: &str = "mechvibes";
 
-/// The sound pack library a `mechvibes://install/<id>` link installs from.
-/// Fixed at build time: the host is never taken from the link itself.
+/// The library a `mechvibes://install/<id>` or `mechvibes://theme/<id>` link
+/// installs from. Fixed at build time: the host is never taken from the link
+/// itself.
 pub const LIBRARY_BASE_URL: &str = "https://mechvibes.com";
 
 /// Version of the application (should match Cargo.toml)

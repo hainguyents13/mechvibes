@@ -5,6 +5,8 @@
 //! it on only after the user agrees.
 
 use crate::libs::theme::{ use_theme, Theme };
+use crate::state::config::AppConfig;
+use crate::state::themes::ThemesConfig;
 use crate::utils::config::use_config;
 use crate::utils::theme::use_themes;
 use crate::utils::theme_share::{ self, SharedColors, SharedTheme, FILE_EXTENSION };
@@ -34,11 +36,54 @@ impl Stage {
     }
 }
 
+/// Put an opened look on: its images saved, a custom theme added to the list,
+/// then the theme and the rest of the config switched over. Gives the look's
+/// name back. Images saved before a failure are removed again.
+pub async fn put_on(
+    mut look: SharedTheme,
+    update_config: Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
+    update_themes: Rc<dyn Fn(Box<dyn FnOnce(&mut ThemesConfig)>)>,
+    mut theme_signal: Signal<Theme>
+) -> Result<String, String> {
+    let (look, written) = tokio::task
+        ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
+        .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()))?;
+
+    let choice = match &look.colors {
+        SharedColors::BuiltIn(theme) => Theme::BuiltIn(theme.clone()),
+        SharedColors::Custom { css } => {
+            let added = Rc::new(RefCell::new(None));
+            update_themes(
+                Box::new({
+                    let added = added.clone();
+                    let (name, css) = (look.name.clone(), css.clone());
+                    move |themes| {
+                        *added.borrow_mut() = Some(themes.import_theme(&name, &css));
+                    }
+                })
+            );
+            let added = added.borrow_mut().take();
+            match added {
+                Some(Ok(id)) => Theme::Custom(id),
+                failed => {
+                    theme_share::remove_images(&written);
+                    return Err(failed.and_then(Result::err).unwrap_or_else(|| "Could not save the theme.".to_string()));
+                }
+            }
+        }
+    };
+
+    theme_signal.set(choice.clone());
+    let name = look.name.clone();
+    update_config(Box::new(move |cfg| theme_share::apply_to_config(&look, choice, cfg)));
+    Ok(name)
+}
+
 #[component]
 pub fn ThemeShareButtons() -> Element {
     let (config, update_config) = use_config();
     let (themes, update_themes) = use_themes();
-    let mut theme_signal = use_theme();
+    let theme_signal = use_theme();
     let mut stage = use_signal(|| Stage::Hidden);
     let mut name = use_signal(String::new);
 
@@ -119,57 +164,14 @@ pub fn ThemeShareButtons() -> Element {
         let Stage::Confirm(look) = stage() else {
             return;
         };
-        let mut look = (*look).clone();
+        let look = (*look).clone();
         stage.set(Stage::Applying);
-        let update_config = update_config.clone();
-        let update_themes = update_themes.clone();
+        let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
-            let installed = tokio::task
-                ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
-                .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()));
-            let (look, written) = match installed {
-                Ok(installed) => installed,
-                Err(e) => {
-                    stage.set(Stage::Failed(e));
-                    return;
-                }
-            };
-
-            let choice = match &look.colors {
-                SharedColors::BuiltIn(theme) => Theme::BuiltIn(theme.clone()),
-                SharedColors::Custom { css } => {
-                    let added = Rc::new(RefCell::new(None));
-                    update_themes(
-                        Box::new({
-                            let added = added.clone();
-                            let (name, css) = (look.name.clone(), css.clone());
-                            move |themes| {
-                                *added.borrow_mut() = Some(themes.import_theme(&name, &css));
-                            }
-                        })
-                    );
-                    let added = added.borrow_mut().take();
-                    match added {
-                        Some(Ok(id)) => Theme::Custom(id),
-                        failed => {
-                            theme_share::remove_images(&written);
-                            stage.set(
-                                Stage::Failed(
-                                    failed
-                                        .and_then(Result::err)
-                                        .unwrap_or_else(|| "Could not save the theme.".to_string())
-                                )
-                            );
-                            return;
-                        }
-                    }
-                }
-            };
-
-            theme_signal.set(choice.clone());
-            let applied_name = look.name.clone();
-            update_config(Box::new(move |cfg| theme_share::apply_to_config(&look, choice, cfg)));
-            stage.set(Stage::Applied(applied_name));
+            stage.set(match put_on(look, update_config, update_themes, theme_signal).await {
+                Ok(name) => Stage::Applied(name),
+                Err(e) => Stage::Failed(e),
+            });
         });
     };
 
