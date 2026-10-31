@@ -19,10 +19,13 @@ use crate::utils::theme;
 use crate::utils::theme_library::{
     self,
     colors_choice,
+    run_sync_in,
     same_look,
     shows_default,
+    AppPlace,
     SyncCause,
     SyncDebounce,
+    SyncPlace,
     DEFAULT_NAME,
 };
 use crate::utils::theme_share::{ Look, SharedColors };
@@ -123,11 +126,17 @@ impl LookEditor {
 
     /// Put a whole card on: a part it does not have is switched off, and its
     /// settings are kept. The look from before is saved first and kept for
-    /// Undo. Returns whether the look changed, so the caller offers Undo only
-    /// then. `Err` when the card's colors could not be added to the colors
+    /// Undo (see `switch_card`). Returns whether the look changed, so the
+    /// caller offers Undo only then. `Err` when the look from before could
+    /// not be saved, or the card's colors could not be added to the colors
     /// list; the user has been told and nothing changed.
     pub fn apply_card(&self, card: &Card) -> Result<bool, String> {
-        save_look_on_screen();
+        let burst = waiting().take_now();
+        switch_card(&mut window_place(), burst, card, |_, card| self.put_on_now(card))
+    }
+
+    /// Put `card` on right away, its colors and images first.
+    fn put_on_now(&self, card: &Card) -> Result<bool, String> {
         let theme = match card {
             Card::Default => Theme::BuiltIn(BuiltInTheme::System),
             Card::Saved(saved) => card_colors(&saved.colors, &saved.name)?,
@@ -158,9 +167,10 @@ impl LookEditor {
     /// `theme_library::delete_theme`). When it is the theme on screen, the
     /// Default theme goes on first, with no Undo, since the theme it would go
     /// back to is gone. An edit still waiting is saved first, so an edit to
-    /// an installed theme lives on in its copy.
+    /// an installed theme lives on in its copy, and nothing is deleted when
+    /// it could not be saved.
     pub fn delete_theme(&self, id: &str) -> Result<(), String> {
-        save_look_on_screen();
+        save_look_on_screen()?;
         refuse_while_read_only()?;
         let id = id.to_string();
         (self.update_config)(
@@ -176,10 +186,13 @@ impl LookEditor {
 }
 
 /// Save a copy of `card` as a theme of the user's own, "<name> (copy)". The
-/// copy is not put on. A starter's images are saved first, since the copy
-/// points where putting the starter on saves them.
+/// copy is not put on. An edit still waiting is saved first, so a copy of the
+/// theme on screen has it. A starter's images are saved first too, since the
+/// copy points where putting the starter on saves them.
 pub fn duplicate(card: &Card) -> Result<(), String> {
+    save_look_on_screen()?;
     refuse_while_read_only()?;
+    let card = &as_saved_now(card, &saved_themes::current());
     if let Card::Starter(starter) = card {
         if let Err(e) = starter.save_images() {
             notice::report(NoticeKind::Error, format!("Could not copy {}. {}", starter.name(), e), None);
@@ -209,7 +222,8 @@ fn refuse_while_read_only() -> Result<(), String> {
 /// `None` when the look is no card's, as while saved themes cannot be
 /// written.
 pub fn card_on_screen() -> Option<Card> {
-    save_look_on_screen();
+    // A look that could not be saved is no card's.
+    save_look_on_screen().ok()?;
     card_showing(&config_writer::current(), &theme::get_themes_config(), &saved_themes::current())
 }
 
@@ -235,6 +249,40 @@ fn card_showing(config: &AppConfig, themes: &ThemesConfig, store: &SavedThemes) 
     same_look(&Look::from_config(config, themes), &card.look()).then_some(card)
 }
 
+/// `card` as the saved themes hold it now. A sync may have saved an edit
+/// into it since the gallery showed it, and putting the old look on would
+/// undo that edit. A saved theme gone from the list stays as it was.
+fn as_saved_now(card: &Card, store: &SavedThemes) -> Card {
+    match card {
+        Card::Saved(saved) =>
+            store
+                .themes()
+                .find(|now| now.id == saved.id)
+                .map(|now| Card::Saved(now.clone()))
+                .unwrap_or_else(|| card.clone()),
+        _ => card.clone(),
+    }
+}
+
+/// Put `card` on with `put_on`, once the look on screen is saved: the edits
+/// in `burst` first, then the look itself, so switching never loses a look.
+/// Nothing goes on when a save failed. The card already on screen is left
+/// as it is, since an edit waiting for it has just been saved into it, and
+/// any other card is put on as the saved themes hold it now.
+fn switch_card<P: SyncPlace>(
+    place: &mut P,
+    burst: Option<Option<String>>,
+    card: &Card,
+    put_on: impl FnOnce(&mut P, &Card) -> Result<bool, String>
+) -> Result<bool, String> {
+    save_look_in(place, burst)?;
+    if card.is_on(&place.config()) {
+        return Ok(false);
+    }
+    let card = as_saved_now(card, &place.store());
+    put_on(place, &card)
+}
+
 /// What putting `card` on writes, with `theme` as the theme its colors became.
 fn put_card_on(card: &Card, theme: Theme, config: &mut AppConfig) {
     card.look().write_to(theme, config);
@@ -258,18 +306,26 @@ fn card_colors(colors: &SharedColors, name: &str) -> Result<Theme, String> {
 }
 
 /// Save an edit still waiting, then the look on screen, so that another
-/// look can be put on without losing this one.
-pub fn save_look_on_screen() {
+/// look can be put on without losing this one. `Err` when it could not be
+/// saved; the user has been told.
+pub fn save_look_on_screen() -> Result<(), String> {
     let burst = waiting().take_now();
-    if let Some(name_hint) = burst {
-        sync(SyncCause::Edits { name_hint: name_hint.as_deref() });
-    }
-    sync(SyncCause::Check);
+    save_look_in(&mut window_place(), burst)
 }
 
-/// `run_sync`, with the colors list shown again when it put colors back.
-fn sync(cause: SyncCause) {
-    refreshing_colors_list(|| theme_library::run_sync(cause));
+/// Save the edits in `burst`, then the look on screen. Stops at the first
+/// save that failed.
+fn save_look_in(place: &mut impl SyncPlace, burst: Option<Option<String>>) -> Result<(), String> {
+    if let Some(name_hint) = burst {
+        run_sync_in(place, SyncCause::Edits { name_hint: name_hint.as_deref() })?;
+    }
+    run_sync_in(place, SyncCause::Check)
+}
+
+/// The app's own place, with the colors list shown again when a sync puts
+/// colors back.
+fn window_place() -> AppPlace {
+    AppPlace { refresh_window: true }
 }
 
 /// Run `change`, then show the colors list again if it changed the list
@@ -291,7 +347,8 @@ pub fn use_save_after_edits() {
             futures_timer::Delay::new(SYNC_CHECK_EVERY).await;
             let due = waiting().take_due(Instant::now());
             if let Some(name_hint) = due {
-                sync(SyncCause::Edits { name_hint: name_hint.as_deref() });
+                // A failed save has told the user; the next edit tries again.
+                let _ = run_sync_in(&mut window_place(), SyncCause::Edits { name_hint: name_hint.as_deref() });
             }
         }
     });
@@ -308,6 +365,7 @@ mod tests {
     use super::*;
     use crate::state::saved_themes::ThemeKind;
     use crate::state::config::LogoCustomization;
+    use crate::utils::theme_library::MemoryPlace;
     use crate::utils::theme_share::SharedColors;
     use chrono::Utc;
     use serde_json::Map;
@@ -398,6 +456,85 @@ mod tests {
         assert_eq!(card_showing(&config, &themes, &store), None);
         config.active_theme_id = Some("gone".to_string());
         assert_eq!(card_showing(&config, &themes, &store), None);
+    }
+
+    /// Dark colors and a logo with this border.
+    fn logo_look(border: &str) -> Look {
+        Look {
+            colors: crate::utils::theme_share::LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::Dark)),
+            logo: Some(LogoCustomization { border_color: border.to_string(), ..LogoCustomization::default() }),
+            background: None,
+        }
+    }
+
+    /// A place showing the first starter with its logo border edited, the
+    /// edit still waiting to be saved.
+    fn edited_starter() -> (MemoryPlace, Option<Option<String>>) {
+        let starter = &crate::utils::starter_themes::all()[0];
+        let mut place = MemoryPlace::default();
+        let colors = colors_choice(&starter.theme.colors, starter.name(), &mut place.themes).unwrap();
+        put_card_on(&Card::Starter(starter), colors, &mut place.config);
+        place.config.logo_customization.border_color = "#ff0000".to_string();
+        (place, Some(None))
+    }
+
+    #[test]
+    fn putting_a_card_on_saves_the_waiting_edits_first() {
+        let (mut place, burst) = edited_starter();
+        let edited = Look::from_config(&place.config, &place.themes);
+        let mut put = false;
+        let changed = switch_card(&mut place, burst, &Card::Default, |place, card| {
+            let copy = place.config.active_theme_id.clone().expect("the edit points at its copy");
+            let saved = place.store.themes().find(|saved| saved.id == copy).expect("the copy is saved");
+            assert_eq!(saved.name, "Retro Beige (my copy)");
+            assert!(same_look(&saved.look(), &edited), "with the edit in it");
+            put_card_on(card, Theme::BuiltIn(BuiltInTheme::System), &mut place.config);
+            put = true;
+            Ok(true)
+        });
+        assert_eq!(changed, Ok(true));
+        assert!(put && shows_default(&place.config));
+        assert_eq!(place.store.themes().count(), 1);
+    }
+
+    #[test]
+    fn a_card_never_goes_on_over_a_look_that_could_not_be_saved() {
+        let (mut place, burst) = edited_starter();
+        place.store_fails = true;
+        let before = place.config.clone();
+        let changed = switch_card(&mut place, burst, &Card::Default, |_, _| panic!("the card went on"));
+        assert!(changed.is_err());
+        assert_eq!(place.config, before, "the edited look stays on screen");
+    }
+
+    #[test]
+    fn clicking_the_card_on_screen_keeps_the_edit_waiting_for_it() {
+        let theme = theme_library::new_mine("Night drive".to_string(), logo_look("red"), Utc::now()).unwrap();
+        let mut place = MemoryPlace::default();
+        place.store.insert(theme.clone());
+        // The gallery still shows the card as it was before the edit.
+        logo_look("blue").write_to(Theme::BuiltIn(BuiltInTheme::Dark), &mut place.config);
+        place.config.active_theme_id = Some(theme.id.clone());
+
+        let changed = switch_card(&mut place, Some(None), &Card::Saved(theme.clone()), |_, _| panic!("put on again"));
+        assert_eq!(changed, Ok(false));
+        assert_eq!(place.store.themes().next().unwrap().look(), logo_look("blue"), "the edit is saved in it");
+        assert_eq!(Look::from_config(&place.config, &place.themes), logo_look("blue"), "and stays on screen");
+    }
+
+    #[test]
+    fn a_saved_card_goes_on_as_it_is_saved_now() {
+        let shown = theme_library::new_mine("Night drive".to_string(), logo_look("red"), Utc::now()).unwrap();
+        let mut place = MemoryPlace::default();
+        place.store.insert(SavedTheme { logo: logo_look("blue").logo, ..shown.clone() });
+
+        let mut worn = None;
+        let changed = switch_card(&mut place, None, &Card::Saved(shown), |_, card| {
+            worn = Some(card.look());
+            Ok(true)
+        });
+        assert_eq!(changed, Ok(true));
+        assert_eq!(worn, Some(logo_look("blue")), "an edit saved into it since the gallery showed it is kept");
     }
 
     #[test]

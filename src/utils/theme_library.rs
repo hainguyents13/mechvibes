@@ -538,19 +538,77 @@ pub fn upsert_installed(store: &mut SavedThemes, theme: &SharedTheme, source: &T
 
 // ===== Carrying it out =====
 
+/// Where a sync reads the look on screen and saves it: the app's own config,
+/// colors list and saved themes (`AppPlace`), or a stand-in in tests.
+pub trait SyncPlace {
+    fn config(&self) -> AppConfig;
+    fn themes(&self) -> ThemesConfig;
+    fn store(&self) -> SavedThemes;
+    /// Change the saved themes and save them. `Err` when they were not
+    /// saved; the user has been told.
+    fn change_store(&mut self, change: Box<dyn FnOnce(&mut SavedThemes)>) -> Result<(), String>;
+    fn change_config(&mut self, change: Box<dyn FnOnce(&mut AppConfig)>);
+    /// The theme `config.theme` takes to show `colors` (see `colors_choice`),
+    /// with the colors list saved.
+    fn choose_colors(&mut self, colors: &SharedColors, name: &str) -> Result<Theme, String>;
+}
+
+/// The app's own config, colors list and saved themes.
+pub struct AppPlace {
+    /// Show the colors list again when a sync changed it. Only once the
+    /// window is up.
+    pub refresh_window: bool,
+}
+
+impl SyncPlace for AppPlace {
+    fn config(&self) -> AppConfig {
+        config_writer::current()
+    }
+
+    fn themes(&self) -> ThemesConfig {
+        theme::get_themes_config()
+    }
+
+    fn store(&self) -> SavedThemes {
+        saved_themes::current()
+    }
+
+    fn change_store(&mut self, change: Box<dyn FnOnce(&mut SavedThemes)>) -> Result<(), String> {
+        saved_themes::apply(change).map(|_| ())
+    }
+
+    fn change_config(&mut self, change: Box<dyn FnOnce(&mut AppConfig)>) {
+        config_writer::apply(change);
+    }
+
+    fn choose_colors(&mut self, colors: &SharedColors, name: &str) -> Result<Theme, String> {
+        let before = theme::get_themes_config();
+        let chosen = theme::change_themes_config(|themes| colors_choice(colors, name, themes)).and_then(|r| r);
+        if self.refresh_window && theme::get_themes_config() != before {
+            theme::refresh_themes();
+        }
+        chosen
+    }
+}
+
+/// `run_sync_in` the app's own place, before the window is up.
+pub fn run_sync(cause: SyncCause) -> Result<(), String> {
+    run_sync_in(&mut AppPlace { refresh_window: false }, cause)
+}
+
 /// Make sure the look on screen is saved as a theme, as `sync_action` says.
 /// Lost colors are put back from the active card first, then the rest is
 /// synced once more, and only once, so it can never loop. A new theme is
 /// pointed at right after it is saved: if the app stops in between, the next
 /// sync finds the copy and points at it rather than making another.
 ///
-/// Changes the colors list without telling a window that shows it, so a
-/// caller with a window refreshes the list afterwards.
-pub fn run_sync(cause: SyncCause) {
+/// `Err` when the look had to be saved and could not be: the pointer is
+/// left as it was, and nothing may go on over that look.
+pub fn run_sync_in(place: &mut impl SyncPlace, cause: SyncCause) -> Result<(), String> {
     for first_pass in [true, false] {
-        let store = saved_themes::current();
-        let config = config_writer::current();
-        let live = Look::from_config(&config, &theme::get_themes_config());
+        let store = place.store();
+        let config = place.config();
+        let live = Look::from_config(&config, &place.themes());
         let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), cause).unless_read_only(
             store.read_only.is_some()
         );
@@ -560,56 +618,109 @@ pub fn run_sync(cause: SyncCause) {
             SyncAction::HealColors { colors, name } => {
                 if !first_pass {
                     crate::always_eprint!("⚠️  The colors of '{}' are still missing after putting them back", name);
-                    return;
+                    return Ok(());
                 }
-                match theme::change_themes_config(|themes| colors_choice(&colors, &name, themes)).and_then(|r| r) {
+                match place.choose_colors(&colors, &name) {
                     Ok(choice) => {
                         crate::always_print!("🎨 Put the colors of '{}' back in the colors list", name);
-                        config_writer::apply(|cfg| {
-                            cfg.theme = choice;
-                        });
+                        place.change_config(
+                            Box::new(move |cfg| {
+                                cfg.theme = choice;
+                            })
+                        );
                         continue;
                     }
+                    // Lost colors are never saved, so going on loses nothing.
                     Err(e) => crate::always_eprint!("❌ Could not put the colors of '{}' back: {}", name, e),
                 }
             }
             SyncAction::UpdateMine { id, look } => {
                 let LookColors::Known(colors) = look.colors else {
-                    return;
+                    return Ok(());
                 };
-                let _ = saved_themes::apply(|store| {
-                    store.update(&id, |theme| {
-                        theme.colors = colors;
-                        theme.logo = look.logo;
-                        theme.background = look.background;
-                        theme.updated_at = Utc::now();
-                    });
-                });
+                place.change_store(
+                    Box::new(move |store| {
+                        store.update(&id, |theme| {
+                            theme.colors = colors;
+                            theme.logo = look.logo;
+                            theme.background = look.background;
+                            theme.updated_at = Utc::now();
+                        });
+                    })
+                )?;
             }
             SyncAction::CreateMine { name, look } => {
                 let Some(theme) = new_mine(name, look, Utc::now()) else {
-                    return;
+                    return Ok(());
                 };
                 let id = theme.id.clone();
                 crate::always_print!("💾 Saving the look on screen as '{}'", theme.name);
-                if saved_themes::apply(|store| store.insert(theme)).is_ok() {
-                    config_writer::apply(|cfg| {
+                place.change_store(Box::new(move |store| store.insert(theme)))?;
+                place.change_config(
+                    Box::new(move |cfg| {
                         cfg.active_theme_id = Some(id);
-                    });
-                }
+                    })
+                );
             }
             SyncAction::Point { pointer } => {
-                config_writer::apply(|cfg| {
-                    cfg.active_theme_id = Some(pointer);
-                });
+                place.change_config(
+                    Box::new(move |cfg| {
+                        cfg.active_theme_id = Some(pointer);
+                    })
+                );
             }
             SyncAction::ClearPointer => {
-                config_writer::apply(|cfg| {
-                    cfg.active_theme_id = None;
-                });
+                place.change_config(
+                    Box::new(|cfg| {
+                        cfg.active_theme_id = None;
+                    })
+                );
             }
         }
-        return;
+        return Ok(());
+    }
+    Ok(())
+}
+
+/// A place a test owns: a config, a colors list and saved themes in memory.
+#[cfg(test)]
+#[derive(Debug, Default, Clone)]
+pub(crate) struct MemoryPlace {
+    pub config: AppConfig,
+    pub themes: ThemesConfig,
+    pub store: SavedThemes,
+    /// Saving the saved themes fails, as with a full disk.
+    pub store_fails: bool,
+}
+
+#[cfg(test)]
+impl SyncPlace for MemoryPlace {
+    fn config(&self) -> AppConfig {
+        self.config.clone()
+    }
+
+    fn themes(&self) -> ThemesConfig {
+        self.themes.clone()
+    }
+
+    fn store(&self) -> SavedThemes {
+        self.store.clone()
+    }
+
+    fn change_store(&mut self, change: Box<dyn FnOnce(&mut SavedThemes)>) -> Result<(), String> {
+        if self.store_fails || self.store.read_only.is_some() {
+            return Err("The disk is full.".to_string());
+        }
+        change(&mut self.store);
+        Ok(())
+    }
+
+    fn change_config(&mut self, change: Box<dyn FnOnce(&mut AppConfig)>) {
+        change(&mut self.config);
+    }
+
+    fn choose_colors(&mut self, colors: &SharedColors, name: &str) -> Result<Theme, String> {
+        colors_choice(colors, name, &mut self.themes)
     }
 }
 
@@ -899,6 +1010,41 @@ mod tests {
         assert_eq!(sync_action(&look_with_logo("blue"), Some("starter:retro-beige"), &cards, CHECK), SyncAction::Point {
             pointer: "copy".to_string(),
         });
+    }
+
+    #[test]
+    fn a_look_that_could_not_be_saved_says_so_and_keeps_its_pointer() {
+        // The user's own theme, edited.
+        let theme = new_mine("Night drive".to_string(), look_with_logo("red"), Utc::now()).unwrap();
+        let mut place = MemoryPlace { store_fails: true, ..MemoryPlace::default() };
+        place.store.insert(theme.clone());
+        look_with_logo("blue").write_to(Theme::BuiltIn(BuiltInTheme::Dark), &mut place.config);
+        place.config.active_theme_id = Some(theme.id.clone());
+        let before = place.clone();
+        assert!(run_sync_in(&mut place, EDITS).is_err());
+        assert_eq!((&place.store, &place.config), (&before.store, &before.config));
+
+        // A look of no theme yet.
+        place.config.active_theme_id = None;
+        let before = place.clone();
+        assert!(run_sync_in(&mut place, EDITS).is_err());
+        assert_eq!(place.config.active_theme_id, None, "no pointer to a theme that was never saved");
+        assert_eq!(place.store, before.store);
+
+        // Once saving works again, the look is saved.
+        place.store_fails = false;
+        assert_eq!(run_sync_in(&mut place, EDITS), Ok(()));
+        let copy = place.config.active_theme_id.clone().expect("pointed at the new theme");
+        assert_eq!(place.store.themes().find(|saved| saved.id == copy).unwrap().look(), look_with_logo("blue"));
+    }
+
+    #[test]
+    fn a_read_only_store_is_no_failed_save() {
+        let mut place = MemoryPlace::default();
+        place.store.read_only = Some(saved_themes::ReadOnly::MadeByNewerApp);
+        look_with_logo("blue").write_to(Theme::BuiltIn(BuiltInTheme::Dark), &mut place.config);
+        assert_eq!(run_sync_in(&mut place, EDITS), Ok(()), "the user heard why at startup");
+        assert_eq!(place.store.themes().count(), 0);
     }
 
     #[test]

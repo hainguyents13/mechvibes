@@ -31,8 +31,9 @@ use std::rc::Rc;
 /// The look from before is saved as a theme first and remembered, so
 /// `undo_look` can put it back. When the look on screen ends up mixing the
 /// theme with parts of the user's own, it is saved as "<name> (my copy)" and
-/// the installed card stays as the file has it. Nothing is installed while
-/// the saved themes cannot be written.
+/// the installed card stays as the file has it. Nothing is installed when
+/// the look from before could not be saved, or while the saved themes
+/// cannot be written.
 pub async fn put_on(
     mut theme: SharedTheme,
     parts: ImportParts,
@@ -41,7 +42,7 @@ pub async fn put_on(
     update_themes: UpdateThemes,
     mut theme_signal: Signal<Theme>
 ) -> Result<String, String> {
-    look_editor::save_look_on_screen();
+    look_editor::save_look_on_screen()?;
     if let Some(read_only) = saved_themes::current().read_only {
         return Err(read_only.message().to_string());
     }
@@ -76,8 +77,9 @@ pub async fn put_on(
         })
     );
     // A look that differs from the card is saved as a copy, before Undo
-    // remembers what this step left on screen.
-    look_editor::save_look_on_screen();
+    // remembers what this step left on screen. The theme is on either way,
+    // and a failed save has told the user.
+    let _ = look_editor::save_look_on_screen();
     if let Some(before) = before.borrow_mut().take() {
         look_undo::remember(before, LookFields::of(&config_writer::current()));
     }
