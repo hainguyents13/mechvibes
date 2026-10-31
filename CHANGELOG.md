@@ -27,6 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **A damaged colors list is kept.** Mechvibes used to replace it with an empty one. It now keeps a copy next to it, `themes.json.corrupt`, and tells you where. If the list cannot be read at all, nothing in it is changed until you restart the app.
 - **The logo no longer changes color when you first edit it.** Editing a part that is off turns it on and changes only what you edited.
 - **A half-typed color is not saved.** A color you type is saved once it is complete, or when you leave the field or press Enter.
+- **Turning a background or logo image off takes it off the screen.** Before, the old image, border and shadow stayed until you restarted the app.
 
 ### Security
 
