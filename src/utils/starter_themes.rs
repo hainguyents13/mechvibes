@@ -55,14 +55,6 @@ fn read(files: &[(&'static str, &'static [u8])]) -> Vec<StarterTheme> {
         .collect()
 }
 
-/// The starter `active_theme_id` names, if it names one this app has.
-pub fn by_pointer(pointer: &str) -> Option<&'static StarterTheme> {
-    let slug = pointer.strip_prefix(POINTER_PREFIX)?;
-    all()
-        .iter()
-        .find(|starter| starter.slug == slug)
-}
-
 /// An image a starter's card shows, with its media type. Only a name the
 /// starter's own file holds is found.
 pub fn image(slug: &str, name: &str) -> Option<(&'static [u8], &'static str)> {
@@ -157,12 +149,8 @@ mod tests {
     }
 
     #[test]
-    fn a_pointer_finds_its_starter() {
-        let starter = &all()[1];
-        assert_eq!(starter.pointer(), "starter:midnight-blue");
-        assert_eq!(by_pointer(&starter.pointer()), Some(starter));
-        assert_eq!(by_pointer("starter:gone"), None, "a starter this app no longer has");
-        assert_eq!(by_pointer("midnight-blue"), None, "a saved theme id is not a starter");
+    fn a_starter_is_pointed_at_by_its_slug() {
+        assert_eq!(all()[1].pointer(), "starter:midnight-blue");
     }
 
     #[test]

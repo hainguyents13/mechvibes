@@ -6,6 +6,7 @@ pub mod customize_tabs;
 pub mod logo_tab;
 pub mod look_editor;
 pub mod part_panel;
+pub mod theme_card;
 pub mod themes_tab;
 
 pub use background_tab::BackgroundTab;

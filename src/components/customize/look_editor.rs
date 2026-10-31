@@ -13,9 +13,10 @@ use crate::state::saved_themes::{ SavedTheme, SavedThemes };
 use crate::utils::config::use_config;
 use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeKind };
+use crate::utils::starter_themes::StarterTheme;
 use crate::utils::theme;
 use crate::utils::theme_library::{ self, colors_choice, shows_default, SyncDebounce, DEFAULT_NAME };
-use crate::utils::theme_share::Look;
+use crate::utils::theme_share::{ Look, SharedColors };
 use dioxus::prelude::*;
 use once_cell::sync::Lazy;
 use std::cell::Cell;
@@ -40,15 +41,51 @@ pub enum Card {
     /// The look Mechvibes starts with.
     Default,
     Saved(SavedTheme),
+    /// A theme that comes with the app.
+    Starter(&'static StarterTheme),
 }
 
 impl Card {
-    /// The look putting this card on shows, and the card the config then
-    /// points at.
-    fn look_and_pointer(&self) -> (Look, Option<String>) {
+    pub fn name(&self) -> &str {
         match self {
-            Card::Default => (Look::default(), None),
-            Card::Saved(saved) => (saved.look(), Some(saved.id.clone())),
+            Card::Default => DEFAULT_NAME,
+            Card::Saved(saved) => &saved.name,
+            Card::Starter(starter) => starter.name(),
+        }
+    }
+
+    /// What `active_theme_id` holds while this card is on.
+    pub fn pointer(&self) -> Option<String> {
+        match self {
+            Card::Default => None,
+            Card::Saved(saved) => Some(saved.id.clone()),
+            Card::Starter(starter) => Some(starter.pointer()),
+        }
+    }
+
+    /// Whether the look on screen is this card.
+    pub fn is_on(&self, config: &AppConfig) -> bool {
+        match self {
+            Card::Default => shows_default(config),
+            _ => config.active_theme_id.is_some() && config.active_theme_id == self.pointer(),
+        }
+    }
+
+    /// The look the card's picture shows. A starter's images are shown from
+    /// the app, since they are saved only when it is put on.
+    pub fn preview_look(&self) -> Look {
+        match self {
+            Card::Starter(starter) => starter.preview_look(),
+            _ => self.look(),
+        }
+    }
+
+    /// The look putting this card on shows.
+    fn look(&self) -> Look {
+        match self {
+            Card::Default => Look::default(),
+            Card::Saved(saved) => saved.look(),
+            Card::Starter(starter) => starter.look(),
         }
     }
 }
@@ -83,7 +120,15 @@ impl LookEditor {
         save_look_on_screen();
         let theme = match card {
             Card::Default => Theme::BuiltIn(BuiltInTheme::System),
-            Card::Saved(saved) => saved_colors(saved)?,
+            Card::Saved(saved) => card_colors(&saved.colors, &saved.name)?,
+            Card::Starter(starter) => {
+                // Its images go where its look says they are, before it is on.
+                if let Err(e) = starter.save_images() {
+                    notice::report(NoticeKind::Error, format!("Could not put {} on. {}", starter.name(), e), None);
+                    return Err(e);
+                }
+                card_colors(&starter.theme.colors, starter.name())?
+            }
         };
         let changed = Rc::new(Cell::new(false));
         (self.update_config)(
@@ -102,20 +147,19 @@ impl LookEditor {
 
 /// What putting `card` on writes, with `theme` as the theme its colors became.
 fn put_card_on(card: &Card, theme: Theme, config: &mut AppConfig) {
-    let (look, pointer) = card.look_and_pointer();
-    look.write_to(theme, config);
-    config.active_theme_id = pointer;
+    card.look().write_to(theme, config);
+    config.active_theme_id = card.pointer();
 }
 
-/// The theme a saved card's colors take, added to the colors list if needed.
-fn saved_colors(saved: &SavedTheme) -> Result<Theme, String> {
+/// The theme a card's colors take, added to the colors list if needed.
+fn card_colors(colors: &SharedColors, name: &str) -> Result<Theme, String> {
     let chosen = refreshing_colors_list(|| {
-        theme::change_themes_config(|themes| colors_choice(&saved.colors, &saved.name, themes))
+        theme::change_themes_config(|themes| colors_choice(colors, name, themes))
     });
     match chosen {
         Ok(Ok(theme)) => Ok(theme),
         Ok(Err(e)) => {
-            notice::report(NoticeKind::Error, format!("Could not put {} on. {}", saved.name, e), None);
+            notice::report(NoticeKind::Error, format!("Could not put {} on. {}", name, e), None);
             Err(e)
         }
         // A failed save of the colors list has told the user already.
@@ -227,5 +271,33 @@ mod tests {
         assert_eq!(config.logo_customization, logo);
         assert!(!config.enable_background_customization, "the card has no background, so yours goes off");
         assert_eq!(config.background_customization, background, "and waits for later");
+    }
+
+    #[test]
+    fn a_starter_goes_on_whole_and_is_pointed_at() {
+        let starter = &crate::utils::starter_themes::all()[0];
+        let card = Card::Starter(starter);
+        let mut config = AppConfig::default();
+        config.enable_background_customization = true;
+        assert!(!card.is_on(&config));
+
+        put_card_on(&card, Theme::Custom("beige".to_string()), &mut config);
+        assert_eq!(config.theme, Theme::Custom("beige".to_string()));
+        assert_eq!(config.active_theme_id.as_deref(), Some("starter:retro-beige"));
+        assert!(card.is_on(&config));
+        assert!(!Card::Default.is_on(&config));
+        let look = starter.look();
+        assert_eq!(config.enable_logo_customization.then(|| config.logo_customization.clone()), look.logo);
+        assert_eq!(config.enable_background_customization, look.background.is_some());
+    }
+
+    #[test]
+    fn only_the_card_on_screen_is_on() {
+        let mut config = AppConfig::default();
+        assert!(Card::Default.is_on(&config));
+        config.active_theme_id = Some("starter:retro-beige".to_string());
+        assert!(!Card::Default.is_on(&config), "the default look under a pointer is that card");
+        assert_eq!(Card::Default.name(), "Default");
+        assert_eq!(Card::Default.pointer(), None);
     }
 }
