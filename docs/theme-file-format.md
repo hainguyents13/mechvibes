@@ -66,3 +66,25 @@ Everything in a file is untrusted. On import the app:
 ## Sharing images from the web
 
 An image the sharer set by web address is downloaded when sharing and stored in the file, so importing never contacts that address.
+
+## Files from the theme library
+
+The theme library at [mechvibes.com/themes](https://mechvibes.com/themes) checks an upload with the rules above, then writes the file again so it holds no more than the app can show. A file downloaded from the library is still a format 1 `.mvtheme`, but it is not byte for byte the file that was uploaded:
+
+- The wallpaper is cropped around its center to the widest shape of the app window, 470 x 600 pt, which the app fills with `center / cover`, and sized to at most 1285 x 1640 px (2x the default 820 pt height). A smaller wallpaper is cropped to that shape but never enlarged.
+- Logo images are shrunk to fit 960 x 960 px and never cropped, since the logo box follows the font.
+- Each image becomes WebP. Animated GIFs stay animated (animated WebP).
+- An image is kept unchanged when it is already smaller as it is, or when the website cannot read it for resizing (BMP, or more than 40 megapixels).
+- Images are renamed `image-1`, `image-2` and so on with the extension of their type, `theme.json` names them accordingly, and every entry `theme.json` does not name is left out. All other fields of `theme.json` are kept as they were.
+
+A 1 MB upload with a 4K wallpaper comes out at about 22 KB. The rewritten file passes the same checks again before the library publishes it.
+
+### Install links (planned)
+
+The library will link to `mechvibes://theme/<id>` once a released app handles it. A theme id is `th-` and 32 lowercase hex characters (`^th-[0-9a-f]{32}$`); ids never change and never collide with sound pack ids (`mv-`). For such a link the app:
+
+1. Reads the id from the path and ignores the link unless it matches the pattern.
+2. Shows a confirm dialog from `GET https://mechvibes.com/api/themes/<id>` (`{ "theme": { "id", "name", "description", "author", "colorsLabel", "hasLogo", "hasBackground", "size", "checksum", "previewUrl", ... } }`, `404` when the theme is not published).
+3. When the user confirms, downloads `GET https://mechvibes.com/api/themes/<id>/download`, compares its SHA-256 with `checksum`, and imports it exactly as a file picked with **Import**, with every check above.
+
+Nothing is installed without the confirm dialog, and the link carries no other data.
