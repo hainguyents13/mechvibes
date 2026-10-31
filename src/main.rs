@@ -226,12 +226,13 @@ fn main() {
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();
 
-    // Windows registers mechvibes:// in the installer and the .deb in its
-    // desktop file. An AppImage installs nothing, so it registers itself.
+    // Windows registers mechvibes:// and .mvtheme files in the installer and
+    // the .deb in its desktop and MIME files. An AppImage installs nothing,
+    // so it registers itself.
     #[cfg(target_os = "linux")]
     if libs::protocol::should_self_register() {
         if let Err(e) = libs::protocol::register_protocol() {
-            always_eprint!("⚠️  Could not register mechvibes:// links: {}", e);
+            always_eprint!("⚠️  Could not register mechvibes:// links and theme files: {}", e);
         }
     }
 

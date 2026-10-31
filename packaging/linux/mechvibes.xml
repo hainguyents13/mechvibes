@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The .mvtheme file type, so a file manager opens theme files with Mechvibes.
+  A theme file is a ZIP inside; declaring it a subclass of application/zip
+  lets the *.mvtheme name win over the ZIP contents, as .docx and .epub do.
+  Shipped by the .deb to /usr/share/mime/packages and written by an AppImage
+  to ~/.local/share/mime/packages (src/libs/protocol.rs).
+-->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-mechvibes-theme">
+    <comment>Mechvibes theme</comment>
+    <sub-class-of type="application/zip"/>
+    <generic-icon name="application-x-generic"/>
+    <glob pattern="*.mvtheme"/>
+  </mime-type>
+</mime-info>

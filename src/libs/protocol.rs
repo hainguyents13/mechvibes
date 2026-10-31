@@ -109,13 +109,25 @@ fn desktop_exec_quote(path: &str) -> Option<String> {
     Some(quoted)
 }
 
-/// Make an AppImage the handler for `mechvibes://` links.
+/// The type of a `.mvtheme` theme file, as `packaging/linux/mechvibes.xml`
+/// declares it.
+#[cfg(any(target_os = "linux", test))]
+const THEME_MIME_TYPE: &str = "application/x-mechvibes-theme";
+
+/// The shared-mime-info file that declares `THEME_MIME_TYPE`. The `.deb`
+/// ships the same file.
+#[cfg(any(target_os = "linux", test))]
+const THEME_MIME_XML: &str = include_str!("../../packaging/linux/mechvibes.xml");
+
+/// Make an AppImage the handler for `mechvibes://` links and `.mvtheme` theme
+/// files.
 ///
 /// The `.deb` declares the handler in its own desktop file. An AppImage
 /// installs nothing, so it writes a handler entry for the user each time it
 /// starts, pointing at the AppImage file itself: the path it runs from inside
 /// is a mount point that changes every launch. The entry is hidden from the
-/// app menu, which already has the AppImage or the package's own entry.
+/// app menu, which already has the AppImage or the package's own entry. The
+/// theme file type is declared for the user the same way.
 #[cfg(target_os = "linux")]
 pub fn register_protocol() -> Result<(), Box<dyn std::error::Error>> {
     use std::fs;
@@ -124,6 +136,9 @@ pub fn register_protocol() -> Result<(), Box<dyn std::error::Error>> {
     let entry_name = format!("{}-url-handler.desktop", APP_NAME_LOWERCASE);
     let apps_dir = format!("{}/.local/share/applications", home);
     let desktop_file_path = format!("{}/{}", apps_dir, entry_name);
+    let mime_dir = format!("{}/.local/share/mime", home);
+    let mime_packages_dir = format!("{}/packages", mime_dir);
+    let mime_file_path = format!("{}/{}.xml", mime_packages_dir, APP_NAME_LOWERCASE);
     let exe_path = appimage_file().ok_or("not an AppImage")?;
     let exec = desktop_exec_quote(&exe_path.to_string_lossy()).ok_or(
         "the AppImage path has a line break in it"
@@ -137,36 +152,68 @@ Exec={} %u
 Icon={}
 Type=Application
 NoDisplay=true
-MimeType=x-scheme-handler/{};
+MimeType=x-scheme-handler/{};{};
 "#,
         APP_NAME,
         exec,
         APP_NAME_LOWERCASE,
-        APP_PROTOCOL
+        APP_PROTOCOL,
+        THEME_MIME_TYPE
     );
 
-    // Rewritten only when it changed, so an unchanged AppImage starts without
-    // touching the desktop database.
-    if fs::read_to_string(&desktop_file_path).ok().as_deref() == Some(desktop_content.as_str()) {
+    // Each file is rewritten only when it changed, so an unchanged AppImage
+    // starts without touching the desktop or MIME databases.
+    let unchanged = |path: &str, content: &str| fs::read_to_string(path).ok().as_deref() == Some(content);
+    let entry_changed = !unchanged(desktop_file_path.as_str(), desktop_content.as_str());
+    let mime_changed = !unchanged(mime_file_path.as_str(), THEME_MIME_XML);
+    if !entry_changed && !mime_changed {
         return Ok(());
     }
-    crate::always_print!("🐧 Registering {}// protocol on Linux...", APP_PROTOCOL);
-    fs::create_dir_all(&apps_dir)?;
-    fs::write(&desktop_file_path, desktop_content)?;
+    crate::always_print!("🐧 Registering {}// protocol and theme files on Linux...", APP_PROTOCOL);
 
-    let _ = Command::new("update-desktop-database").arg(&apps_dir).output();
-    let _ = Command::new("xdg-mime")
-        .args(["default", &entry_name, &format!("x-scheme-handler/{}", APP_PROTOCOL)])
-        .output();
+    // The entry first: links matter most, and a failure below leaves the
+    // MIME file to be written on the next start.
+    if entry_changed {
+        fs::create_dir_all(&apps_dir)?;
+        fs::write(&desktop_file_path, desktop_content)?;
+        let _ = Command::new("update-desktop-database").arg(&apps_dir).output();
+    }
+    if mime_changed {
+        fs::create_dir_all(&mime_packages_dir)?;
+        fs::write(&mime_file_path, THEME_MIME_XML)?;
+        // Best effort: a minimal system may not have shared-mime-info.
+        let _ = Command::new("update-mime-database").arg(&mime_dir).output();
+    }
+    for mime_type in [format!("x-scheme-handler/{}", APP_PROTOCOL), THEME_MIME_TYPE.to_string()] {
+        let _ = Command::new("xdg-mime").args(["default", &entry_name, &mime_type]).output();
+    }
 
-    crate::always_print!("✅ Protocol {}// registered successfully", APP_PROTOCOL);
+    crate::always_print!("✅ Protocol {}// and theme files registered successfully", APP_PROTOCOL);
     Ok(())
 }
 
 
 #[cfg(test)]
 mod tests {
-    use super::desktop_exec_quote;
+    use super::{ desktop_exec_quote, THEME_MIME_TYPE, THEME_MIME_XML };
+
+    /// The type the file manager matches must be the one each desktop entry
+    /// says it opens, and it must cover the extension the app writes.
+    #[test]
+    fn the_theme_file_type_is_declared_the_same_everywhere() {
+        assert!(THEME_MIME_XML.contains(&format!("<mime-type type=\"{}\">", THEME_MIME_TYPE)));
+        assert!(
+            THEME_MIME_XML.contains(
+                &format!("<glob pattern=\"*.{}\"/>", crate::utils::theme_share::FILE_EXTENSION)
+            )
+        );
+        let desktop = include_str!("../../mechvibes.desktop");
+        assert!(
+            desktop
+                .lines()
+                .any(|line| line.trim_end() == format!("MimeType=x-scheme-handler/mechvibes;{};", THEME_MIME_TYPE))
+        );
+    }
 
     #[test]
     fn an_exec_path_is_quoted_and_escaped_for_a_desktop_file() {
