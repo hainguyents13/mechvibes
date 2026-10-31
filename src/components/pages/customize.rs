@@ -58,8 +58,13 @@ fn ImagePicker(
                             if let Some(file_handle) = file_dialog {
                                 let source_path = file_handle.path().to_string_lossy().to_string();
 
-                                // Copy image to custom images directory and get asset URL
-                                match path::copy_to_custom_images(&source_path) {
+                                // Copy image to custom images directory and get asset URL.
+                                // Reading and hashing a large image takes a moment, so it
+                                // runs off the window's thread.
+                                let copied = tokio::task
+                                    ::spawn_blocking(move || path::copy_to_custom_images(&source_path)).await
+                                    .unwrap_or_else(|e| Err(format!("Could not copy the image: {}", e)));
+                                match copied {
                                     Ok(asset_url) => {
                                         on_change.call(Some(asset_url));
                                     }
