@@ -88,13 +88,19 @@ impl ThemesConfig {
             }
         }
         // Waits in the queue until the window is up to show it.
-        if let ThemesLoad::KeptAside(copy) = outcome {
-            crate::always_eprint!("   The damaged themes.json was kept at: {}", copy.display());
-            notice::report(
-                NoticeKind::Error,
-                format!("Your colors list was damaged. A copy was kept at {}.", copy.display()),
-                Some(NoticeAction::ShowFile(copy))
-            );
+        match outcome {
+            ThemesLoad::KeptAside(copy) => {
+                crate::always_eprint!("   The damaged themes.json was kept at: {}", copy.display());
+                notice::report(
+                    NoticeKind::Error,
+                    format!("Your colors list was damaged. A copy was kept at {}.", copy.display()),
+                    Some(NoticeAction::ShowFile(copy))
+                );
+            }
+            // Saved colors are missing from the screen this session, so say
+            // why now rather than only at the next save.
+            ThemesLoad::ReadOnly(_) => notice::report(NoticeKind::Error, READ_ONLY_ERROR, None),
+            ThemesLoad::Fresh | ThemesLoad::Loaded => {}
         }
         config
     }
