@@ -448,16 +448,7 @@ const JPEG_QUALITY: u8 = 85;
 fn shrink_image(bytes: &[u8], background: bool) -> Option<Vec<u8>> {
     use image::{ codecs::jpeg::JpegEncoder, imageops::FilterType, ImageFormat };
 
-    if is_animated(bytes) {
-        return None;
-    }
-    let (width, height) = image::io::Reader
-        ::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()?;
-    if width == 0 || height == 0 || (width as u64) * (height as u64) > MAX_SHRINK_PIXELS {
+    if is_animated(bytes) || !small_enough_to_decode(bytes, MAX_SHRINK_PIXELS) {
         return None;
     }
     // The decoder ignores the EXIF orientation a camera writes, while the
@@ -500,6 +491,85 @@ fn is_animated(bytes: &[u8]) -> bool {
         Some("webp") => bytes.get(12..16) == Some(b"VP8X") && bytes.get(20).is_some_and(|flags| flags & 0x02 != 0),
         _ => false,
     }
+}
+
+/// Whether `bytes` is an image of at most `max_pixels`, found from its
+/// headers alone, so a file that only claims a huge size never reaches the
+/// decoder.
+fn small_enough_to_decode(bytes: &[u8], max_pixels: u64) -> bool {
+    // The image crate decodes a WebP's whole first picture just to report its
+    // size, before any limit applies, so a few bytes that claim 16384 x 16384
+    // would take gigabytes. Its sizes are read from its chunks instead.
+    if image_extension(bytes) == Some("webp") {
+        return webp_chunks_fit(&bytes[12..], None, false, max_pixels);
+    }
+    image::io::Reader
+        ::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok())
+        .is_some_and(|size| fits_in(size, max_pixels, None))
+}
+
+/// A picture with something in it, at most `max_pixels`, and no wider or
+/// taller than `within` when there is one.
+fn fits_in((width, height): (u32, u32), max_pixels: u64, within: Option<(u32, u32)>) -> bool {
+    width > 0 &&
+        height > 0 &&
+        (width as u64) * (height as u64) <= max_pixels &&
+        within.is_none_or(|(max_width, max_height)| width <= max_width && height <= max_height)
+}
+
+/// Whether every picture the WebP chunks in `chunks` hold fits `max_pixels`
+/// and the canvas a `VP8X` chunk sets. A picture whose size cannot be read
+/// counts as too large. Each chunk is a four letter name, its length (little
+/// endian), its data, and a pad byte when the length is odd. The decoder reads
+/// on to the end of the file whatever the RIFF header says, so this does too.
+fn webp_chunks_fit(mut chunks: &[u8], mut canvas: Option<(u32, u32)>, in_frame: bool, max_pixels: u64) -> bool {
+    let u24 = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], 0]);
+    while chunks.len() >= 8 {
+        let length = u32::from_le_bytes([chunks[4], chunks[5], chunks[6], chunks[7]]) as usize;
+        let data = &chunks[8..chunks.len().min(length.saturating_add(8))];
+        let fits = match &chunks[0..4] {
+            // Flags and reserved bytes, then the canvas width and height less one.
+            b"VP8X" => {
+                canvas = (data.len() >= 10).then(|| (u24(&data[4..7]) + 1, u24(&data[7..10]) + 1));
+                canvas.is_some_and(|size| fits_in(size, max_pixels, None))
+            }
+            // A frame of an animation: its offset (halved) and size less one
+            // on the canvas, a duration and flags, then its own picture chunks.
+            // A frame never holds another, and the decoder refuses one that
+            // does, so a file nesting frames deeply cannot run this out of stack.
+            b"ANMF" =>
+                !in_frame &&
+                    data.len() >= 16 && {
+                        let corner = (u24(&data[0..3]) * 2 + u24(&data[6..9]) + 1, u24(&data[3..6]) * 2 + u24(&data[9..12]) + 1);
+                        canvas.is_some_and(|canvas| fits_in(corner, u64::MAX, Some(canvas))) &&
+                            webp_chunks_fit(&data[16..], canvas, true, max_pixels)
+                    },
+            // Lossless: a 0x2f signature, then the width and height less one in
+            // 14 bits each, lowest bits first.
+            b"VP8L" =>
+                data.len() >= 5 && data[0] == 0x2f && {
+                    let bits = u32::from_le_bytes([data[1], data[2], data[3], data[4]]);
+                    fits_in(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1), max_pixels, canvas)
+                },
+            // Lossy: a frame tag, the 9d 01 2a start code, then the width and
+            // height in the low 14 bits of two little endian numbers.
+            b"VP8 " =>
+                data.len() >= 10 && data[3..6] == [0x9d, 0x01, 0x2a] && {
+                    let width = u16::from_le_bytes([data[6], data[7]]) & 0x3fff;
+                    let height = u16::from_le_bytes([data[8], data[9]]) & 0x3fff;
+                    fits_in((width as u32, height as u32), max_pixels, canvas)
+                },
+            _ => true,
+        };
+        if !fits {
+            return false;
+        }
+        chunks = chunks.get(length.saturating_add(8 + (length % 2))..).unwrap_or_default();
+    }
+    true
 }
 
 /// `image` turned the way an EXIF orientation (1 to 8) says it is shown.
@@ -1720,6 +1790,125 @@ mod tests {
         assert!(is_animated(&webp(0x02)));
         assert!(!is_animated(&webp(0x10)));
         assert!(is_animated(b"GIF89a"));
+    }
+
+    /// A RIFF chunk: its name, its length, its data and a pad byte when the
+    /// length is odd.
+    fn riff_chunk(name: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut out = name.to_vec();
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            out.push(0);
+        }
+        out
+    }
+
+    fn webp_file(chunks: &[Vec<u8>]) -> Vec<u8> {
+        let body = chunks.concat();
+        [b"RIFF".as_slice(), &((body.len() + 4) as u32).to_le_bytes(), b"WEBP", &body].concat()
+    }
+
+    fn u24(value: u32) -> [u8; 3] {
+        let [a, b, c, _] = value.to_le_bytes();
+        [a, b, c]
+    }
+
+    /// The start of a lossless picture that claims `width` x `height`.
+    fn vp8l(width: u32, height: u32) -> Vec<u8> {
+        let bits = (width - 1) | ((height - 1) << 14);
+        riff_chunk(b"VP8L", &[[0x2f].as_slice(), &bits.to_le_bytes()].concat())
+    }
+
+    /// The start of a lossy picture that claims `width` x `height`.
+    fn vp8(width: u16, height: u16) -> Vec<u8> {
+        riff_chunk(b"VP8 ", &[[0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a].as_slice(), &width.to_le_bytes(), &height.to_le_bytes()].concat())
+    }
+
+    fn vp8x(width: u32, height: u32) -> Vec<u8> {
+        riff_chunk(b"VP8X", &[[0x02, 0, 0, 0].as_slice(), &u24(width - 1), &u24(height - 1)].concat())
+    }
+
+    /// A frame of an animation at `x`, `y` on the canvas, holding `picture`.
+    fn anmf(x: u32, y: u32, width: u32, height: u32, picture: &[u8]) -> Vec<u8> {
+        let header = [u24(x / 2), u24(y / 2), u24(width - 1), u24(height - 1), u24(100)].concat();
+        riff_chunk(b"ANMF", &[header.as_slice(), &[0], picture].concat())
+    }
+
+    /// The two pictures of the `library-rewritten` fixture, as the theme
+    /// library wrote them: a lossless and a lossy WebP of one pixel.
+    const LIBRARY_VP8L: &[u8] = &[
+        0x52, 0x49, 0x46, 0x46, 0x1a, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4c, 0x0d, 0x00,
+        0x00, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07, 0x00,
+    ];
+    const LIBRARY_VP8: &[u8] = &[
+        0x52, 0x49, 0x46, 0x46, 0x22, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 0x16, 0x00,
+        0x00, 0x00, 0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a, 0x01, 0x00, 0x01, 0x00, 0x0e, 0xc0, 0xfe, 0x25, 0xa4, 0x00,
+        0x03, 0x70, 0x00, 0x00, 0x00, 0x00,
+    ];
+
+    #[test]
+    fn a_webp_size_is_read_from_its_chunks() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(small_enough_to_decode(LIBRARY_VP8L, MAX_SHRINK_PIXELS));
+        assert!(small_enough_to_decode(LIBRARY_VP8, MAX_SHRINK_PIXELS));
+        assert!(fits(&[vp8x(1, 1), LIBRARY_VP8L[12..].to_vec()]), "a still picture with a canvas");
+        assert!(fits(&[vp8l(16384, 2441)]), "just under 40 million pixels");
+        assert!(fits(&[vp8x(64, 64), riff_chunk(b"ANIM", &[0; 6]), anmf(32, 32, 32, 32, &vp8l(32, 32))]));
+        for (pixels, size) in [(10_000, (100, 100)), (9_999, (100, 100))] {
+            let file = webp_file(&[vp8l(size.0, size.1)]);
+            assert_eq!(small_enough_to_decode(&file, pixels), pixels == 10_000);
+        }
+    }
+
+    /// The image crate decodes a WebP's first picture to report its size, so
+    /// a few bytes that claim a huge picture have to be turned away before it
+    /// sees them.
+    #[test]
+    fn a_webp_that_claims_a_huge_picture_is_never_decoded() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(!fits(&[vp8l(16384, 16384)]));
+        assert!(!fits(&[vp8(16383, 16383)]));
+        assert!(!fits(&[vp8x(16384, 16384), vp8l(1, 1)]), "a huge canvas");
+        assert!(!fits(&[vp8x(1, 1), vp8l(16384, 16384)]), "a picture larger than its canvas");
+        assert!(!fits(&[vp8x(1, 1), vp8l(2, 1)]), "a picture wider than its canvas");
+        assert!(!fits(&[vp8x(64, 64), anmf(0, 0, 64, 64, &vp8l(16384, 16384))]), "a huge frame picture");
+        assert!(!fits(&[vp8x(64, 64), anmf(34, 0, 32, 32, &vp8l(32, 32))]), "a frame off the canvas");
+        assert!(!fits(&[anmf(0, 0, 1, 1, &vp8l(1, 1))]), "a frame without a canvas");
+        assert!(!fits(&[vp8x(1, 1), anmf(0, 0, 1, 1, &anmf(0, 0, 1, 1, &vp8l(1, 1)))]), "a frame in a frame");
+    }
+
+    #[test]
+    fn a_webp_whose_size_cannot_be_read_is_never_decoded() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(!fits(&[riff_chunk(b"VP8L", &[0x2f, 0, 0])]), "cut short");
+        assert!(!fits(&[riff_chunk(b"VP8L", &[0x2e, 0, 0, 0, 0])]), "no signature");
+        assert!(!fits(&[riff_chunk(b"VP8 ", &[0x30, 0x01, 0x00, 0, 0, 0, 1, 0, 1, 0])]), "no start code");
+        assert!(!fits(&[vp8(0, 10)]), "no width");
+        assert!(!fits(&[riff_chunk(b"VP8X", &[0; 9])]));
+        // The decoder reads on past the length the RIFF header gives.
+        let mut file = webp_file(&[vp8l(1, 1)]);
+        file.extend_from_slice(&vp8l(16384, 16384));
+        assert!(!small_enough_to_decode(&file, MAX_SHRINK_PIXELS));
+    }
+
+    #[test]
+    fn frames_nested_deep_are_turned_away_without_running_out_of_stack() {
+        let depth = 100_000;
+        let mut file = webp_file(&[vp8x(1, 1)]);
+        for level in 0..depth {
+            let length = 16 + 24 * (depth - 1 - level);
+            file.extend_from_slice(b"ANMF");
+            file.extend_from_slice(&(length as u32).to_le_bytes());
+            file.extend_from_slice(&[0; 15]);
+            file.push(0);
+        }
+        assert!(!small_enough_to_decode(&file, MAX_SHRINK_PIXELS));
+    }
+
+    #[test]
+    fn a_huge_webp_is_kept_as_it_is_when_sharing() {
+        assert_eq!(shrink_image(&webp_file(&[vp8l(16384, 16384)]), true), None);
     }
 
     #[test]

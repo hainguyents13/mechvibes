@@ -2,7 +2,7 @@
 //! library picks the picture on its card: the look's own image when it shows
 //! one, otherwise its colours.
 
-use super::{ jpeg_orientation, upright, SharedColors, SharedTheme, MAX_SHRINK_PIXELS };
+use super::{ jpeg_orientation, small_enough_to_decode, upright, SharedColors, SharedTheme, MAX_SHRINK_PIXELS };
 use base64::Engine;
 use std::io::Cursor;
 
@@ -72,13 +72,7 @@ pub fn preview_stripes(colors: &SharedColors) -> Vec<&'static str> {
 fn thumbnail(bytes: &[u8], max_pixels: u64) -> Option<(Vec<u8>, &'static str)> {
     use image::{ codecs::jpeg::JpegEncoder, imageops::FilterType, ImageFormat };
 
-    let (width, height) = image::io::Reader
-        ::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()?;
-    if width == 0 || height == 0 || (width as u64) * (height as u64) > max_pixels {
+    if !small_enough_to_decode(bytes, max_pixels) {
         return None;
     }
     let mut image = upright(image::load_from_memory(bytes).ok()?, jpeg_orientation(bytes));
@@ -214,6 +208,33 @@ mod tests {
         assert_eq!(thumbnail(&png(100, 100, RED), 9_999), None);
         assert_eq!(thumbnail(b"\x89PNG\r\n\x1a\nnot-really", MAX_SHRINK_PIXELS), None);
         assert_eq!(thumbnail(b"", MAX_SHRINK_PIXELS), None);
+    }
+
+    #[test]
+    fn a_webp_wallpaper_has_a_thumbnail() {
+        use image::codecs::webp::WebPEncoder;
+
+        let pixels = image::RgbaImage::from_pixel(400, 700, RED);
+        let mut webp = Vec::new();
+        WebPEncoder::new_lossless(&mut webp).encode(&pixels, 400, 700, image::ColorType::Rgba8).unwrap();
+        let (bytes, _) = thumbnail(&webp, MAX_SHRINK_PIXELS).unwrap();
+        assert_eq!((decoded(&bytes).width(), decoded(&bytes).height()), THUMBNAIL_BOX);
+    }
+
+    #[test]
+    fn a_theme_from_the_library_has_its_picture() {
+        let theme = super::super::from_bytes(include_bytes!("fixtures/v1/library-rewritten.mvtheme")).unwrap();
+        assert!(theme.preview_data_uri().is_some(), "its WebP picture decodes");
+    }
+
+    /// A few bytes of lossless WebP that claim 16384 x 16384 pixels, which
+    /// the image crate would decode in full just to report the size.
+    #[test]
+    fn a_webp_that_claims_a_huge_picture_has_no_thumbnail() {
+        let mut bomb = b"RIFF\x12\0\0\0WEBPVP8L\x05\0\0\0\x2f\xff\xff\xff\x0f\0".to_vec();
+        assert_eq!(thumbnail(&bomb, MAX_SHRINK_PIXELS), None);
+        bomb[0x15..0x19].copy_from_slice(&[0, 0, 0, 0]);
+        assert!(super::super::small_enough_to_decode(&bomb, MAX_SHRINK_PIXELS), "the same file at one pixel");
     }
 
     #[test]
