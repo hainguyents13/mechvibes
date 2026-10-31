@@ -3,8 +3,12 @@
 //! Mounted once at the root, outside the area a theme colours, so a theme
 //! that makes its own text hard to read cannot hide them. A message that
 //! only says something went well goes away by itself; an error stays until
-//! the user closes it.
+//! the user closes it. A message may offer a button: Show file, or Undo,
+//! which works here because a theme cannot hide it.
 
+use crate::components::theme_share::undo_look;
+use crate::libs::theme::use_theme;
+use crate::utils::config::use_config;
 use crate::utils::notice::{ Notice, NoticeAction, NoticeKind };
 use dioxus::prelude::*;
 use lucide_dioxus::X;
@@ -43,6 +47,8 @@ pub fn show_notices(mut shown: Signal<Vec<Notice>>, new: Vec<Notice>) {
 #[component]
 pub fn Toasts() -> Element {
     let mut shown: Signal<Vec<Notice>> = use_context();
+    let (_, update_config) = use_config();
+    let theme_signal = use_theme();
     let notices = shown();
     if notices.is_empty() {
         return rsx! {};
@@ -64,6 +70,19 @@ pub fn Toasts() -> Element {
                   class: "btn btn-xs btn-ghost shrink-0",
                   onclick: move |_| crate::utils::log_buffer::reveal_in_file_manager(&path),
                   "Show file"
+                }
+              }
+              if notice.action == Some(NoticeAction::Undo) {
+                button {
+                  class: "btn btn-xs btn-ghost shrink-0",
+                  onclick: {
+                      let update_config = update_config.clone();
+                      move |_| {
+                          shown.write().retain(|other| other.id != notice.id);
+                          undo_look(&update_config, theme_signal);
+                      }
+                  },
+                  "Undo"
                 }
               }
               button {

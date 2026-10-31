@@ -9,6 +9,8 @@
 use crate::libs::theme::Theme;
 use crate::state::config::AppConfig;
 use crate::utils::config::use_config;
+use crate::utils::look_undo::{ self, LookFields };
+use crate::utils::notice::{ self, NoticeKind };
 use crate::utils::theme::{ use_themes, UpdateThemes };
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
@@ -36,7 +38,8 @@ impl Stage {
 /// Put the ticked `parts` of an opened look on: their images saved, custom
 /// colours added to the list, then the theme and the rest of the config
 /// switched over. An unticked part brings nothing and changes nothing. Gives
-/// the look's name back. Images saved before a failure are removed again.
+/// the look's name back. Images saved before a failure are removed again. The
+/// look from before is remembered, so `undo_look` can put it back.
 pub async fn put_on(
     mut look: SharedTheme,
     parts: ImportParts,
@@ -80,8 +83,48 @@ pub async fn put_on(
         theme_signal.set(choice.clone());
     }
     let name = look.name.clone();
-    update_config(Box::new(move |cfg| theme_share::apply_to_config(&look, choice, parts, cfg)));
+    // The look is remembered inside the write, so `before` is exactly what
+    // the config held right before this theme went on.
+    update_config(
+        Box::new(move |cfg| {
+            let before = LookFields::of(cfg);
+            theme_share::apply_to_config(&look, choice, parts, cfg);
+            look_undo::remember(before, LookFields::of(cfg));
+        })
+    );
     Ok(name)
+}
+
+/// Go back to the look from before the last theme was put on, if nothing has
+/// changed it since. Tells the user when there is nothing to go back to.
+/// Returns whether the look went back.
+pub fn undo_look(
+    update_config: &Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
+    mut theme_signal: Signal<Theme>
+) -> bool {
+    let restored = Rc::new(RefCell::new(None));
+    update_config(
+        Box::new({
+            let restored = restored.clone();
+            move |cfg| {
+                if let Some(before) = look_undo::take_undo(&LookFields::of(cfg)) {
+                    before.write_to(cfg);
+                    *restored.borrow_mut() = Some(before.theme);
+                }
+            }
+        })
+    );
+    let restored = restored.borrow_mut().take();
+    match restored {
+        Some(theme) => {
+            theme_signal.set(theme);
+            true
+        }
+        None => {
+            notice::report(NoticeKind::Info, "Nothing to undo. The look changed since.", None);
+            false
+        }
+    }
 }
 
 #[component]

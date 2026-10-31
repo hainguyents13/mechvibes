@@ -11,6 +11,7 @@ pub mod legacy_migration;
 pub mod library_client;
 pub mod log_buffer;
 pub mod logger;
+pub mod look_undo;
 pub mod notice;
 pub mod path;
 pub mod platform;

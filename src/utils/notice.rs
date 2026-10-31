@@ -21,6 +21,9 @@ pub enum NoticeKind {
 pub enum NoticeAction {
     /// Show this file in the system file manager.
     ShowFile(PathBuf),
+    /// Go back to the look from before the last theme was put on
+    /// (`look_undo`).
+    Undo,
 }
 
 #[derive(Debug, Clone, PartialEq)]

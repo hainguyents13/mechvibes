@@ -12,13 +12,14 @@
 //! Either way nothing is put on until the user clicks Use this theme, and
 //! what is put on then is exactly the file the dialog showed. The dialog
 //! lists the colours, the logo and the background with a tick each; an
-//! unticked part brings nothing and leaves the user's own as it is.
+//! unticked part brings nothing and leaves the user's own as it is. Once a
+//! theme is on, Undo puts back the look from before it.
 //!
 //! Reading, looking up and downloading can be cancelled. Each request has its
 //! own number, and a result that comes back after its request was cancelled
 //! is dropped, so a read that never finishes cannot hold the dialog.
 
-use crate::components::theme_share::put_on;
+use crate::components::theme_share::{ put_on, undo_look };
 use crate::components::ui::library_install_modal::format_size;
 use crate::libs::theme::use_theme;
 use crate::utils::config::use_config;
@@ -27,7 +28,7 @@ use crate::utils::library_client;
 use crate::utils::theme::use_themes;
 use crate::utils::theme_share::{ self, checklist, ImportParts, SharedTheme };
 use dioxus::prelude::*;
-use lucide_dioxus::Download;
+use lucide_dioxus::{ Download, Undo2 };
 use std::rc::Rc;
 
 /// A theme read and checked, waiting for the user's answer.
@@ -167,6 +168,16 @@ pub fn ThemeImportModal() -> Element {
         })
     });
 
+    // Here as well as in a toast: this dialog sits outside the area a theme
+    // colours, so the way back stays readable whatever the theme did.
+    let undo = {
+        let update_config = update_config.clone();
+        move |_| {
+            undo_look(&update_config, theme_signal);
+            stage.set(Stage::Hidden);
+        }
+    };
+
     let apply = move |_| {
         let Stage::Confirm(offer) = stage() else {
             return;
@@ -281,6 +292,12 @@ pub fn ThemeImportModal() -> Element {
               if current.cancellable() || matches!(current, Stage::Confirm(_)) { "Cancel" } else { "Close" }
             }
             match &current {
+                Stage::Done(_) => rsx! {
+                  button { class: "btn btn-sm btn-neutral", onclick: undo,
+                    Undo2 { class: "w-4 h-4 mr-2" }
+                    "Undo"
+                  }
+                },
                 Stage::Confirm(_) => rsx! {
                   button { class: "btn btn-sm btn-neutral", disabled: !parts().any(), onclick: apply,
                     Download { class: "w-4 h-4 mr-2" }
