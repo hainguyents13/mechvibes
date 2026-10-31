@@ -5,7 +5,8 @@
 //! another card is put on, `run_sync` compares the two. An edit to the
 //! user's own theme saves it in place. An edit to any other card saves
 //! "<name> (my copy)" and leaves the card as it was. A look that already has
-//! a card points at it, so nothing is ever saved twice.
+//! a card points at it, so nothing is saved twice, except that edits never
+//! point at another theme of the user's own (see `sync_action`).
 //!
 //! `sync_action` decides and is pure. `run_sync` carries the decision out.
 //!
@@ -93,6 +94,20 @@ pub fn cards(store: &SavedThemes) -> Vec<CardLook> {
     store.themes().map(CardLook::saved).chain(starter_themes::all().iter().map(CardLook::starter)).collect()
 }
 
+/// What a sync follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SyncCause<'a> {
+    /// Nothing the user just did: the app starting, or a card about to go on
+    /// with no edit waiting. A look that lost its pointer, after a crash or
+    /// an older Mechvibes, finds the card it belongs to.
+    Check,
+    /// A burst of edits ended. `name_hint` is `Some(DEFAULT_NAME)` when it
+    /// started from the Default theme.
+    Edits {
+        name_hint: Option<&'a str>,
+    },
+}
+
 /// What to do so that the look on screen is never lost.
 #[derive(Debug, Clone, PartialEq)]
 pub enum SyncAction {
@@ -136,13 +151,17 @@ impl SyncAction {
 ///
 /// `live` is the look on screen, `pointer` the card the config says it
 /// belongs to, `cards` every card there is. A pointer that names no card
-/// counts as none. `name_hint` is `Some(DEFAULT_NAME)` when the edits being
-/// saved started from the Default theme.
+/// counts as none.
+///
+/// A look made by edits never points at another theme of the user's own,
+/// even one that looks the same: the next edit would change that theme in
+/// place and lose what it held. It is saved as a copy instead. Only a check
+/// points at one, since then the look on screen is that theme's already.
 ///
 /// Colors missing from the colors list are never saved: the active card's
 /// colors are put back instead. A look with a value a saved theme cannot
 /// hold stays only in the config, as it always has.
-pub fn sync_action(live: &Look, pointer: Option<&str>, cards: &[CardLook], name_hint: Option<&str>) -> SyncAction {
+pub fn sync_action(live: &Look, pointer: Option<&str>, cards: &[CardLook], cause: SyncCause) -> SyncAction {
     let active = pointer.and_then(|pointer| cards.iter().find(|card| card.pointer == pointer));
 
     if let LookColors::Missing(_) = live.colors {
@@ -175,7 +194,15 @@ pub fn sync_action(live: &Look, pointer: Option<&str>, cards: &[CardLook], name_
         _ => {}
     }
 
-    if let Some(card) = identical_card(&live, cards) {
+    let (after_edits, name_hint) = match cause {
+        SyncCause::Check => (false, None),
+        SyncCause::Edits { name_hint } => (true, name_hint),
+    };
+    let candidates: Vec<&CardLook> = cards
+        .iter()
+        .filter(|card| !(after_edits && card.kind == CardKind::Mine))
+        .collect();
+    if let Some(card) = identical_card(&live, &candidates) {
         return SyncAction::Point { pointer: card.pointer.clone() };
     }
     let name = match active {
@@ -188,7 +215,7 @@ pub fn sync_action(live: &Look, pointer: Option<&str>, cards: &[CardLook], name_
 
 /// The card whose look is exactly `live`: the user's own first, newest
 /// first, then installed themes, then the ones that come with the app.
-fn identical_card<'a>(live: &Look, cards: &'a [CardLook]) -> Option<&'a CardLook> {
+fn identical_card<'a>(live: &Look, cards: &[&'a CardLook]) -> Option<&'a CardLook> {
     let rank = |kind: CardKind| match kind {
         CardKind::Mine => 0,
         CardKind::Imported | CardKind::Library => 1,
@@ -196,6 +223,7 @@ fn identical_card<'a>(live: &Look, cards: &'a [CardLook]) -> Option<&'a CardLook
     };
     cards
         .iter()
+        .copied()
         .filter(|card| same_look(live, &card.look))
         .min_by(|a, b| rank(a.kind).cmp(&rank(b.kind)).then_with(|| b.updated_at.cmp(&a.updated_at)))
 }
@@ -518,12 +546,12 @@ pub fn upsert_installed(store: &mut SavedThemes, theme: &SharedTheme, source: &T
 ///
 /// Changes the colors list without telling a window that shows it, so a
 /// caller with a window refreshes the list afterwards.
-pub fn run_sync(name_hint: Option<&str>) {
+pub fn run_sync(cause: SyncCause) {
     for first_pass in [true, false] {
         let store = saved_themes::current();
         let config = config_writer::current();
         let live = Look::from_config(&config, &theme::get_themes_config());
-        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), name_hint).unless_read_only(
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), cause).unless_read_only(
             store.read_only.is_some()
         );
 
@@ -591,6 +619,10 @@ mod tests {
     use crate::libs::theme::BuiltInTheme;
     use crate::state::config::{ BackgroundCustomization, LogoCustomization };
 
+    const CHECK: SyncCause<'static> = SyncCause::Check;
+    const EDITS: SyncCause<'static> = SyncCause::Edits { name_hint: None };
+    const FROM_DEFAULT: SyncCause<'static> = SyncCause::Edits { name_hint: Some(DEFAULT_NAME) };
+
     fn look_with_logo(border: &str) -> Look {
         Look {
             colors: LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::Dark)),
@@ -644,7 +676,7 @@ mod tests {
     fn editing_my_theme_saves_it_in_place() {
         let cards = [card("a", "Night drive", CardKind::Mine, look_with_logo("red"))];
         let live = look_with_logo("blue");
-        assert_eq!(sync_action(&live, Some("a"), &cards, None), SyncAction::UpdateMine {
+        assert_eq!(sync_action(&live, Some("a"), &cards, EDITS), SyncAction::UpdateMine {
             id: "a".to_string(),
             look: live.clone(),
         });
@@ -654,7 +686,7 @@ mod tests {
     fn editing_a_starter_makes_one_copy() {
         let cards = [starter(look_with_logo("red"))];
         let live = look_with_logo("blue");
-        assert_eq!(sync_action(&live, Some("starter:retro-beige"), &cards, None), SyncAction::CreateMine {
+        assert_eq!(sync_action(&live, Some("starter:retro-beige"), &cards, EDITS), SyncAction::CreateMine {
             name: "Retro Beige (my copy)".to_string(),
             look: live,
         });
@@ -664,13 +696,13 @@ mod tests {
     fn the_second_edit_updates_the_copy() {
         let mut cards = vec![starter(look_with_logo("red"))];
         let mut pointer = Some("starter:retro-beige".to_string());
-        let first = sync_action(&look_with_logo("blue"), pointer.as_deref(), &cards, None);
+        let first = sync_action(&look_with_logo("blue"), pointer.as_deref(), &cards, EDITS);
         carry_out(first, &mut cards, &mut pointer);
         let copy = pointer.clone().unwrap();
         assert_eq!(cards.len(), 2);
-        assert_eq!(sync_action(&look_with_logo("blue"), pointer.as_deref(), &cards, None), SyncAction::Nothing);
+        assert_eq!(sync_action(&look_with_logo("blue"), pointer.as_deref(), &cards, CHECK), SyncAction::Nothing);
 
-        let second = sync_action(&look_with_logo("green"), pointer.as_deref(), &cards, None);
+        let second = sync_action(&look_with_logo("green"), pointer.as_deref(), &cards, EDITS);
         assert_eq!(second, SyncAction::UpdateMine { id: copy, look: look_with_logo("green") });
         carry_out(second, &mut cards, &mut pointer);
         assert_eq!(cards.len(), 2, "no second copy");
@@ -681,14 +713,14 @@ mod tests {
     fn editing_an_installed_theme_leaves_it_untouched() {
         for kind in [CardKind::Imported, CardKind::Library] {
             let cards = [card("i", "Rainy cafe", kind, look_with_logo("red"))];
-            let action = sync_action(&look_with_logo("blue"), Some("i"), &cards, None);
+            let action = sync_action(&look_with_logo("blue"), Some("i"), &cards, EDITS);
             assert_eq!(creates(&action), Some("Rainy cafe (my copy)"), "{:?}", kind);
         }
     }
 
     #[test]
     fn editing_default_makes_default_my_copy() {
-        let action = sync_action(&look_with_logo("blue"), None, &[], Some(DEFAULT_NAME));
+        let action = sync_action(&look_with_logo("blue"), None, &[], FROM_DEFAULT);
         assert_eq!(creates(&action), Some("Default (my copy)"));
     }
 
@@ -702,7 +734,7 @@ mod tests {
         config.background_customization.background_color = "#101020".to_string();
         let live = Look::from_config(&config, &ThemesConfig::default());
 
-        let action = sync_action(&live, config.active_theme_id.as_deref(), &[], None);
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &[], CHECK);
         assert_eq!(action, SyncAction::CreateMine { name: "My theme".to_string(), look: live });
     }
 
@@ -711,7 +743,7 @@ mod tests {
         let config = AppConfig::default();
         let live = Look::from_config(&config, &ThemesConfig::default());
         assert_eq!(live, Look::default());
-        assert_eq!(sync_action(&live, None, &[], None), SyncAction::Nothing);
+        assert_eq!(sync_action(&live, None, &[], CHECK), SyncAction::Nothing);
     }
 
     #[test]
@@ -727,7 +759,7 @@ mod tests {
             newer,
         ];
         assert_eq!(
-            sync_action(&look_with_logo("red"), None, &cards, None),
+            sync_action(&look_with_logo("red"), None, &cards, CHECK),
             SyncAction::Point { pointer: "new".to_string() },
             "the user's own newest theme comes first"
         );
@@ -737,7 +769,7 @@ mod tests {
     fn going_back_to_the_default_look_clears_the_pointer() {
         for kind in [CardKind::Starter, CardKind::Imported, CardKind::Library] {
             let cards = [card("c", "Card", kind, look_with_logo("red"))];
-            assert_eq!(sync_action(&Look::default(), Some("c"), &cards, None), SyncAction::ClearPointer);
+            assert_eq!(sync_action(&Look::default(), Some("c"), &cards, EDITS), SyncAction::ClearPointer);
         }
     }
 
@@ -757,7 +789,7 @@ mod tests {
         assert_eq!(name.chars().count(), MAX_NAME_CHARS);
 
         cards.push(card("m", "My theme", CardKind::Mine, look_with_logo("green")));
-        let action = sync_action(&look_with_logo("blue"), None, &cards, None);
+        let action = sync_action(&look_with_logo("blue"), None, &cards, CHECK);
         assert_eq!(creates(&action), Some("My theme 2"));
     }
 
@@ -773,12 +805,12 @@ mod tests {
     #[test]
     fn a_missing_active_theme_counts_as_none() {
         let cards = [card("a", "Night drive", CardKind::Mine, look_with_logo("red"))];
-        let action = sync_action(&look_with_logo("blue"), Some("gone"), &cards, None);
+        let action = sync_action(&look_with_logo("blue"), Some("gone"), &cards, CHECK);
         assert_eq!(creates(&action), Some("My theme"));
-        assert_eq!(sync_action(&look_with_logo("red"), Some("gone"), &cards, None), SyncAction::Point {
+        assert_eq!(sync_action(&look_with_logo("red"), Some("gone"), &cards, CHECK), SyncAction::Point {
             pointer: "a".to_string(),
         });
-        assert_eq!(sync_action(&Look::default(), Some("gone"), &cards, None), SyncAction::ClearPointer);
+        assert_eq!(sync_action(&Look::default(), Some("gone"), &cards, CHECK), SyncAction::ClearPointer);
     }
 
     #[test]
@@ -788,7 +820,7 @@ mod tests {
         assert!(same_look(&raw, &clean));
         assert!(!same_look(&raw, &custom("--color-primary: blue;")));
         let cards = [card("a", "Red", CardKind::Mine, clean)];
-        assert_eq!(sync_action(&raw, Some("a"), &cards, None), SyncAction::Nothing);
+        assert_eq!(sync_action(&raw, Some("a"), &cards, CHECK), SyncAction::Nothing);
     }
 
     fn lost_colors() -> Look {
@@ -799,7 +831,7 @@ mod tests {
     fn a_lost_colors_list_never_overwrites_my_theme() {
         let css = "--color-primary: red;";
         let cards = [card("a", "Night drive", CardKind::Mine, custom(css))];
-        assert_eq!(sync_action(&lost_colors(), Some("a"), &cards, None), SyncAction::HealColors {
+        assert_eq!(sync_action(&lost_colors(), Some("a"), &cards, CHECK), SyncAction::HealColors {
             colors: SharedColors::Custom { css: css.to_string() },
             name: "Night drive".to_string(),
         });
@@ -809,7 +841,7 @@ mod tests {
     fn lost_colors_on_a_starter_make_no_copy() {
         for kind in [CardKind::Starter, CardKind::Imported, CardKind::Library] {
             let cards = [card("c", "Card", kind, custom("--color-primary: red;"))];
-            let action = sync_action(&lost_colors(), Some("c"), &cards, Some(DEFAULT_NAME));
+            let action = sync_action(&lost_colors(), Some("c"), &cards, FROM_DEFAULT);
             assert!(matches!(action, SyncAction::HealColors { .. }), "{:?}: {:?}", kind, action);
         }
     }
@@ -817,15 +849,15 @@ mod tests {
     #[test]
     fn lost_colors_with_no_theme_change_nothing() {
         let cards = [card("a", "Night drive", CardKind::Mine, custom("--color-primary: red;"))];
-        assert_eq!(sync_action(&lost_colors(), None, &cards, None), SyncAction::Nothing);
-        assert_eq!(sync_action(&lost_colors(), Some("gone"), &cards, None), SyncAction::Nothing);
-        assert_eq!(sync_action(&lost_colors(), None, &[], Some(DEFAULT_NAME)), SyncAction::Nothing);
+        assert_eq!(sync_action(&lost_colors(), None, &cards, CHECK), SyncAction::Nothing);
+        assert_eq!(sync_action(&lost_colors(), Some("gone"), &cards, CHECK), SyncAction::Nothing);
+        assert_eq!(sync_action(&lost_colors(), None, &[], FROM_DEFAULT), SyncAction::Nothing);
     }
 
     #[test]
     fn a_dropped_pointer_finds_the_starter_on_screen() {
         let cards = [starter(look_with_logo("red"))];
-        assert_eq!(sync_action(&look_with_logo("red"), None, &cards, None), SyncAction::Point {
+        assert_eq!(sync_action(&look_with_logo("red"), None, &cards, CHECK), SyncAction::Point {
             pointer: "starter:retro-beige".to_string(),
         });
     }
@@ -846,14 +878,14 @@ mod tests {
         let colors = colors_choice(&starter.theme.colors, starter.name(), &mut themes).unwrap();
         starter.look().write_to(colors, &mut config);
         let live = Look::from_config(&config, &themes);
-        assert_eq!(sync_action(&live, Some(&starter.pointer()), &cards, None), SyncAction::Nothing);
-        assert_eq!(sync_action(&live, None, &cards, None), SyncAction::Point { pointer: starter.pointer() });
+        assert_eq!(sync_action(&live, Some(&starter.pointer()), &cards, CHECK), SyncAction::Nothing);
+        assert_eq!(sync_action(&live, None, &cards, CHECK), SyncAction::Point { pointer: starter.pointer() });
     }
 
     #[test]
     fn a_lost_pointer_on_an_installed_theme_points_back_at_it() {
         let cards = [card("lib", "From the library", CardKind::Library, look_with_logo("red"))];
-        assert_eq!(sync_action(&look_with_logo("red"), None, &cards, None), SyncAction::Point {
+        assert_eq!(sync_action(&look_with_logo("red"), None, &cards, CHECK), SyncAction::Point {
             pointer: "lib".to_string(),
         });
     }
@@ -864,9 +896,39 @@ mod tests {
             starter(look_with_logo("red")),
             card("copy", "Retro Beige (my copy)", CardKind::Mine, look_with_logo("blue")),
         ];
-        assert_eq!(sync_action(&look_with_logo("blue"), Some("starter:retro-beige"), &cards, None), SyncAction::Point {
+        assert_eq!(sync_action(&look_with_logo("blue"), Some("starter:retro-beige"), &cards, CHECK), SyncAction::Point {
             pointer: "copy".to_string(),
         });
+    }
+
+    #[test]
+    fn edits_never_take_over_another_theme_of_my_own() {
+        // The user saved this look once before, then put the starter back on
+        // and edited it into the same look again.
+        let saved_before = card("before", "Retro Beige (my copy)", CardKind::Mine, look_with_logo("blue"));
+        let mut cards = vec![starter(look_with_logo("red")), saved_before.clone()];
+        let mut pointer = Some("starter:retro-beige".to_string());
+
+        let action = sync_action(&look_with_logo("blue"), pointer.as_deref(), &cards, EDITS);
+        assert_eq!(creates(&action), Some("Retro Beige (my copy 2)"), "{:?}", action);
+        carry_out(action, &mut cards, &mut pointer);
+        let next = sync_action(&look_with_logo("green"), pointer.as_deref(), &cards, EDITS);
+        assert!(matches!(&next, SyncAction::UpdateMine { id, .. } if Some(id) == pointer.as_ref()), "{:?}", next);
+        carry_out(next, &mut cards, &mut pointer);
+        assert_eq!(cards[1], saved_before, "the theme saved before keeps its look");
+
+        // The same from the Default theme.
+        let cards = [card("mine", "Default (my copy)", CardKind::Mine, look_with_logo("blue"))];
+        let action = sync_action(&look_with_logo("blue"), None, &cards, FROM_DEFAULT);
+        assert_eq!(creates(&action), Some("Default (my copy 2)"), "{:?}", action);
+
+        // A card edits never change can still be pointed at.
+        for kind in [CardKind::Starter, CardKind::Imported, CardKind::Library] {
+            let cards = [card("c", "Card", kind, look_with_logo("blue"))];
+            assert_eq!(sync_action(&look_with_logo("blue"), None, &cards, FROM_DEFAULT), SyncAction::Point {
+                pointer: "c".to_string(),
+            });
+        }
     }
 
     #[test]
@@ -885,10 +947,10 @@ mod tests {
         let hint = debounce.take_due(start + Duration::from_millis(500)).expect("due");
         assert_eq!(debounce.take_due(start + Duration::from_millis(900)), None, "one sync per burst");
 
-        let action = sync_action(&live, pointer.as_deref(), &cards, hint.as_deref());
+        let action = sync_action(&live, pointer.as_deref(), &cards, SyncCause::Edits { name_hint: hint.as_deref() });
         assert_eq!(action, SyncAction::CreateMine { name: "Retro Beige (my copy)".to_string(), look: live.clone() });
         carry_out(action, &mut cards, &mut pointer);
-        assert_eq!(sync_action(&live, pointer.as_deref(), &cards, None), SyncAction::Nothing);
+        assert_eq!(sync_action(&live, pointer.as_deref(), &cards, CHECK), SyncAction::Nothing);
         assert_eq!(cards.len(), 2);
     }
 
@@ -907,9 +969,9 @@ mod tests {
     fn colors_that_clean_to_nothing_are_never_saved() {
         let nothing = custom("} body { display: none; }");
         let cards = [card("a", "Night drive", CardKind::Mine, look_with_logo("red"))];
-        assert_eq!(sync_action(&nothing, None, &cards, None), SyncAction::Nothing);
-        assert_eq!(sync_action(&nothing, Some("a"), &cards, None), SyncAction::Nothing);
-        assert_eq!(sync_action(&nothing, None, &[], Some(DEFAULT_NAME)), SyncAction::Nothing);
+        assert_eq!(sync_action(&nothing, None, &cards, CHECK), SyncAction::Nothing);
+        assert_eq!(sync_action(&nothing, Some("a"), &cards, CHECK), SyncAction::Nothing);
+        assert_eq!(sync_action(&nothing, None, &[], FROM_DEFAULT), SyncAction::Nothing);
     }
 
     #[test]
@@ -920,25 +982,25 @@ mod tests {
             use_image: true,
             ..BackgroundCustomization::default()
         });
-        assert_eq!(sync_action(&spaced, None, &[], None), SyncAction::Nothing);
+        assert_eq!(sync_action(&spaced, None, &[], CHECK), SyncAction::Nothing);
     }
 
     #[test]
     fn a_read_only_store_makes_no_copy() {
-        let created = sync_action(&look_with_logo("blue"), None, &[], None);
+        let created = sync_action(&look_with_logo("blue"), None, &[], CHECK);
         assert!(matches!(created, SyncAction::CreateMine { .. }));
         assert_eq!(created.clone().unless_read_only(true), SyncAction::Nothing);
         assert_eq!(created.clone().unless_read_only(false), created);
 
         let cards = [card("a", "Night drive", CardKind::Mine, look_with_logo("red"))];
-        let updated = sync_action(&look_with_logo("blue"), Some("a"), &cards, None);
+        let updated = sync_action(&look_with_logo("blue"), Some("a"), &cards, EDITS);
         assert!(matches!(updated, SyncAction::UpdateMine { .. }));
         assert_eq!(updated.unless_read_only(true), SyncAction::Nothing);
 
         // Pointing and putting colors back write no theme, so they still happen.
         let point = SyncAction::Point { pointer: "a".to_string() };
         assert_eq!(point.clone().unless_read_only(true), point);
-        let heal = sync_action(&lost_colors(), Some("a"), &cards, None);
+        let heal = sync_action(&lost_colors(), Some("a"), &cards, CHECK);
         assert_eq!(heal.clone().unless_read_only(true), heal);
         assert_eq!(SyncAction::ClearPointer.unless_read_only(true), SyncAction::ClearPointer);
     }
@@ -1100,7 +1162,7 @@ mod tests {
         // An edit to the installed theme saves a copy.
         let mut live = card_of(&store, &installed.card).look();
         live.background = None;
-        let SyncAction::CreateMine { name, look } = sync_action(&live, Some(&installed.card), &cards(&store), None) else {
+        let SyncAction::CreateMine { name, look } = sync_action(&live, Some(&installed.card), &cards(&store), EDITS) else {
             panic!("an edit to an installed theme makes a copy");
         };
         let copy = new_mine(name, look, Utc::now()).unwrap();
@@ -1149,7 +1211,7 @@ mod tests {
         let (installed, _) = install(NIGHT, parts, &file(NIGHT), &dir, &mut store, &mut themes);
         wear(&installed, parts, &mut config);
         let live = Look::from_config(&config, &themes);
-        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None);
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), CHECK);
         let SyncAction::CreateMine { name, look } = action else {
             panic!("a mixed look is saved as a copy, not {:?}", action);
         };
@@ -1164,14 +1226,14 @@ mod tests {
         let (installed, _) = install(PLAIN, ImportParts::ALL, &file(PLAIN), &dir, &mut store, &mut themes);
         wear(&installed, ImportParts::ALL, &mut config);
         let live = Look::from_config(&config, &themes);
-        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None);
+        let action = sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), CHECK);
         assert_eq!(creates(&action), Some(format!("{} (my copy)", plain.name).as_str()));
 
         // With the user's own logo off, the look is the theme itself.
         config.enable_logo_customization = false;
         config.enable_background_customization = false;
         let live = Look::from_config(&config, &themes);
-        assert_eq!(sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), None), SyncAction::Nothing);
+        assert_eq!(sync_action(&live, config.active_theme_id.as_deref(), &cards(&store), CHECK), SyncAction::Nothing);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -225,7 +225,7 @@ fn main() {
     // Before anything shows the look: save a look of the user's own that no
     // theme holds yet as "My theme", point at the theme the look on screen
     // belongs to, and put back colors the colors list lost.
-    utils::theme_library::run_sync(None);
+    utils::theme_library::run_sync(utils::theme_library::SyncCause::Check);
 
     // A while after start, remove images this copy made that nothing has used
     // for a week. Not while the saved themes cannot be read: an image only

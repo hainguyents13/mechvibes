@@ -16,7 +16,15 @@ use crate::utils::look_undo::{ self, LookFields };
 use crate::utils::notice::{ self, NoticeKind };
 use crate::utils::starter_themes::{ self, StarterTheme };
 use crate::utils::theme;
-use crate::utils::theme_library::{ self, colors_choice, same_look, shows_default, SyncDebounce, DEFAULT_NAME };
+use crate::utils::theme_library::{
+    self,
+    colors_choice,
+    same_look,
+    shows_default,
+    SyncCause,
+    SyncDebounce,
+    DEFAULT_NAME,
+};
 use crate::utils::theme_share::{ Look, SharedColors };
 use chrono::Utc;
 use dioxus::prelude::*;
@@ -254,14 +262,14 @@ fn card_colors(colors: &SharedColors, name: &str) -> Result<Theme, String> {
 pub fn save_look_on_screen() {
     let burst = waiting().take_now();
     if let Some(name_hint) = burst {
-        sync(name_hint.as_deref());
+        sync(SyncCause::Edits { name_hint: name_hint.as_deref() });
     }
-    sync(None);
+    sync(SyncCause::Check);
 }
 
 /// `run_sync`, with the colors list shown again when it put colors back.
-fn sync(name_hint: Option<&str>) {
-    refreshing_colors_list(|| theme_library::run_sync(name_hint));
+fn sync(cause: SyncCause) {
+    refreshing_colors_list(|| theme_library::run_sync(cause));
 }
 
 /// Run `change`, then show the colors list again if it changed the list
@@ -283,7 +291,7 @@ pub fn use_save_after_edits() {
             futures_timer::Delay::new(SYNC_CHECK_EVERY).await;
             let due = waiting().take_due(Instant::now());
             if let Some(name_hint) = due {
-                sync(name_hint.as_deref());
+                sync(SyncCause::Edits { name_hint: name_hint.as_deref() });
             }
         }
     });
