@@ -13,6 +13,9 @@ use std::path::PathBuf;
 /// Larger than any pack the library takes (5 MB for uploads), so it only
 /// stops a download that would never end.
 const MAX_PACK_BYTES: u64 = 50 * 1024 * 1024;
+/// The details of one pack or theme are a few hundred bytes.
+const MAX_DETAILS_BYTES: usize = 64 * 1024;
+const DETAILS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// What the install dialog shows before anything is downloaded.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -80,19 +83,29 @@ pub(crate) fn client() -> Result<reqwest::Client, String> {
 /// names the thing for the messages: "sound pack" or "theme".
 async fn fetch_details<T: DeserializeOwned>(path: &str, what: &str) -> Result<T, String> {
     let url = format!("{}{}", LIBRARY_BASE_URL, path);
-    let response = client()?
+    let unreachable = || format!("Could not reach the {} library. Check your connection and try again.", what);
+    let unreadable = || format!("The {} library sent something this app cannot read.", what);
+    // A whole-request limit on top of the client's per-read one, since the
+    // dialog waits on this answer.
+    let mut response = client()?
         .get(&url)
+        .timeout(DETAILS_TIMEOUT)
         .send().await
-        .map_err(|_| format!("Could not reach the {} library. Check your connection and try again.", what))?;
+        .map_err(|_| unreachable())?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(format!("This {} is not in the library any more.", what));
     }
     if !response.status().is_success() {
         return Err(format!("The {} library answered with an error ({}).", what, response.status()));
     }
-    response
-        .json::<T>().await
-        .map_err(|_| format!("The {} library sent something this app cannot read.", what))
+    let mut body = Vec::new();
+    while let Some(chunk) = response.chunk().await.map_err(|_| unreachable())? {
+        body.extend_from_slice(&chunk);
+        if body.len() > MAX_DETAILS_BYTES {
+            return Err(unreadable());
+        }
+    }
+    serde_json::from_slice(&body).map_err(|_| unreadable())
 }
 
 /// Look a pack up in the library.
@@ -108,14 +121,20 @@ pub async fn fetch_theme(id: &str) -> Result<LibraryTheme, String> {
 }
 
 /// The details have to describe the theme that was asked for, at a size a
-/// theme file can have.
-fn check_theme(id: &str, theme: LibraryTheme) -> Result<LibraryTheme, String> {
+/// theme file can have. The text is tidied the way names from a theme file
+/// are, so the dialog shows the name the theme is then saved under.
+fn check_theme(id: &str, mut theme: LibraryTheme) -> Result<LibraryTheme, String> {
     if theme.id != id {
         return Err("The theme library sent a different theme than the one asked for.".to_string());
     }
     if theme.size > theme_share::MAX_FILE_BYTES {
         return Err("This theme is too large to install.".to_string());
     }
+    theme.name = theme_share
+        ::clean_name(&theme.name)
+        .ok_or_else(|| "The theme library sent a theme without a name.".to_string())?;
+    theme.author = theme.author.as_deref().and_then(theme_share::clean_name);
+    theme.colors_label = theme_share::clean_name(&theme.colors_label).unwrap_or_else(|| "Custom colors".to_string());
     Ok(theme)
 }
 
@@ -279,5 +298,19 @@ mod tests {
         let mut huge = theme();
         huge.size = theme_share::MAX_FILE_BYTES + 1;
         assert!(check_theme(THEME_ID, huge).is_err());
+
+        let mut nameless = theme();
+        nameless.name = " \u{7} ".to_string();
+        assert!(check_theme(THEME_ID, nameless).is_err());
+    }
+
+    #[test]
+    fn theme_details_are_tidied_like_a_theme_file() {
+        let mut odd = theme();
+        odd.name = format!("  Night\n drive{}", "x".repeat(100));
+        odd.author = Some("\u{1b}[31m".to_string());
+        let theme = check_theme(THEME_ID, odd).unwrap();
+        assert!(theme.name.starts_with("Night drive") && theme.name.chars().count() == 64);
+        assert_eq!(theme.author.as_deref(), Some("[31m"));
     }
 }

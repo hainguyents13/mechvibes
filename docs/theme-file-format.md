@@ -73,8 +73,9 @@ Share cuts images down to what the app can show before writing the file (`shrink
 
 - The wallpaper is cropped around its center to the widest shape of the app window, 470 x 600 pt, which the app fills with `center / cover`, and sized to at most 1692 x 2160 px (2x a 1080 pt tall window). A taller window only trims more off the sides. A smaller wallpaper is never enlarged.
 - Logo images are shrunk to fit 960 x 960 px and never cropped.
-- The result is JPEG, or PNG when the image has transparency, and the file name's extension follows.
-- A GIF (it may be animated), an image over 40 megapixels or one the app cannot decode, and an image that comes out no smaller, are kept as they are.
+- A photo stored sideways with an EXIF orientation is turned upright first, since the copy carries no EXIF.
+- The result is JPEG, or PNG when the image has transparency or is a PNG logo, and the file name's extension follows.
+- An animation (GIF, animated PNG or animated WebP), an image over 40 megapixels or one the app cannot decode, and an image that comes out no smaller, are kept as they are.
 
 ## Files from the theme library
 

@@ -128,7 +128,7 @@ fn main() {
             // `#![windows_subsystem = "windows"]` means the message below
             // reaches no console.
             //
-            // A sound pack link that started this launch goes to the running
+            // A library link that started this launch goes to the running
             // copy, which picks it up when it wakes.
             if let Some(link) = &deep_link {
                 if let Err(e) = utils::deep_link::hand_over(link) {
@@ -143,7 +143,7 @@ fn main() {
 
     // Answer those requests for the rest of this process's life. Routed
     // through the same WindowAction::Show the tray's "Show" item uses, so a
-    // second launch and the tray converge on one show/focus path. A sound pack
+    // second launch and the tray converge on one show/focus path. A library
     // link that launch left behind is passed on to the window.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     libs::single_instance::listen_for_wake_requests(|| {
@@ -206,7 +206,7 @@ fn main() {
     // `auto_start` against the registry) - every later read and write in the
     // process goes to that same in-memory state rather than re-parsing.
     let startup_config = state::config_writer::current();
-    // A sound pack link always opens the window: its dialog is the point of
+    // A library link always opens the window: its dialog is the point of
     // the launch, even when "start minimized" is on.
     let should_start_minimized =
         !opened_by_link &&
