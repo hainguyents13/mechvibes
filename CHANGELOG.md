@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **A new Customize page.** The look you have now sits at the top with **Share**, **Import** and **Find more**, and four tabs sit below it: **Themes**, **Colors**, **Logo** and **Background**. The **Default** card in Themes puts back the look Mechvibes starts with, and keeps your logo and background settings for later.
 - **Choose which parts of a theme to use.** Before a theme goes on, the dialog lists its colors, logo and background, each with a tick. Untick a part to keep yours. It also says when a theme will replace your logo or background, or turn yours off because the theme has none.
+- **See a theme before you use it.** The dialog shows the theme the way the theme library does: a picture of it, its name, and for a theme from the library who made it and its description. The picture is the theme's wallpaper or logo image, or its colors when it has neither.
 - **Undo.** Right after you put on a theme or the Default look, **Undo** brings back the look you had before. It stays readable whatever the theme does to the colors.
 - **Open a theme file with a double-click (Windows and Linux),** or drop it on the Mechvibes window. The app comes to the front and asks before it changes anything.
 - **Share saves straight to a file.** The save dialog opens right away, and once the file is saved, **Show file** opens the folder it is in.
