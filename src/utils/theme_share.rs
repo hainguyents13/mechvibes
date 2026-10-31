@@ -761,6 +761,11 @@ const ALPHA_FUNCTIONS: [&str; 10] = [
 /// Whether `property` is a theme variable this app knows and `value`, already
 /// through `safe_css_value`, is one it can use.
 fn theme_value_fits(property: &str, value: &str) -> bool {
+    // A value never needs `!important`, and `transparent !important` would
+    // still draw nothing.
+    if value.contains('!') {
+        return false;
+    }
     if let Some(name) = property.strip_prefix("--color-") {
         return !name.is_empty() &&
             name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') &&
@@ -778,42 +783,61 @@ fn theme_value_fits(property: &str, value: &str) -> bool {
 }
 
 /// A colour that draws nothing: `transparent`, a hex colour whose alpha is
-/// zero, or a colour function whose alpha is zero.
+/// zero, or a colour function whose alpha is not a number above zero (`0`,
+/// `-1`, `none`, `calc(0)` all draw nothing). The whole value is searched, so
+/// such a colour cannot hide in a `var()` fallback, a `color-mix()` or the
+/// colour a relative colour starts from.
 pub(crate) fn is_invisible_color(value: &str) -> bool {
     let value = value.trim().to_ascii_lowercase();
-    if value == "transparent" {
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let draws_nothing = value
+        .split(|c: char| !word(c) && c != '#')
+        .any(|token| {
+            token == "transparent" ||
+                token.strip_prefix('#').is_some_and(|hex| {
+                    (hex.len() == 4 && hex.ends_with('0')) || (hex.len() == 8 && hex.ends_with("00"))
+                })
+        });
+    if draws_nothing {
         return true;
     }
-    if let Some(hex) = value.strip_prefix('#') {
-        return match hex.len() {
-            4 => hex.ends_with('0'),
-            8 => hex.ends_with("00"),
-            _ => false,
-        };
-    }
-    let Some(open) = value.find('(') else {
-        return false;
-    };
-    let Some(inside) = value[open + 1..].strip_suffix(')') else {
-        return false;
-    };
-    let function = value[..open].trim();
-    if !ALPHA_FUNCTIONS.contains(&function) {
-        return false;
-    }
 
-    // The alpha is what follows a `/`, or the fourth of the comma separated
-    // values of the older `rgba(r, g, b, a)` form, at the function's own level.
+    let mut word_start = None;
+    for (open, c) in value.char_indices() {
+        if word(c) {
+            word_start.get_or_insert(open);
+            continue;
+        }
+        let function = word_start.take().map(|start| &value[start..open]);
+        if c == '(' && function.is_some_and(|function| ALPHA_FUNCTIONS.contains(&function)) {
+            let alpha = function_alpha(&value[open + 1..]);
+            if alpha.is_some_and(|alpha| !is_visible_alpha(alpha)) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The alpha of a colour function, given the text after its `(`: what follows
+/// a `/`, or the fourth of the comma separated values of the older
+/// `rgba(r, g, b, a)` form, at the function's own level.
+fn function_alpha(after_open: &str) -> Option<&str> {
     let mut depth: usize = 0;
     let mut slash = None;
     let mut commas = Vec::new();
-    for (i, c) in inside.char_indices() {
+    let mut end = after_open.len();
+    for (i, c) in after_open.char_indices() {
         match c {
             '(' => {
                 depth += 1;
             }
+            ')' if depth == 0 => {
+                end = i;
+                break;
+            }
             ')' => {
-                depth = depth.saturating_sub(1);
+                depth -= 1;
             }
             '/' if depth == 0 => {
                 slash = Some(i);
@@ -822,15 +846,25 @@ pub(crate) fn is_invisible_color(value: &str) -> bool {
             _ => {}
         }
     }
-    let alpha = match (slash, commas.as_slice()) {
-        (Some(at), _) => &inside[at + 1..],
-        (None, [_, _, at]) => &inside[at + 1..],
+    let at = match (slash, commas.as_slice()) {
+        (Some(at), _) => at,
+        (None, [_, _, at]) => *at,
         _ => {
-            return false;
+            return None;
         }
     };
-    let alpha = alpha.trim();
-    plain_number(alpha.strip_suffix('%').unwrap_or(alpha)) == Some(0.0)
+    Some(after_open[at + 1..end].trim())
+}
+
+/// An alpha that draws something: a number or percentage above zero, or
+/// `alpha`, which keeps the alpha of the colour a relative colour starts from.
+fn is_visible_alpha(alpha: &str) -> bool {
+    if alpha == "alpha" {
+        return true;
+    }
+    let number = alpha.strip_suffix('%').unwrap_or(alpha);
+    number.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '+' | '-' | 'e')) &&
+        number.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0)
 }
 
 /// A plain length in px: `0`, or a number in `px` or `rem` (16px).
@@ -1212,6 +1246,28 @@ mod tests {
         ] {
             assert!(!is_invisible_color(visible), "{}", visible);
         }
+    }
+
+    #[test]
+    fn a_colour_cannot_draw_nothing_by_another_spelling() {
+        for invisible in [
+            "oklch(50% 0.1 30 / -1)",
+            "oklch(50% 0.1 30 / none)",
+            "oklch(50% 0.1 30 / calc(0))",
+            "rgb(0 0 0 / +0)",
+            "rgb(0 0 0 / 0e0)",
+            "var(--color-nothing, transparent)",
+            "var(--color-nothing, #0000)",
+            "color-mix(in oklab, transparent, transparent)",
+            "oklch(from transparent l c h)",
+            "oklch(from rgb(0 0 0 / 0) l c h / alpha)",
+        ] {
+            assert!(is_invisible_color(invisible), "{}", invisible);
+        }
+        assert!(!is_invisible_color("oklch(from var(--color-primary) l c h / alpha)"));
+        assert!(!is_invisible_color("rgb(0 0 0 / 1e0)"));
+        assert_eq!(safe_theme_css("--color-base-content: transparent !important;"), "");
+        assert_eq!(safe_theme_css("--color-base-content: red !important;"), "");
     }
 
     #[test]
