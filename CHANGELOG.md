@@ -4,17 +4,18 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [3.3.0] - 2026-10-31
 
 ### Added
 
 - **Share your look with a friend.** In **Customize > Themes**, click **Share** to save your theme colors, logo style and background, images included, as one `.mvtheme` file. Whoever gets the file clicks **Import**, sees what it holds, and clicks **Use this theme** to get the same look. Images set from a web address are saved inside the file, so it works without the internet. Their own themes stay in the list.
 - **Shared themes stay small.** Share cuts the wallpaper to the shape of the window and shrinks large images, so a theme with a 4K photo fits in a chat message. Animated images are kept as they are.
-- **Install themes from mechvibes.com.** Click **Install in Mechvibes** on a theme in the website's theme library. The app shows what the theme changes and puts it on when you click **Use this theme**. Windows and Linux.
+- **Ready for the theme library.** When the theme library on mechvibes.com opens, its **Install in Mechvibes** button puts a theme on straight from the website. The app first shows what the theme changes and waits for you to click **Use this theme**. Windows and Linux.
 
 ### Security
 
 - **A theme file can only change colors and images.** Imported theme CSS keeps only color and size settings, colors cannot load anything from the internet, and images are checked to be real pictures. Theme CSS is also handed to the window in a way it can no longer break out of.
+
 ## [3.2.1] - 2026-10-30
 
 ### Fixed
@@ -295,6 +296,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.5.1] and earlier
 
 See git history for changes prior to this changelog's introduction.
+
 
 
 
