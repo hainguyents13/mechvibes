@@ -12,10 +12,12 @@ use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use crate::state::themes::ThemesConfig;
 use crate::utils::soundpack_validator::is_portable_name;
-use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 use std::io::{ Cursor, Read, Write };
 use std::path::Path;
+use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
+
+mod wire_v1;
 
 pub const FILE_EXTENSION: &str = "mvtheme";
 
@@ -38,27 +40,14 @@ const CSS_FUNCTIONS: [&str; 16] = [
     "oklab", "oklch", "color", "color-mix",
 ];
 
-/// The theme colours a look uses.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The theme colours a look uses. In a file they are written as
+/// `wire_v1::ColorsV1`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum SharedColors {
     BuiltIn(BuiltInTheme),
     Custom {
         css: String,
     },
-}
-
-/// `theme.json`. The logo and background image fields name files inside the
-/// `.mvtheme`; a part is left out when the person sharing has it switched off.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Manifest {
-    format: u32,
-    name: String,
-    colors: SharedColors,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    logo: Option<LogoCustomization>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    background: Option<BackgroundCustomization>,
 }
 
 /// A look read from a file or gathered from this app, with its images held in
@@ -404,12 +393,12 @@ fn exif_orientation(app1: &[u8]) -> Option<u16> {
 }
 
 fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
-    let manifest = Manifest {
+    let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
-        colors: theme.colors.clone(),
-        logo: theme.logo.clone(),
-        background: theme.background.clone(),
+        colors: ColorsV1::from_shared(&theme.colors),
+        logo: theme.logo.as_ref().map(LogoV1::from_config),
+        background: theme.background.as_ref().map(BackgroundV1::from_config),
     };
     let json = serde_json
         ::to_vec_pretty(&manifest)
@@ -463,12 +452,12 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
     if format > (FORMAT as u64) {
         return Err("This theme was made with a newer Mechvibes. Update the app to use it.".to_string());
     }
-    let manifest: Manifest = serde_json
+    let manifest: ManifestV1 = serde_json
         ::from_slice(&manifest)
         .map_err(|_| "This theme file is damaged.".to_string())?;
 
     let name = clean_name(&manifest.name).ok_or_else(|| "This theme file is damaged.".to_string())?;
-    let colors = match manifest.colors {
+    let colors = match manifest.colors.into_shared().ok_or_else(|| "This theme file is damaged.".to_string())? {
         SharedColors::BuiltIn(theme) => SharedColors::BuiltIn(theme),
         SharedColors::Custom { css } => {
             let css = safe_theme_css(&css);
@@ -480,7 +469,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
     };
 
     let mut images = HashMap::new();
-    let logo = match manifest.logo {
+    let logo = match manifest.logo.map(LogoV1::into_config) {
         Some(mut logo) => {
             let defaults = LogoCustomization::default();
             for (color, default) in [
@@ -500,7 +489,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         }
         None => None,
     };
-    let background = match manifest.background {
+    let background = match manifest.background.map(BackgroundV1::into_config) {
         Some(mut background) => {
             background.background_color = safe_color(
                 &background.background_color,
@@ -792,6 +781,66 @@ mod tests {
             zip.write_all(bytes).unwrap();
         }
         zip.finish().unwrap().into_inner()
+    }
+
+    /// The `theme.json` of a `.mvtheme`, as JSON.
+    fn manifest_json(bytes: &[u8]) -> serde_json::Value {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let manifest = read_entry(&mut archive, MANIFEST_NAME, MAX_MANIFEST_BYTES).unwrap().unwrap();
+        serde_json::from_slice(&manifest).unwrap()
+    }
+
+    fn keys(value: &serde_json::Value) -> Vec<&str> {
+        let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        keys
+    }
+
+    /// The file keeps the keys format 1 has, whatever the app's own settings
+    /// grow into: 3.3 refuses a file missing one of these as damaged.
+    #[test]
+    fn written_parts_keep_exactly_the_format_one_keys() {
+        let full = manifest_json(&to_bytes(&look()).unwrap());
+        assert_eq!(keys(&full), ["background", "colors", "format", "logo", "name"]);
+        assert_eq!(
+            keys(&full["logo"]),
+            [
+                "background_color",
+                "background_image",
+                "border_color",
+                "dimmed_when_muted",
+                "muted_background",
+                "muted_background_image",
+                "shadow_color",
+                "text_color",
+                "use_background_image",
+                "use_muted_background_image",
+            ]
+        );
+        assert_eq!(keys(&full["background"]), ["background_color", "background_image", "use_image"]);
+        assert_eq!(full["format"], 1);
+        assert_eq!(full["colors"], serde_json::json!({ "custom": { "css": "--color-primary: oklch(55% 0.3 240);" } }));
+
+        // An empty image is written as null, as 3.3 does, and a part that is
+        // switched off is left out rather than written as null.
+        let mut plain = look();
+        plain.logo.as_mut().unwrap().background_image = None;
+        plain.images.remove("logo.png");
+        plain.background = None;
+        plain.colors = SharedColors::BuiltIn(BuiltInTheme::Synthwave);
+        let plain = manifest_json(&to_bytes(&plain).unwrap());
+        assert_eq!(keys(&plain), ["colors", "format", "logo", "name"]);
+        assert!(plain["logo"]["background_image"].is_null());
+        assert_eq!(keys(&plain["logo"]).len(), 10);
+        assert_eq!(plain["colors"], serde_json::json!({ "built_in": "Synthwave" }));
+    }
+
+    #[test]
+    fn an_unknown_built_in_name_is_damaged() {
+        let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Neon"}}"#;
+        assert_eq!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).unwrap_err(), "This theme file is damaged.");
+        let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Synthwave"}}"#;
+        assert!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).is_ok());
     }
 
     #[test]
