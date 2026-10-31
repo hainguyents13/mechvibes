@@ -33,17 +33,11 @@ pub fn LogoTab() -> Element {
         })
     };
 
+    // The switch alone never changes the saved settings: turned on, the logo
+    // uses them as they are, as in 3.3; turned off, they wait for later.
     let on_switch = {
-        let edit = edit.clone();
         let update_config = update_config.clone();
-        move |on: bool| {
-            if on {
-                // Turned on as the fields show it.
-                edit(Box::new(|_| {}));
-            } else {
-                update_config(Box::new(|cfg| cfg.enable_logo_customization = false));
-            }
-        }
+        move |on: bool| update_config(Box::new(move |cfg| cfg.enable_logo_customization = on))
     };
     let on_start_over = {
         let update_config = update_config.clone();

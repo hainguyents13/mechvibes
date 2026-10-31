@@ -33,16 +33,10 @@ pub fn BackgroundTab() -> Element {
         })
     };
 
+    // Like the logo's, the switch alone never changes the saved settings.
     let on_switch = {
-        let edit = edit.clone();
         let update_config = update_config.clone();
-        move |on: bool| {
-            if on {
-                edit(Box::new(|_| {}));
-            } else {
-                update_config(Box::new(|cfg| cfg.enable_background_customization = false));
-            }
-        }
+        move |on: bool| update_config(Box::new(move |cfg| cfg.enable_background_customization = on))
     };
     let on_start_over = {
         let update_config = update_config.clone();
