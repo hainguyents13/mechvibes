@@ -1006,11 +1006,19 @@ mod tests {
         dir
     }
 
+    /// Where a test keeps the list of the images it made in `dir`: next to
+    /// the images, so removing `dir` removes it too.
+    fn owned_list(dir: &std::path::Path) -> PathBuf {
+        dir.join("owned-images.json")
+    }
+
+    /// The images in `dir`.
     fn files_in(dir: &std::path::Path) -> Vec<String> {
         let mut names: Vec<String> = std::fs
             ::read_dir(dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|name| name != "owned-images.json")
             .collect();
         names.sort();
         names
@@ -1035,7 +1043,7 @@ mod tests {
         themes: &mut ThemesConfig
     ) -> (Installed, Vec<PathBuf>) {
         let mut theme = theme_share::from_bytes(bytes).unwrap();
-        let written = theme_share::install_images_in(&mut theme, dir).unwrap();
+        let written = theme_share::install_images_in(&mut theme, dir, &owned_list(dir)).unwrap();
         let installed = add_installed(
             theme,
             &written,
@@ -1201,7 +1209,7 @@ mod tests {
 
         // The colors cannot be added: the images this install made go again.
         let mut theme = theme_share::from_bytes(SUNSET).unwrap();
-        let written = theme_share::install_images_in(&mut theme, &dir).unwrap();
+        let written = theme_share::install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         assert!(!written.is_empty());
         let failed = add_installed(
             theme,
@@ -1221,7 +1229,7 @@ mod tests {
         // The card cannot be saved: the list stays as it was, and the images
         // stay for the clean-up of unused images.
         let mut theme = theme_share::from_bytes(SUNSET).unwrap();
-        let written = theme_share::install_images_in(&mut theme, &dir).unwrap();
+        let written = theme_share::install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         let failed = add_installed(
             theme,
             &written,

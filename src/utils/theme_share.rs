@@ -941,14 +941,24 @@ fn read_entry<R: Read + std::io::Seek>(
 /// created, so a caller that fails afterwards can take them back with
 /// `remove_images` without removing an image something else already uses.
 pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>, String> {
-    install_images_in(theme, &crate::state::paths::data::custom_images_dir())
+    install_images_in(
+        theme,
+        &crate::state::paths::data::custom_images_dir(),
+        &crate::state::paths::data::owned_images_json()
+    )
 }
 
-pub(crate) fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
+/// `install_images` into `dir`, noting the images it made in the list of
+/// owned images at `owned`.
+pub(crate) fn install_images_in(
+    theme: &mut SharedTheme,
+    dir: &Path,
+    owned: &Path
+) -> Result<Vec<std::path::PathBuf>, String> {
     let mut installed = HashMap::new();
     let mut created = Vec::new();
     for (name, bytes) in &theme.images {
-        match crate::utils::custom_images::save_in(dir, bytes, None) {
+        match crate::utils::custom_images::save_in(dir, owned, bytes, None) {
             Ok((file_name, is_new)) => {
                 if is_new {
                     created.push(dir.join(&file_name));
@@ -2236,7 +2246,7 @@ mod tests {
         assert_eq!(logo.note, Some("Not in this theme. Yours stays as it is."));
 
         theme.keep_parts(ImportParts::ALL);
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
         assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))], "no logo image is saved");
         let mut config = my_config();
@@ -2328,13 +2338,19 @@ mod tests {
         dir
     }
 
+    /// Where a test keeps the list of the images it made in `dir`: next to
+    /// the images, so removing `dir` removes it too.
+    fn owned_list(dir: &Path) -> std::path::PathBuf {
+        dir.join("owned-images.json")
+    }
+
     #[test]
     fn installing_reports_only_files_it_created() {
         let dir = temp_dir("install");
-        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
 
         let mut theme = look();
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         let logo = theme.logo.as_ref().unwrap().background_image.clone().unwrap();
         let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
         assert_eq!(logo, format!("/custom-images/{}", in_use), "the same image is not saved again");
@@ -2378,14 +2394,19 @@ mod tests {
     #[test]
     fn undoing_an_import_keeps_an_image_already_in_use() {
         let dir = temp_dir("undo");
-        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
 
         let mut theme = look();
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         remove_images(&created);
         assert_eq!(std::fs::read(dir.join(&in_use)).unwrap(), PNG);
-        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
-        assert_eq!(left.len(), 1, "only the image that was there before");
+        let left: Vec<_> = std::fs
+            ::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| *path != owned_list(&dir))
+            .collect();
+        assert_eq!(left, [dir.join(&in_use)], "only the image that was there before");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

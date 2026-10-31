@@ -490,6 +490,12 @@ pub mod data {
         get_writable_data_dir().join("saved_themes.json")
     }
 
+    /// The images this copy of Mechvibes saved into the images folder, which
+    /// every copy on the machine shares
+    pub fn owned_images_json() -> PathBuf {
+        get_writable_data_dir().join("owned-images.json")
+    }
+
     /// Soundpack cache file
     pub fn soundpack_cache_json() -> PathBuf {
         get_writable_data_dir().join("soundpack_cache.json")

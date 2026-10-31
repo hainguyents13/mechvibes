@@ -6,14 +6,93 @@
 //! file brought with it. Each save writes its own partial file first and then
 //! puts it into place, so a reader never sees half an image, even when two
 //! saves of the same image run at once.
+//!
+//! The images folder is shared by every copy of Mechvibes on the machine (the
+//! installed app, a portable copy, a development build), while each copy has
+//! its own settings. So each copy keeps a list of the images it made itself,
+//! `owned-images.json` in its own data folder.
 
+use chrono::{ DateTime, Utc };
+use serde::{ Deserialize, Serialize };
 use sha2::{ Digest, Sha256 };
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::{ Path, PathBuf };
 use std::sync::atomic::{ AtomicU64, Ordering };
+use std::sync::{ Mutex, MutexGuard };
 
 /// Gives every partial file in this process its own name.
 static NEXT_PARTIAL: AtomicU64 = AtomicU64::new(0);
+
+/// Held by every save and by anything that removes images this copy made, so
+/// an image is never reused and removed at the same moment.
+static IMAGES_LOCK: Mutex<()> = Mutex::new(());
+
+fn images_lock() -> MutexGuard<'static, ()> {
+    // The lock guards no data, so one a panic left behind is still good.
+    IMAGES_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
+/// The images this copy of Mechvibes made, and when each was first seen
+/// unused (none while something uses it).
+#[derive(Debug, Default, Clone, PartialEq, Serialize, Deserialize)]
+pub struct OwnedImages {
+    #[serde(default)]
+    images: BTreeMap<String, Option<DateTime<Utc>>>,
+}
+
+/// What reading the list of owned images found.
+enum OwnedList {
+    Read(OwnedImages),
+    /// The file is not a list. It has been moved aside, so it is never
+    /// written over, and this copy owns no image until it saves a new one.
+    Damaged,
+    /// The file could not be read, so it must not be written either.
+    Unreadable(String),
+}
+
+fn read_owned(path: &Path) -> OwnedList {
+    let bytes = match fs::read(path) {
+        Ok(bytes) => bytes,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return OwnedList::Read(OwnedImages::default());
+        }
+        Err(e) => {
+            return OwnedList::Unreadable(e.to_string());
+        }
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(list) => OwnedList::Read(list),
+        Err(e) => {
+            crate::always_eprint!("⚠️ {} is damaged ({}), so no image counts as made by this copy", path.display(), e);
+            if let crate::state::config::Preserved::Failed(e) = crate::state::config::preserve_corrupt_config(path) {
+                return OwnedList::Unreadable(format!("could not move the damaged list aside: {}", e));
+            }
+            OwnedList::Damaged
+        }
+    }
+}
+
+fn write_owned(path: &Path, list: &OwnedImages) {
+    if let Err(e) = crate::utils::data::save_json_to_file_atomically(list, path) {
+        crate::always_eprint!("⚠️ Could not save {}: {}", path.display(), e);
+    }
+}
+
+/// Note `file_name` as an image this copy made. A list that cannot be read is
+/// left alone: the image then simply never counts as this copy's own.
+fn record_owned(owned: &Path, file_name: &str) {
+    let mut list = match read_owned(owned) {
+        OwnedList::Read(list) => list,
+        OwnedList::Damaged => OwnedImages::default(),
+        OwnedList::Unreadable(e) => {
+            crate::always_eprint!("⚠️ Could not read {}: {}", owned.display(), e);
+            return;
+        }
+    };
+    list.images.insert(file_name.to_string(), None);
+    write_owned(owned, &list);
+}
 
 /// The longest picked file extension kept when the bytes say nothing.
 const MAX_EXTENSION_CHARS: usize = 8;
@@ -28,6 +107,7 @@ const MAX_EXTENSION_CHARS: usize = 8;
 pub fn save(bytes: &[u8], fallback_ext: Option<&str>) -> Result<(String, bool), String> {
     let (file_name, created) = save_in(
         &crate::state::paths::data::custom_images_dir(),
+        &crate::state::paths::data::owned_images_json(),
         bytes,
         fallback_ext
     )?;
@@ -56,12 +136,28 @@ fn file_name_for(bytes: &[u8], fallback_ext: Option<&str>) -> Result<String, Str
     Ok(format!("img-{}.{}", &hash[..32], extension))
 }
 
-/// `save` into `dir`. Returns the file name and whether this call created it.
+/// `save` into `dir`, noting an image this call created in the list of owned
+/// images at `owned`. Returns the file name and whether this call created it.
+/// An image that was already there is not noted: another copy of Mechvibes
+/// may have made it.
 pub(crate) fn save_in(
     dir: &Path,
+    owned: &Path,
     bytes: &[u8],
     fallback_ext: Option<&str>
 ) -> Result<(String, bool), String> {
+    let _lock = images_lock();
+    let (file_name, created) = put_in(dir, bytes, fallback_ext)?;
+    if created {
+        record_owned(owned, &file_name);
+    }
+    Ok((file_name, created))
+}
+
+/// Put `bytes` into `dir` under the name taken from their content. Another
+/// copy of Mechvibes may save the same image into the same folder at the same
+/// time, so this never relies on the lock.
+fn put_in(dir: &Path, bytes: &[u8], fallback_ext: Option<&str>) -> Result<(String, bool), String> {
     let file_name = file_name_for(bytes, fallback_ext)?;
     let path = dir.join(&file_name);
 
@@ -173,22 +269,38 @@ mod tests {
         dir
     }
 
+    /// Where a test keeps the list of the images it made in `dir`: next to
+    /// the images, so removing `dir` removes it too.
+    fn owned_list(dir: &Path) -> PathBuf {
+        dir.join("owned-images.json")
+    }
+
+    /// The images in `dir`.
     fn files_in(dir: &Path) -> Vec<String> {
         let mut names: Vec<String> = fs
             ::read_dir(dir)
             .unwrap()
             .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .filter(|name| name != "owned-images.json")
             .collect();
         names.sort();
         names
     }
 
+    /// The images the list at `owned` says this copy made.
+    fn owned_names(owned: &Path) -> Vec<String> {
+        match read_owned(owned) {
+            OwnedList::Read(list) => list.images.into_keys().collect(),
+            _ => panic!("the list of owned images cannot be read"),
+        }
+    }
+
     #[test]
     fn the_same_image_is_saved_once() {
         let dir = temp_dir("once");
-        let (first, created) = save_in(&dir, PNG, None).unwrap();
+        let (first, created) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
         assert!(created);
-        let (second, created) = save_in(&dir, PNG, None).unwrap();
+        let (second, created) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
         assert!(!created);
         assert_eq!(first, second);
         assert_eq!(files_in(&dir), [first]);
@@ -199,12 +311,12 @@ mod tests {
     fn names_come_from_the_bytes_not_the_file_name() {
         let dir = temp_dir("names");
         let hash = crate::utils::update_installer::hex_encode(&Sha256::digest(PNG));
-        let (name, _) = save_in(&dir, PNG, Some("jpg")).unwrap();
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, Some("jpg")).unwrap();
         assert_eq!(name, format!("img-{}.png", &hash[..32]));
 
         let mut other = PNG.to_vec();
         other.push(b'!');
-        let (other_name, _) = save_in(&dir, &other, Some("png")).unwrap();
+        let (other_name, _) = save_in(&dir, &owned_list(&dir), &other, Some("png")).unwrap();
         assert_ne!(name, other_name);
         let _ = fs::remove_dir_all(&dir);
     }
@@ -212,14 +324,49 @@ mod tests {
     #[test]
     fn an_unrecognised_picked_image_keeps_its_extension() {
         let dir = temp_dir("fallback");
-        let (name, created) = save_in(&dir, b"an image the bytes do not name", Some("JPEG")).unwrap();
+        let (name, created) = save_in(&dir, &owned_list(&dir), b"an image the bytes do not name", Some("JPEG")).unwrap();
         assert!(created);
         assert!(name.starts_with("img-") && name.ends_with(".jpeg"), "{}", name);
-        assert!(save_in(&dir, b"not an image", None).is_err());
-        assert!(save_in(&dir, b"not an image", Some("../x")).is_err());
+        assert!(save_in(&dir, &owned_list(&dir), b"not an image", None).is_err());
+        assert!(save_in(&dir, &owned_list(&dir), b"not an image", Some("../x")).is_err());
         let _ = fs::remove_dir_all(&dir);
     }
 
+    #[test]
+    fn only_images_this_call_made_are_recorded_as_owned() {
+        let dir = temp_dir("owned");
+        let owned = owned_list(&dir);
+
+        // Another copy of Mechvibes saved this image into the shared folder.
+        let (theirs, _) = put_in(&dir, PNG, None).unwrap();
+        let (again, created) = save_in(&dir, &owned, PNG, None).unwrap();
+        assert_eq!((again.as_str(), created), (theirs.as_str(), false));
+        assert!(owned_names(&owned).is_empty(), "an image that was already there is not this copy's");
+
+        let mut other = PNG.to_vec();
+        other.push(b'!');
+        let (mine, created) = save_in(&dir, &owned, &other, None).unwrap();
+        assert!(created);
+        assert_eq!(owned_names(&owned), [mine.clone()]);
+        save_in(&dir, &owned, &other, None).unwrap();
+        assert_eq!(owned_names(&owned), [mine], "noted once");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_damaged_owned_list_is_kept_aside_and_started_again() {
+        let dir = temp_dir("damaged-list");
+        let owned = owned_list(&dir);
+        fs::write(&owned, b"not a list").unwrap();
+
+        let (name, _) = save_in(&dir, &owned, PNG, None).unwrap();
+        assert_eq!(owned_names(&owned), [name]);
+        assert_eq!(fs::read(dir.join("owned-images.json.corrupt")).unwrap(), b"not a list");
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// Two copies of Mechvibes can save into the shared folder at once, and
+    /// the lock only covers this one, so the save itself must stand a race.
     #[test]
     fn two_saves_of_the_same_image_at_once_leave_one_whole_file_created_once() {
         let bytes: Vec<u8> = PNG.iter()
@@ -234,7 +381,7 @@ mod tests {
                     let (dir, bytes, start) = (dir.clone(), bytes.clone(), start.clone());
                     std::thread::spawn(move || {
                         start.wait();
-                        save_in(&dir, &bytes, None).unwrap()
+                        put_in(&dir, &bytes, None).unwrap()
                     })
                 })
                 .collect();
@@ -258,7 +405,7 @@ mod tests {
     fn the_url_of_an_image_is_known_before_it_is_saved() {
         let dir = temp_dir("url");
         let url = url_for(PNG).unwrap();
-        let (name, _) = save_in(&dir, PNG, None).unwrap();
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
         assert_eq!(url, format!("/custom-images/{}", name));
         assert_eq!(url_for(b"an image the bytes do not name"), None);
         assert_eq!(files_in(&dir), [name], "working out the url writes nothing");
@@ -274,14 +421,14 @@ mod tests {
         let card = theme.look_at(|_, bytes| url_for(bytes));
 
         let mut first = theme.clone();
-        let created = crate::utils::theme_share::install_images_in(&mut first, &dir).unwrap();
+        let created = crate::utils::theme_share::install_images_in(&mut first, &dir, &owned_list(&dir)).unwrap();
         assert!(!created.is_empty());
         let images = files_in(&dir);
         let worn = first.look_at(|_, _| None);
         assert_eq!(worn, card, "its images land where its card says they are");
 
         let mut second = theme.clone();
-        let created = crate::utils::theme_share::install_images_in(&mut second, &dir).unwrap();
+        let created = crate::utils::theme_share::install_images_in(&mut second, &dir, &owned_list(&dir)).unwrap();
         assert!(created.is_empty());
         assert_eq!(files_in(&dir), images);
         let _ = fs::remove_dir_all(&dir);
@@ -290,9 +437,9 @@ mod tests {
     #[test]
     fn a_cut_short_image_with_the_same_name_is_replaced() {
         let dir = temp_dir("cut");
-        let (name, _) = save_in(&dir, PNG, None).unwrap();
+        let (name, _) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
         fs::write(dir.join(&name), &PNG[..5]).unwrap();
-        let (again, created) = save_in(&dir, PNG, None).unwrap();
+        let (again, created) = save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
         assert_eq!(again, name);
         assert!(!created, "the name was there before");
         assert_eq!(fs::read(dir.join(&name)).unwrap(), PNG);
