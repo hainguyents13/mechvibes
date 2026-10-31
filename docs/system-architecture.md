@@ -371,9 +371,9 @@ Note: `DeviceLost` was removed in Phase 7 (watchdog removal). On device unplug, 
    - If present, jump to `input_worker::run()` and exit process.
    - Never reached: worker doesn't know about Dioxus/tray/UI.
 
-2. **Single-instance guard:** Windows-only.
-   - Hash the current executable path + hash into a mutex name.
-   - If already acquired, print error and exit (another instance is running).
+2. **Single-instance guard:** Windows and Linux.
+   - Windows: hash the current executable path into a mutex name. Linux: an exclusive `flock` on a lock file.
+   - If already held, hand over any link or theme file, wake the running copy and exit (see Theme Import Path).
 
 3. **Input listeners start:** Spawn OS threads for rdev, device_query, evdev (platform-specific).
    - On Windows, supervisor in `input_worker_host.rs` spawns the worker process and reader thread.
@@ -386,6 +386,17 @@ Note: `DeviceLost` was removed in Phase 7 (watchdog removal). On device unplug, 
 5. **Dioxus webview launches:** UI runs, calls `use_context::<AudioContext>()` (facade over engine handle).
 
 6. **Ambiance player starts:** Separate `OutputStream`, separate thread, paused initially.
+
+## Theme Import Path
+
+Every theme goes on through one dialog, `ThemeImportModal` (`src/components/ui/theme_import_modal.rs`), mounted once at the root of the window, outside the area a theme colors. It takes requests from two streams in `src/utils/deep_link.rs`:
+
+- **Theme files:** the **Import** button, a file dropped on the window (`src/libs/ui.rs`), and a `.mvtheme` path or local `file://` URL from the command line (`classify_arg`). The file is read and checked off the window thread (`theme_share::open` in `spawn_blocking`).
+- **Library links:** `mechvibes://theme/<id>`. The theme is looked up and downloaded (`library_client`), its SHA-256 compared with the listed checksum, then checked with `theme_share::from_bytes` off the window thread.
+
+Either way the dialog lists the parts of the checked file, and `components::theme_share::put_on` puts on exactly that file, only the ticked parts, saving their images off the window thread. While the dialog is on a request a new one is ignored, and a result that arrives after Cancel is dropped. Format details and checks: `theme-file-format.md`.
+
+**From the OS (Windows, Linux):** a second launch with a link or theme file finds the running copy through `single_instance` (a named mutex on Windows, `single_instance_linux.rs` with a lock file and a Unix socket on Linux), leaves the text in a small file in the data folder (`deep_link::hand_over`), wakes the running copy and exits. The running copy shows its window and passes the text to `deliver_link`, which sends it to the right stream. Only the running copy reads the file. A launch that carries a link or theme file always shows the window, even with start minimized on.
 
 ## Error Handling & Fallbacks
 
