@@ -1,7 +1,7 @@
-use crate::components::customize::CurrentThemeRow;
+use crate::components::customize::{ CurrentThemeRow, CustomizeTab, CustomizeTabs, ThemesTab, CURRENT_TAB };
 use crate::components::logo::logo_style;
 use crate::components::theme_toggler::ThemeToggler;
-use crate::components::ui::{ Collapse, ColorPicker, FillField, PageHeader, Toggler, THEME_COLOR_OPTIONS };
+use crate::components::ui::{ ColorPicker, FillField, PageHeader, Toggler, THEME_COLOR_OPTIONS };
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
 use lucide_dioxus::{ Palette, RotateCcw };
@@ -9,24 +9,8 @@ use std::rc::Rc;
 
 #[component]
 pub fn CustomizePage() -> Element {
-    // let (config, update_config) = use_config();
-    // let mut saving = use_signal(|| false);
-
-    // let custom_css = use_memo(move || config().custom_css.clone());
-    // let mut css_input = use_signal(|| custom_css());
-    // let on_save = move |_| {
-    //     let css = css_input().clone();
-    //     update_config(Box::new(move |cfg| {
-    //         cfg.custom_css = css;
-    //     }));
-    //     saving.set(true);
-    //     spawn(async move {
-    //         futures_timer::Delay::new(std::time::Duration::from_millis(1500)).await;
-    //         saving.set(false);
-    //     });
-    // };
     rsx! {
-      div { class: "",
+      div {
         PageHeader {
           title: "Customize".to_string(),
           subtitle: "Vibe it your way!".to_string(),
@@ -34,95 +18,28 @@ pub fn CustomizePage() -> Element {
             Palette { class: "w-8 h-8 mx-auto" }
           }),
         }
-        // Settings sections
-        div { class: "{crate::utils::spacing::SECTION_SPACING} mt-8",
+        div { class: "{crate::utils::spacing::SECTION_SPACING}",
           CurrentThemeRow {}
-          // Theme Section
-          Collapse {
-            title: "Themes".to_string(),
-            group_name: "customize-accordion".to_string(),
-            default_open: true,
-            variant: "border border-base-300 bg-base-200 text-base-content",
-            content_class: "collapse-content text-sm text-base-content/70",
-            children: rsx! {
-              div { "Choose your preferred theme or create custom ones" }
-              // Built-in theme toggler
-              ThemeToggler {}
-            },
+          CustomizeTabs {
+            match CURRENT_TAB() {
+                CustomizeTab::Themes => rsx! {
+                  ThemesTab {}
+                },
+                CustomizeTab::Colors => rsx! {
+                  ThemeToggler {}
+                },
+                CustomizeTab::Logo => rsx! {
+                  LogoCustomizationSection {}
+                },
+                CustomizeTab::Background => rsx! {
+                  BackgroundCustomizationSection {}
+                },
+            }
           }
-          LogoCollapseSection {}
-          BackgroundCollapseSection {}
-                // Custom CSS Section
-        // div { class: "collapse collapse-arrow border border-base-300 bg-base-200 text-base-content",
-        //   input { r#type: "radio", name: "customize-accordion" }
-        //   div { class: "collapse-title font-semibold", "Custom CSS" }
-        //   div { class: "collapse-content",
-        //     fieldset { class: "fieldset mb-2",
-        //       legend { class: "fieldset-legend", "Add your custom CSS here" }
-        //       textarea {
-        //         class: "textarea w-full h-32 font-mono text-sm",
-        //         value: css_input(),
-        //         oninput: move |evt| css_input.set(evt.value()),
-        //       }
-        //       div { class: "label",
-        //         "Apply your own styles to customize the look and feel of the app."
-        //       }
-        //     }
-        //     button {
-        //       class: "btn btn-neutral btn-sm",
-        //       r#type: "button",
-        //       disabled: saving(),
-        //       onclick: on_save,
-        //       if saving() {
-        //         span { class: "loading loading-spinner loading-sm mr-2" }
-        //       }
-        //       "Save"
-        //     }
-        //   }
-        // }
         }
       }
     }
 }
-
-#[component]
-fn LogoCollapseSection() -> Element {
-    let (config, _) = use_config();
-    let enable_logo_customization = use_memo(move || config().enable_logo_customization);
-
-    rsx! {
-        Collapse {
-            title: "Logo".to_string(),
-            group_name: "customize-accordion".to_string(),
-            variant: "border border-base-300 bg-base-200 text-base-content",
-            content_class: "collapse-content overflow-visible text-base-content/70",
-            show_indicator: enable_logo_customization(),
-            children: rsx! {
-                LogoCustomizationSection {}
-            },
-        }
-    }
-}
-
-#[component]
-fn BackgroundCollapseSection() -> Element {
-    let (config, _) = use_config();
-    let enable_background_customization = use_memo(move || config().enable_background_customization);
-
-    rsx! {
-        Collapse {
-            title: "Background".to_string(),
-            group_name: "customize-accordion".to_string(),
-            variant: "border border-base-300 bg-base-200 text-base-content",
-            content_class: "collapse-content overflow-visible text-base-content/70",
-            show_indicator: enable_background_customization(),
-            children: rsx! {
-                BackgroundCustomizationSection {}
-            },
-        }
-    }
-}
-
 #[component]
 fn LogoCustomizationSection() -> Element {
     let (config, update_config) = use_config();

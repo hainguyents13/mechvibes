@@ -8,7 +8,8 @@ use crate::utils::theme::use_themes;
 use dioxus::prelude::*;
 use lucide_dioxus::{ Download, ExternalLink, Share2 };
 
-const FIND_MORE_URL: &str =
+/// The themes people share on the website.
+pub(crate) const FIND_MORE_URL: &str =
     "https://mechvibes.com/themes?utm_source=mechvibes&utm_medium=app&utm_campaign=theme_creator";
 
 #[component]
