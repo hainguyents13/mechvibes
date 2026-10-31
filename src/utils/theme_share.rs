@@ -121,6 +121,11 @@ impl SharedTheme {
         }
         self.images.retain(|name, _| used.contains(name));
     }
+
+    /// The parts this look brings. Every look has colours.
+    pub fn parts(&self) -> ImportParts {
+        ImportParts { colors: true, logo: self.logo.is_some(), background: self.background.is_some() }
+    }
 }
 
 /// What a theme looks like, without a name or image bytes: the colours, and
@@ -193,6 +198,15 @@ impl ImportParts {
     pub fn any(&self) -> bool {
         self.colors || self.logo || self.background
     }
+
+    /// The ticked parts that are also in `offered`.
+    pub fn within(self, offered: ImportParts) -> Self {
+        Self {
+            colors: self.colors && offered.colors,
+            logo: self.logo && offered.logo,
+            background: self.background && offered.background,
+        }
+    }
 }
 
 /// One part of a theme, as the import dialog lists them.
@@ -210,6 +224,8 @@ pub struct PartRow {
     /// What the theme brings for this part, or the part's name when it
     /// brings nothing.
     pub label: String,
+    /// The theme brings this part. A line without it cannot be ticked.
+    pub in_theme: bool,
     /// What ticking it does to the user's own part, when that is worth saying.
     pub note: Option<&'static str>,
 }
@@ -221,13 +237,19 @@ pub fn checklist(theme: &SharedTheme, config: &AppConfig) -> [PartRow; 3] {
     let row = |part: Part, name: &str, label: Option<&str>, yours_on: bool, replaces: &'static str| PartRow {
         part,
         label: label.unwrap_or(name).to_string(),
+        in_theme: label.is_some(),
         note: match label {
             Some(_) => yours_on.then_some(replaces),
-            None => Some("Not in this theme. Will turn off yours."),
+            None => Some("Not in this theme. Yours stays as it is."),
         },
     };
     [
-        PartRow { part: Part::Colors, label: format!("Colors: {}", theme.colors_label()), note: None },
+        PartRow {
+            part: Part::Colors,
+            label: format!("Colors: {}", theme.colors_label()),
+            in_theme: true,
+            note: None,
+        },
         row(Part::Logo, "Logo", theme.logo_label(), config.enable_logo_customization, "Replaces your logo"),
         row(
             Part::Background,
@@ -871,25 +893,20 @@ pub fn remove_images(paths: &[std::path::PathBuf]) {
 }
 
 /// Put the ticked `parts` of the look on `config`, with `colors` as the theme
-/// its colours became. A ticked part the file leaves out is switched off, so
-/// the result looks as it did for the person who shared it; the settings for
-/// that part stay as they were for when it is switched back on. An unticked
-/// part, and colours given as `None`, leave the config as it was.
+/// its colours became. A part the file leaves out, an unticked part, and
+/// colours given as `None` leave the config as it was.
 pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: ImportParts, config: &mut AppConfig) {
     if let (true, Some(choice)) = (parts.colors, colors) {
         config.theme = choice;
     }
-    if parts.logo {
-        config.enable_logo_customization = theme.logo.is_some();
-        if let Some(logo) = &theme.logo {
-            config.logo_customization = logo.clone();
-        }
+    // A part the theme leaves out stays as the user has it, on or off.
+    if let (true, Some(logo)) = (parts.logo, &theme.logo) {
+        config.enable_logo_customization = true;
+        config.logo_customization = logo.clone();
     }
-    if parts.background {
-        config.enable_background_customization = theme.background.is_some();
-        if let Some(background) = &theme.background {
-            config.background_customization = background.clone();
-        }
+    if let (true, Some(background)) = (parts.background, &theme.background) {
+        config.enable_background_customization = true;
+        config.background_customization = background.clone();
     }
 }
 
@@ -1378,9 +1395,21 @@ mod tests {
                 SharedColors::BuiltIn(built_in) => Theme::BuiltIn(built_in.clone()),
                 SharedColors::Custom { .. } => Theme::Custom("imported-colors".to_string()),
             };
-            let mut config = with_look(&base, &expected["start"]);
+            let start = with_look(&base, &expected["start"]);
+            let mut config = start.clone();
             apply_to_config(&theme, Some(choice), ImportParts::ALL, &mut config);
-            assert_eq!(config, with_look(&base, &expected["applied"]), "{}", name);
+            // On purpose unlike 3.3: a part the file leaves out stays as the
+            // user has it, where 3.3 switched it off. 3.3 kept its settings.
+            let mut applied = with_look(&base, &expected["applied"]);
+            if theme.logo.is_none() {
+                assert!(!applied.enable_logo_customization, "{}: 3.3 switched the logo off", name);
+                applied.enable_logo_customization = start.enable_logo_customization;
+            }
+            if theme.background.is_none() {
+                assert!(!applied.enable_background_customization, "{}: 3.3 switched the background off", name);
+                applied.enable_background_customization = start.enable_background_customization;
+            }
+            assert_eq!(config, applied, "{}", name);
         }
     }
 
@@ -1912,14 +1941,14 @@ mod tests {
     }
 
     #[test]
-    fn applying_switches_off_the_parts_a_look_leaves_out() {
+    fn applying_leaves_the_parts_a_look_leaves_out_alone() {
         let mut config = AppConfig::default();
         config.enable_logo_customization = true;
         config.logo_customization.text_color = "red".to_string();
         let theme = SharedTheme { logo: None, ..look() };
         apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
         assert_eq!(config.theme, Theme::BuiltIn(BuiltInTheme::Dark));
-        assert!(!config.enable_logo_customization);
+        assert!(config.enable_logo_customization);
         assert_eq!(config.logo_customization.text_color, "red");
         assert!(config.enable_background_customization);
         assert_eq!(config.background_customization.background_color, "#101010");
@@ -1937,9 +1966,7 @@ mod tests {
     }
 
     #[test]
-    fn all_parts_ticked_matches_the_old_import() {
-        // What the import did before parts could be picked: every part of the
-        // file on, a part it leaves out switched off with its settings kept.
+    fn all_parts_ticked_changes_only_what_the_look_has() {
         let mut config = AppConfig::default();
         config.enable_logo_customization = true;
         config.logo_customization.text_color = "red".to_string();
@@ -1948,8 +1975,6 @@ mod tests {
         apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
 
         expected.theme = Theme::BuiltIn(BuiltInTheme::Dark);
-        expected.enable_logo_customization = false;
-        expected.logo_customization.text_color = "red".to_string();
         expected.enable_background_customization = true;
         expected.background_customization = theme.background.clone().unwrap();
         assert_eq!(config, expected);
@@ -1982,16 +2007,31 @@ mod tests {
     }
 
     #[test]
-    fn a_ticked_absent_part_switches_yours_off_and_keeps_its_settings() {
+    fn a_ticked_absent_part_leaves_yours_on_or_off() {
         let theme = SharedTheme { logo: None, background: None, ..look() };
         let mine = my_config();
         let mut config = mine.clone();
         apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
-        assert!(!config.enable_logo_customization);
-        assert!(!config.enable_background_customization);
-        assert_eq!(config.logo_customization, mine.logo_customization);
-        assert_eq!(config.background_customization, mine.background_customization);
-        assert_eq!(config.theme, mine.theme);
+        assert_eq!(config, mine, "yours on stays on");
+
+        let off = AppConfig { enable_logo_customization: false, enable_background_customization: false, ..mine };
+        let mut config = off.clone();
+        apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
+        assert_eq!(config, off, "yours off stays off");
+    }
+
+    #[test]
+    fn only_the_parts_a_look_has_can_be_ticked() {
+        assert_eq!(look().parts(), ImportParts::ALL);
+        let theme = SharedTheme { logo: None, ..look() };
+        assert_eq!(theme.parts(), ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(ImportParts::ALL.within(theme.parts()), theme.parts());
+
+        // Unticking the colours of a look with only colours leaves nothing to use.
+        let colors_only = SharedTheme { logo: None, background: None, ..look() };
+        let ticked = ImportParts::ALL.with(Part::Colors, false);
+        assert!(ticked.any());
+        assert!(!ticked.within(colors_only.parts()).any());
     }
 
     #[test]
@@ -2062,7 +2102,8 @@ mod tests {
         let mut theme = SharedTheme { logo: None, ..look() };
         let [_, logo, _] = checklist(&theme, &my_config());
         assert_eq!(logo.label, "Logo");
-        assert_eq!(logo.note, Some("Not in this theme. Will turn off yours."));
+        assert!(!logo.in_theme);
+        assert_eq!(logo.note, Some("Not in this theme. Yours stays as it is."));
 
         theme.keep_parts(ImportParts::ALL);
         let created = install_images_in(&mut theme, &dir).unwrap();
@@ -2070,7 +2111,7 @@ mod tests {
         assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))], "no logo image is saved");
         let mut config = my_config();
         apply_to_config(&theme, None, ImportParts::ALL, &mut config);
-        assert!(!config.enable_logo_customization);
+        assert!(config.enable_logo_customization);
         assert_eq!(config.logo_customization, my_config().logo_customization, "nothing of a logo is put on");
         let _ = std::fs::remove_dir_all(&dir);
 
@@ -2078,6 +2119,7 @@ mod tests {
         // has one: the dialog lists the file's logo, which is what gets put on.
         let [_, logo, _] = checklist(&look(), &AppConfig::default());
         assert_eq!(logo.label, "Logo with images");
+        assert!(logo.in_theme);
         assert_eq!(logo.note, None);
     }
 

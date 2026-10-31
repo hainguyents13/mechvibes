@@ -16,7 +16,7 @@ Never regenerate them with newer code: then they would only prove that the code 
 | `unknown-fields` | `theme.json` written by hand: keys 3.3 does not know at the top level, in `colors`, `logo` and `background`, plus a ZIP entry `theme.json` does not name | unknown keys and entries are ignored |
 | `library-rewritten` | `theme.json` written by hand in the shape the theme library writes: compact JSON, images renamed `image-1.webp` and `image-2.webp` | a file downloaded from the library |
 
-The custom colors use only `--color-*`, `color-scheme` and the daisyUI variables (`--radius-*`, `--size-*`, `--border`, `--depth`, `--noise`). The one exception is `--sparkle-size` in `unknown-fields`, a variable that is not a theme color. 3.3 keeps it. Later builds leave it out on purpose, since theme CSS now keeps only the variables the app knows, so the tests take that one line out of the snapshot before they compare.
+The custom colors use only `--color-*`, `color-scheme` and the daisyUI variables (`--radius-*`, `--size-*`, `--border`, `--depth`, `--noise`). The one exception is `--sparkle-size` in `unknown-fields`, a variable that is not a theme color. 3.3 keeps it. Later builds leave it out on purpose, since theme CSS now keeps only the variables the app knows, so the tests take that one line out of the snapshot before they compare. The other is in `applied`: 3.3 switched off a logo or background the file leaves out, while later builds leave it as the user has it, so the tests put back the `start` switch for that part.
 
 Each `<fixture>.expected.json` holds what 3.3 made of the file:
 

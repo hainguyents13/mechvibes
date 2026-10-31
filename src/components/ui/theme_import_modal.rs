@@ -202,7 +202,7 @@ pub fn ThemeImportModal() -> Element {
         let Stage::Confirm(offer) = stage() else {
             return;
         };
-        let ticked = parts();
+        let ticked = parts().within(offer.theme.parts());
         if !ticked.any() {
             return;
         }
@@ -271,17 +271,21 @@ pub fn ThemeImportModal() -> Element {
                 }
                 div { class: "space-y-3 mt-3",
                   for row in checklist(&offer.theme, &config()) {
-                    label { key: "{row.part:?}", class: "flex items-start gap-3 cursor-pointer",
+                    label {
+                      key: "{row.part:?}",
+                      class: if row.in_theme { "flex items-start gap-3 cursor-pointer" } else { "flex items-start gap-3" },
                       input {
                         r#type: "checkbox",
                         class: "checkbox",
-                        checked: parts().has(row.part),
+                        // A part the theme leaves out cannot be ticked.
+                        disabled: !row.in_theme,
+                        checked: row.in_theme && parts().has(row.part),
                         onchange: move |evt| {
                             let ticked = parts().with(row.part, evt.checked());
                             parts.set(ticked);
                         },
                       }
-                      div { class: "min-w-0",
+                      div { class: if row.in_theme { "min-w-0" } else { "min-w-0 opacity-50" },
                         div { class: "text-sm text-base-content", "{row.label}" }
                         if let Some(note) = row.note {
                           div { class: "text-xs text-base-content/60", "{note}" }
@@ -315,8 +319,11 @@ pub fn ThemeImportModal() -> Element {
                     "Undo"
                   }
                 },
-                Stage::Confirm(_) => rsx! {
-                  button { class: "btn btn-sm btn-neutral", disabled: !parts().any(), onclick: apply,
+                Stage::Confirm(offer) => rsx! {
+                  button {
+                    class: "btn btn-sm btn-neutral",
+                    disabled: !parts().within(offer.theme.parts()).any(),
+                    onclick: apply,
                     Download { class: "w-4 h-4 mr-2" }
                     "Use this theme"
                   }

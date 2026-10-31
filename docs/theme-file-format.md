@@ -83,9 +83,11 @@ A value with `!` is dropped. Lengths are `0`, or a plain number in `px` or `rem`
 Whatever brings the file, one dialog at the root of the window asks first: **Use this theme?**. It lists three parts, each with a tick, read from the file itself:
 
 - **Colors**, as `Colors: Synthwave` or `Colors: Custom colors`. Unticked, the app keeps its current colors and adds nothing to the colors list.
-- **Logo** and **Background**. When the file has the part, the line says what it brings (`Logo with images`, `Logo style`, `Background image`, `Background color`), and adds `Replaces your logo` or `Replaces your background` when the user's own is switched on. When the file leaves the part out, the line says `Not in this theme. Will turn off yours.`: ticked, the user's own part is switched off with its settings kept for later; unticked, it stays as it is.
+- **Logo** and **Background**. When the file has the part, the line says what it brings (`Logo with images`, `Logo style`, `Background image`, `Background color`), and adds `Replaces your logo` or `Replaces your background` when the user's own is switched on. When the file leaves the part out, the line is greyed out with an empty tick that cannot be ticked, and says `Not in this theme. Yours stays as it is.`: the user's own part stays on or off as it was.
 
-Every part starts ticked, which gives the same result as an import in 3.3. Only the images of ticked parts are saved, and **Use this theme** is disabled while no part is ticked.
+Every part the file has starts ticked. Only the images of ticked parts are saved, and **Use this theme** is disabled while no part is ticked.
+
+This differs from 3.3 on purpose. There, a file without a logo or background switched the user's own off, so the result looked as it did for the sharer.
 
 Right before a theme goes on, the app remembers the colors, logo and background settings it is about to change, in memory only. **Undo**, in the dialog once the theme is on, puts them back, as long as nothing else has changed the look since. The **Default** card in **Customize > Themes** offers the same Undo in a toast. Both sit outside the area a theme colors, so they stay readable whatever a theme does.
 
