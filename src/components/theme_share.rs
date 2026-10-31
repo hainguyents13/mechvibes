@@ -15,7 +15,6 @@ use crate::utils::theme::UpdateThemes;
 use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
 use std::cell::RefCell;
-use std::path::PathBuf;
 use std::rc::Rc;
 
 /// Put the ticked `parts` of an opened look on: their images saved, custom
@@ -125,14 +124,13 @@ pub async fn share_current(config: AppConfig, themes: ThemesConfig) {
         .save_file().await else {
         return;
     };
-    let mut path: PathBuf = handle.path().to_path_buf();
-    if path.extension().and_then(|e| e.to_str()) != Some(FILE_EXTENSION) {
-        path.set_extension(FILE_EXTENSION);
-    }
-    let name = path
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().to_string())
-        .unwrap_or_default();
+    let (path, name) = match theme_share::share_target(handle.path()) {
+        Ok(target) => target,
+        Err(e) => {
+            notice::report(NoticeKind::Error, e, None);
+            return;
+        }
+    };
 
     let result = match theme_share::gather(&name, &look).await {
         Ok(theme) => {

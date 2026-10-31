@@ -14,7 +14,7 @@ use crate::state::themes::ThemesConfig;
 use crate::utils::soundpack_validator::is_portable_name;
 use std::collections::HashMap;
 use std::io::{ Cursor, Read, Write };
-use std::path::Path;
+use std::path::{ Path, PathBuf };
 use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
 
 mod wire_v1;
@@ -369,6 +369,30 @@ async fn download_image(url: &str) -> Result<Vec<u8>, String> {
         }
     }
     Ok(bytes)
+}
+
+/// Where Share writes, and the name the theme in the file takes, from the path
+/// the save dialog gave. A dialog that leaves the extension off gets it added
+/// after what the user typed, never in place of part of it, so "Neon v1.2"
+/// stays "Neon v1.2". When that lands on a file the dialog never asked about,
+/// it is refused rather than written over.
+pub fn share_target(chosen: &Path) -> Result<(PathBuf, String), String> {
+    let is_theme_file = chosen
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(FILE_EXTENSION));
+    let name = if is_theme_file { chosen.file_stem() } else { chosen.file_name() };
+    let name = name.map(|name| name.to_string_lossy().to_string()).unwrap_or_default();
+    if is_theme_file {
+        return Ok((chosen.to_path_buf(), name));
+    }
+    let mut path = chosen.as_os_str().to_os_string();
+    path.push(format!(".{}", FILE_EXTENSION));
+    let path = PathBuf::from(path);
+    if path.symlink_metadata().is_ok() {
+        return Err(format!("There is already a file called \"{}.{}\". Share again and pick another name.", name, FILE_EXTENSION));
+    }
+    Ok((path, name))
 }
 
 /// Write the look to `path` as a `.mvtheme`, its images cut down first. Slow
@@ -1917,6 +1941,27 @@ mod tests {
         if !cfg!(windows) {
             assert_eq!(error, "This is not a Mechvibes theme file.");
         }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sharing_adds_the_extension_without_cutting_the_name_or_replacing_a_file() {
+        let dir = temp_dir("share");
+        std::fs::write(dir.join("Neon v1.mvtheme"), b"another theme").unwrap();
+        std::fs::write(dir.join("notes.mvtheme"), b"another theme").unwrap();
+
+        assert_eq!(
+            share_target(&dir.join("Neon v1.2")).unwrap(),
+            (dir.join("Neon v1.2.mvtheme"), "Neon v1.2".to_string())
+        );
+        assert!(share_target(&dir.join("notes")).is_err(), "the dialog never asked about notes.mvtheme");
+        // A name the dialog showed with its extension was already asked about.
+        assert_eq!(
+            share_target(&dir.join("notes.mvtheme")).unwrap(),
+            (dir.join("notes.mvtheme"), "notes".to_string())
+        );
+        assert_eq!(share_target(&dir.join("Night.MVTHEME")).unwrap().1, "Night");
+        assert_eq!(std::fs::read(dir.join("Neon v1.mvtheme")).unwrap(), b"another theme");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
