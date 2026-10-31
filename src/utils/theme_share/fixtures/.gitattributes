@@ -1,0 +1,3 @@
+# Golden files: kept byte for byte, so the SHA-256 list in v1/README.md holds
+# on every checkout.
+* -text

@@ -11,6 +11,9 @@ use crate::{ debug_print, always_eprint };
 use dioxus::prelude::*;
 use dioxus::desktop::{ use_asset_handler, use_wry_event_handler, wry::http::Response };
 use dioxus::desktop::tao::event::{ Event as TaoEvent };
+use dioxus::html::HasFileData;
+use lucide_dioxus::Download;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 pub fn app() -> Element {
@@ -39,6 +42,16 @@ pub fn app() -> Element {
     });
     use_context_provider(|| global_config);
 
+    // Messages from `utils::notice` on their way to the screen; the poll loop
+    // below fills it and `Toasts` shows it.
+    let notices = use_signal(Vec::<crate::utils::notice::Notice>::new);
+    use_context_provider(|| notices);
+
+    // A theme file being dragged over the window shows an overlay. A
+    // dragleave hides it only if no dragover comes within a moment, and each
+    // drag event moves the ticket on, which is how a pending hide is called off.
+    let mut show_drop_overlay = use_signal(|| false);
+    let mut drop_hide_ticket = use_signal(|| 0u64);
 
     // Create global keyboard state using signals
     let keyboard_state = use_signal(|| KeyboardState::new());
@@ -139,6 +152,13 @@ pub fn app() -> Element {
                     if !global_config.peek().data_equals(&latest) {
                         global_config.set(latest);
                     }
+                }
+
+                // Messages reported off this thread, such as a failed save,
+                // reach the screen the same way.
+                let new_notices = crate::utils::notice::take_new();
+                if !new_notices.is_empty() {
+                    crate::components::ui::toast::show_notices(notices, new_notices);
                 }
 
                 // The state of the last key event seen this tick.
@@ -444,18 +464,99 @@ pub fn app() -> Element {
             style { "@keyframes spin {{ to {{ transform: rotate(360deg); }} }}" }
         }
 
-        // Main app content
-        // prettier-ignore
-        WindowController {}
-        // prettier-ignore
-        Header {}
+        // Main app content, inside the area a theme file can be dropped on.
+        // `contents` leaves the layout as it was; drag events still bubble
+        // up here from whatever element is under the cursor.
+        div {
+            class: "contents",
+            ondragover: move |evt: DragEvent| {
+                evt.prevent_default();
+                if theme_file_in(&dragged_paths(&evt)).is_some() {
+                    // Calls off a hide that a dragleave scheduled.
+                    drop_hide_ticket += 1;
+                    if !*show_drop_overlay.peek() {
+                        show_drop_overlay.set(true);
+                    }
+                }
+            },
+            ondragleave: move |_| {
+                // Moving onto another element also leaves the last one, and
+                // a dragover follows straight away. Only a leave that no
+                // dragover follows, as when the file goes out of the window,
+                // hides the overlay.
+                drop_hide_ticket += 1;
+                let ticket = *drop_hide_ticket.peek();
+                spawn(async move {
+                    futures_timer::Delay::new(DROP_OVERLAY_GRACE).await;
+                    if *drop_hide_ticket.peek() == ticket {
+                        show_drop_overlay.set(false);
+                    }
+                });
+            },
+            ondrop: move |evt: DragEvent| {
+                evt.prevent_default();
+                drop_hide_ticket += 1;
+                show_drop_overlay.set(false);
+                // A real drop of files carries some, so paths kept from an
+                // earlier drag are never taken for this one.
+                if evt.data_transfer().files().is_empty() {
+                    return;
+                }
+                if let Some(path) = theme_file_in(&dragged_paths(&evt)) {
+                    crate::utils::deep_link::deliver_theme_file(path);
+                }
+            },
 
-        Router::<Route> {}
+            // prettier-ignore
+            WindowController {}
+            // prettier-ignore
+            Header {}
 
-        // Answer mechvibes://install and mechvibes://theme links whatever page is showing.
+            Router::<Route> {}
+
+            if show_drop_overlay() {
+                // Lets the cursor through, so the element under it, not the
+                // overlay, keeps getting the drag events.
+                div {
+                    class: "fixed inset-0 z-50 flex items-center justify-center",
+                    style: "pointer-events: none; background: color-mix(in oklab, var(--color-base-100) 85%, transparent);",
+                    div {
+                        class: "flex flex-col items-center gap-2 p-6 rounded-box border-4 border-primary bg-base-100 text-primary shadow-lg",
+                        style: "border-style: dashed;",
+                        Download { class: "w-10 h-10" }
+                        div { class: "text-lg font-semibold", "Drop to use this theme" }
+                    }
+                }
+            }
+        }
+
+        // Answer mechvibes://install and mechvibes://theme links, and theme
+        // files, whatever page is showing.
         crate::components::ui::LibraryInstallModal {}
-        crate::components::ui::LibraryThemeModal {}
+        crate::components::ui::ThemeImportModal {}
+        crate::components::ui::Toasts {}
     }
+}
+
+/// How long the drop overlay stays after a dragleave, waiting for the
+/// dragover that follows when the cursor only moved onto another element.
+const DROP_OVERLAY_GRACE: std::time::Duration = std::time::Duration::from_millis(150);
+
+/// The files being dragged, by their real paths. The webview hands the page
+/// placeholders, so these come from the window instead.
+fn dragged_paths(evt: &DragEvent) -> Vec<PathBuf> {
+    evt.files()
+        .iter()
+        .map(|file| file.path())
+        .collect()
+}
+
+/// The first theme file among `paths`, which is the one a drop opens.
+fn theme_file_in(paths: &[PathBuf]) -> Option<PathBuf> {
+    paths
+        .iter()
+        .find(|path| crate::utils::deep_link::is_theme_file_name(path))
+        .cloned()
 }
 
 /// Reduces one tick's worth of key events to the state that should be
@@ -506,6 +607,19 @@ mod tests {
         // No events means no write, which is what keeps an idle app from
         // re-rendering, and means the loop never has pending work of its own.
         assert!(coalesce(&[]).is_none());
+    }
+
+    #[test]
+    fn only_a_theme_file_shows_the_drop_overlay() {
+        let paths = |names: &[&str]| names.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert_eq!(theme_file_in(&paths(&["Synthwave.MVTHEME"])), Some(PathBuf::from("Synthwave.MVTHEME")));
+        assert_eq!(theme_file_in(&paths(&["Synthwave.zip"])), None);
+        assert_eq!(theme_file_in(&paths(&[])), None);
+        // Several files at once: the first theme file is the one used.
+        assert_eq!(
+            theme_file_in(&paths(&["notes.txt", "First.mvtheme", "Second.mvtheme"])),
+            Some(PathBuf::from("First.mvtheme"))
+        );
     }
 
     #[test]

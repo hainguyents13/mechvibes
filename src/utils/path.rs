@@ -83,8 +83,10 @@ pub fn write_file_contents(path: &str, contents: &str) -> Result<(), String> {
     fs::write(path, contents).map_err(|e| format!("Failed to write file '{}': {}", path, e))
 }
 
-/// Copy a file to the custom images directory and return the asset URL
-/// Returns a URL in the format: /custom-images/{filename}
+/// Copy a picked image to the custom images directory and return the asset URL
+/// Returns a URL in the format: /custom-images/img-{hash}.{ext}
+/// The copy is named after its content, so picking the same image twice keeps
+/// one file.
 pub fn copy_to_custom_images(source_path: &str) -> Result<String, String> {
     use std::path::Path;
 
@@ -95,55 +97,10 @@ pub fn copy_to_custom_images(source_path: &str) -> Result<String, String> {
         return Err(format!("Source file does not exist: {}", source_path));
     }
 
-    // Get file extension
-    let extension = source
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .ok_or_else(|| "File has no extension".to_string())?;
+    let bytes = fs::read(source).map_err(|e| format!("Failed to read file: {}", e))?;
 
-    // Generate unique filename using timestamp and original filename
-    let original_filename = source
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .ok_or_else(|| "Invalid filename".to_string())?;
-
-    // Normalize filename to safe characters (alphanumeric, dash, underscore)
-    // This prevents issues with spaces/special characters in CSS URLs
-    let safe_filename: String = original_filename
-        .chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '-' || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
-        .collect();
-
-    // Generate timestamp, with fallback for systems with misconfigured clocks
-    let timestamp = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_else(|_| {
-            // Fallback: use a random number if system time is before epoch
-            use std::collections::hash_map::RandomState;
-            use std::hash::{BuildHasher, Hash, Hasher};
-            let mut hasher = RandomState::new().build_hasher();
-            std::time::SystemTime::now().hash(&mut hasher);
-            std::time::Duration::from_secs(hasher.finish())
-        })
-        .as_secs();
-
-    let new_filename = format!("{}_{}.{}", safe_filename, timestamp, extension);
-
-    // Ensure custom images directory exists
-    let custom_images_dir = paths::data::custom_images_dir();
-    ensure_directory_exists(&custom_images_dir)?;
-
-    // Copy file to custom images directory
-    let dest_path = custom_images_dir.join(&new_filename);
-    fs::copy(source, &dest_path)
-        .map_err(|e| format!("Failed to copy file: {}", e))?;
-
-    // Return asset URL
-    Ok(format!("/custom-images/{}", new_filename))
+    // The picked file's own extension is used only when the bytes do not
+    // name a known image type.
+    let extension = source.extension().and_then(|ext| ext.to_str());
+    crate::utils::custom_images::save(&bytes, extension).map(|(url, _)| url)
 }

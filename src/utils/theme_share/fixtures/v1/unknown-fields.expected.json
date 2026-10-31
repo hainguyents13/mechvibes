@@ -1,0 +1,102 @@
+{
+  "applied": {
+    "background_customization": {
+      "background_color": "#f0fdf4",
+      "background_image": null,
+      "use_image": false
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#dcfce7",
+      "background_image": null,
+      "border_color": "#16a34a",
+      "dimmed_when_muted": false,
+      "muted_background": "#bbf7d0",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "#14532d",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "Custom": "imported-colors"
+    }
+  },
+  "read": {
+    "background": {
+      "background_color": "#f0fdf4",
+      "background_image": null,
+      "use_image": false
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-primary: oklch(60% 0.2 150);\n--color-base-content: oklch(25% 0.02 150);\n--sparkle-size: 3rem;"
+      }
+    },
+    "images": {},
+    "logo": {
+      "background_color": "#dcfce7",
+      "background_image": null,
+      "border_color": "#16a34a",
+      "dimmed_when_muted": false,
+      "muted_background": "#bbf7d0",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "#14532d",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "name": "From a later build"
+  },
+  "start": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Retro"
+    }
+  },
+  "written_again": {
+    "background": {
+      "background_color": "#f0fdf4",
+      "background_image": null,
+      "use_image": false
+    },
+    "colors": {
+      "custom": {
+        "css": "--color-primary: oklch(60% 0.2 150);\n--color-base-content: oklch(25% 0.02 150);\n--sparkle-size: 3rem;"
+      }
+    },
+    "format": 1,
+    "logo": {
+      "background_color": "#dcfce7",
+      "background_image": null,
+      "border_color": "#16a34a",
+      "dimmed_when_muted": false,
+      "muted_background": "#bbf7d0",
+      "muted_background_image": null,
+      "shadow_color": "var(--color-base-content)",
+      "text_color": "#14532d",
+      "use_background_image": false,
+      "use_muted_background_image": false
+    },
+    "name": "From a later build"
+  }
+}

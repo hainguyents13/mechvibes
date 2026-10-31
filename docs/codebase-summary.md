@@ -1,6 +1,6 @@
 # Codebase Summary — Mechvibes
 
-**Last Updated:** 2026-08-03 · **Language:** Rust (1.88+) + Dioxus 0.7.10  
+**Last Updated:** 2026-10-31 · **Language:** Rust (1.88+) + Dioxus 0.7.10  
 **Build:** `cargo build --release` (Windows); CI via GitHub Actions  
 **Platform targets:** Windows (primary), Linux (X11/Wayland), macOS  
 **Current version:** v0.7.0 (device watchdog removed, input injection filter added, trace facility enabled)
@@ -29,7 +29,7 @@ mechvibes/
 │   │   ├── input_worker_host.rs # Worker supervisor & filtering (Windows)
 │   │   ├── rawinput_listener.rs # Raw Input loop (Windows worker only)
 │   │   ├── single_instance.rs  # Single-instance guard (Windows)
-│   │   ├── ui.rs               # Dioxus render loop (minimal now)
+│   │   ├── ui.rs               # Dioxus render loop; theme file drop area, root dialogs and toasts
 │   │   ├── tray.rs             # System tray integration
 │   │   ├── tray_service.rs     # Tray icon management
 │   │   ├── window_manager.rs   # Window control (minimize, restore)
@@ -60,13 +60,26 @@ mechvibes/
 │   │   ├── soundpack_selector.rs # Pack selection dropdown
 │   │   ├── device_selector.rs  # Audio device selector + filtering UI
 │   │   ├── window_controller.rs # Min/max/close buttons
-│   │   ├── theme_share.rs      # Share/Import buttons and dialog for .mvtheme files
-│   │   ├── theme_toggler.rs    # Dark/light theme switch
+│   │   ├── theme_share.rs      # Share to a .mvtheme file, pick one to import, put_on (ticked parts) and undo_look
+│   │   ├── customize/          # The Customize page's pieces
+│   │   │   ├── current_theme_row.rs  # Swatch + name of the look on screen; Share / Import / Find more
+│   │   │   ├── customize_tabs.rs     # Themes / Colors / Logo / Background tabs (tab kept for the session)
+│   │   │   ├── themes_tab.rs         # Default card (with Undo toast), Find more
+│   │   │   ├── colors_tab.rs         # Ready-made colors, My colors, New colors, delete with confirm
+│   │   │   ├── colors_editor_modal.rs # New / edit colors; saves through safe_theme_css
+│   │   │   ├── part_panel.rs         # Shared Logo / Background shell: switch, first edit turns the part on, Start over
+│   │   │   ├── logo_tab.rs           # Logo fields and Sound on / Sound off preview
+│   │   │   └── background_tab.rs     # Background fields
 │   │   ├── volume_slider.rs    # Volume control
 │   │   ├── ui/                 # Reusable UI components
 │   │   │   ├── mod.rs
 │   │   │   ├── modal.rs        # Base modal
-│   │   │   ├── color_picker.rs # Color selector
+│   │   │   ├── color_picker.rs # Color selector; THEME_COLOR_OPTIONS; a typed color saves only once complete
+│   │   │   ├── fill_field.rs   # Color or Image switch for one fill
+│   │   │   ├── image_picker.rs # Picks an image and copies it into the images folder
+│   │   │   ├── confirm_modal.rs # Yes / no dialog
+│   │   │   ├── theme_import_modal.rs # The one "Use this theme?" dialog (root): files, drops, library links, checklist, Undo
+│   │   │   ├── toast.rs        # Toasts (root) for notices, with Show file / Undo
 │   │   │   ├── soundpack_table.rs # Soundpack list table
 │   │   │   ├── soundpack_import_modal.rs # Drag-drop importer
 │   │   │   ├── confirm_delete_modal.rs # Delete confirmation
@@ -78,7 +91,7 @@ mechvibes/
 │   │       ├── mod.rs
 │   │       ├── home.rs         # Main page (logo + settings)
 │   │       ├── soundpacks.rs   # Soundpack management
-│   │       ├── customize.rs    # UI customization (logo, background)
+│   │       ├── customize.rs    # Customize page: current theme row + tabs (see components/customize/)
 │   │       ├── settings.rs     # Audio, device, I/O settings
 │   │       └── mood.rs         # [DEPRECATED] Music/ambiance player UI
 │   └── utils/                  # Utilities & helpers
@@ -91,7 +104,14 @@ mechvibes/
 │       ├── soundpack_installer.rs # Pack drag-drop install
 │       ├── platform.rs         # Platform detection
 │       ├── theme.rs            # Theme color helpers
-│       ├── theme_share.rs      # .mvtheme read/write and checks (see theme-file-format.md)
+│       ├── theme_share.rs      # .mvtheme read/write and checks, Look, ImportParts (see theme-file-format.md)
+│       ├── theme_share/
+│       │   ├── wire_v1.rs      # Frozen format 1 layout of theme.json
+│       │   └── fixtures/v1/    # Files written by v3.3.0, pinned by tests
+│       ├── custom_images.rs    # Saves picked and imported images as img-<content hash>.<ext>
+│       ├── look_undo.rs        # One-step Undo after a theme or the Default look goes on (memory only)
+│       ├── notice.rs           # Thread-safe messages for the user, shown as toasts
+│       ├── deep_link.rs        # mechvibes:// links and .mvtheme files from the command line or a second launch
 │       ├── time.rs             # Time formatting
 │       ├── delay.rs            # Delay/sleep utilities
 │       ├── spacing.rs          # UI spacing constants
@@ -522,10 +542,9 @@ cargo clippy               # Lint (baseline ~180 warnings pre-existing)
 3. **Injected input opt-in:** Make the keyboard injection filter configurable for users who want on-screen keyboards or remote-desktop input to trigger sounds.
 4. **Per-device filtering (Linux):** Direct evdev device selection.
 5. **macOS focus tracking:** Determine if needed; implement via CGEventTap if yes.
-6. **Toast notifications:** Centralized system (currently only stderr).
-7. **Soundpack preview:** Play pack sound without saving config.
-8. **Customizable key bindings:** Remap hotkey from Ctrl+Alt+M.
-9. **Cloud soundpacks:** Download/share packs online (infrastructure).
+6. **Soundpack preview:** Play pack sound without saving config.
+7. **Customizable key bindings:** Remap hotkey from Ctrl+Alt+M.
+8. **Cloud soundpacks:** Download/share packs online (infrastructure).
 
 ---
 

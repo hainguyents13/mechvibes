@@ -59,6 +59,26 @@ impl Default for LogoCustomization {
     }
 }
 
+impl LogoCustomization {
+    /// What the logo looks like while the user's own logo is off: the
+    /// theme's main colour with a faint fill of it, faded when sound is off.
+    /// Customize starts from this when the saved settings are still the
+    /// defaults, so the first change does not turn the logo another colour.
+    pub fn theme_look() -> Self {
+        let main = "var(--color-primary)".to_string();
+        let fill = "oklch(from var(--color-primary) l c h / 0.05)".to_string();
+        Self {
+            border_color: main.clone(),
+            text_color: main.clone(),
+            shadow_color: main,
+            background_color: fill.clone(),
+            muted_background: fill,
+            dimmed_when_muted: true,
+            ..Self::default()
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BackgroundCustomization {
     pub background_color: String,
@@ -208,7 +228,7 @@ pub fn parse_lenient(contents: &str) -> Result<AppConfig, String> {
 }
 
 /// Outcome of trying to move an unparseable config out of the way.
-enum Preserved {
+pub(crate) enum Preserved {
     /// There was no file to preserve - a first run, or it was deleted.
     Nothing,
     /// The user's bytes now live at this path and are safe to overwrite from.
@@ -224,8 +244,8 @@ enum Preserved {
 /// default file without a window where both are half-written. An existing
 /// `.corrupt` from an earlier failure is never clobbered - the first failure
 /// usually holds the settings worth recovering, so later ones get a numbered
-/// suffix instead.
-fn preserve_corrupt_config(config_path: &std::path::Path) -> Preserved {
+/// suffix instead. Works on any file, and the colors list uses it too.
+pub(crate) fn preserve_corrupt_config(config_path: &std::path::Path) -> Preserved {
     if !config_path.exists() {
         return Preserved::Nothing;
     }
@@ -479,6 +499,29 @@ impl Default for AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_theme_look_matches_the_logo_with_customization_off() {
+        use crate::components::logo::logo_style;
+
+        let look = LogoCustomization::theme_look();
+        for sound_on in [true, false] {
+            let (theme_class, theme_style) = logo_style(None, sound_on, false);
+            let (own_class, own_style) = logo_style(Some(&look), sound_on, false);
+            // The theme's logo takes its border and text from classes.
+            assert!(theme_class.contains("border-primary text-primary"));
+            assert!(own_style.contains("border-color: var(--color-primary); color: var(--color-primary);"), "{}", own_style);
+            let from_classes = ["border-color: revert-layer", "color: revert-layer"];
+            for declaration in theme_style
+                .split(';')
+                .map(str::trim)
+                .filter(|d| !d.is_empty() && !from_classes.contains(d))
+            {
+                assert!(own_style.contains(declaration), "{:?} missing from {:?}", declaration, own_style);
+            }
+            assert_eq!(theme_class.contains("opacity-50"), own_class.contains("opacity-50"), "sound on: {}", sound_on);
+        }
+    }
 
     /// Why `save()` is `pub(in crate::state)` and `config_writer::apply` is the
     /// only public way to write.
@@ -794,6 +837,104 @@ mod tests {
             !base.data_equals(&seen),
             "clearing a New badge must count as a change, or apply() rolls it back"
         );
+    }
+
+    /// Every setting must count as a change in `data_equals`, or
+    /// `config_writer::apply` judges a real edit equal and rolls it back. A
+    /// hand-written list of fields cannot promise that, so this walks the
+    /// serialized config instead: a field added later is covered without
+    /// anyone remembering to add it here.
+    #[test]
+    fn every_config_field_counts_as_a_change() {
+        use serde_json::{ json, Value };
+
+        /// Fields that only describe the document, which `data_equals` skips
+        /// on purpose.
+        const METADATA: [&str; 3] = ["version", "last_updated", "commit"];
+
+        let default = AppConfig::default();
+        let document = serde_json::to_value(&default).expect("config serializes");
+        let fields = document.as_object().expect("config is a json object");
+
+        let mut auto_update = document["auto_update"].clone();
+        auto_update["last_check"] = json!(1_700_000_000u64);
+
+        // Values the generic edit below cannot make: a `null`, an empty list
+        // or map has nothing to change, and a built-in theme's name cannot
+        // just grow a letter.
+        let overrides: HashMap<&str, Value> = HashMap::from([
+            ("theme", json!({ "Custom": "my-colors" })),
+            ("selected_audio_device", json!("output_name:0b3a976597860826")),
+            ("soundpack_added_at", json!({ "keyboard/one": 1_700_000_000u64 })),
+            ("soundpacks_seen", json!(["keyboard/one"])),
+            ("enabled_keyboards", json!(["keyboard-1"])),
+            ("enabled_mice", json!(["mouse-1"])),
+            ("ambiance_active_sounds", json!({ "rain": 0.5 })),
+            ("auto_update", auto_update),
+        ]);
+
+        /// Another valid value of the same shape: a flipped bool, a number
+        /// plus one, a string with one more letter, or an object with its
+        /// first such leaf changed. `None` when there is nothing to change.
+        fn changed(value: &Value) -> Option<Value> {
+            match value {
+                Value::Bool(flag) => Some(Value::Bool(!flag)),
+                Value::Number(number) =>
+                    Some(
+                        if let Some(n) = number.as_u64() {
+                            json!(n + 1)
+                        } else if let Some(n) = number.as_i64() {
+                            json!(n + 1)
+                        } else {
+                            json!(number.as_f64()? + 1.0)
+                        }
+                    ),
+                Value::String(text) => Some(Value::String(format!("{}x", text))),
+                Value::Object(object) =>
+                    object.iter().find_map(|(key, leaf)| {
+                        let leaf = changed(leaf)?;
+                        let mut object = object.clone();
+                        object.insert(key.clone(), leaf);
+                        Some(Value::Object(object))
+                    }),
+                Value::Null | Value::Array(_) => None,
+            }
+        }
+
+        for key in overrides.keys() {
+            assert!(fields.contains_key(*key), "the override for '{}' names no config field", key);
+        }
+
+        for (key, value) in fields {
+            if METADATA.contains(&key.as_str()) {
+                continue;
+            }
+            let new_value = overrides
+                .get(key.as_str())
+                .cloned()
+                .or_else(|| changed(value))
+                .unwrap_or_else(|| panic!("'{}' has nothing to change: add an override for it", key));
+            assert_ne!(&new_value, value, "the override for '{}' must differ from the default", key);
+
+            let mut edited = document.clone();
+            edited[key.as_str()] = new_value.clone();
+            let config: AppConfig = serde_json
+                ::from_value(edited)
+                .unwrap_or_else(|e| panic!("the changed '{}' is not a valid value ({}): add an override for it", key, e));
+
+            let round_trip = serde_json::to_value(&config).expect("config serializes");
+            assert_eq!(
+                round_trip[key.as_str()],
+                new_value,
+                "the changed '{}' did not survive a round trip: add an override for it",
+                key
+            );
+            assert!(
+                !default.data_equals(&config),
+                "changing '{}' is not a change to data_equals, so config_writer would roll it back",
+                key
+            );
+        }
     }
 
     /// A device saved as `output_{index}` cannot be trusted: the index is a

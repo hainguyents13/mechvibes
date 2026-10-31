@@ -1,4 +1,5 @@
 pub mod app_info;
+pub mod customize;
 pub mod debug_log_viewer;
 pub mod device_selector;
 pub mod dock;
@@ -7,7 +8,6 @@ pub mod logo;
 pub mod pages;
 pub mod soundpack_selector;
 pub mod theme_share;
-pub mod theme_toggler;
 pub mod titlebar;
 pub mod ui;
 pub mod update_button;

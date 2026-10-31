@@ -12,10 +12,15 @@ use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use crate::state::themes::ThemesConfig;
 use crate::utils::soundpack_validator::is_portable_name;
-use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 use std::io::{ Cursor, Read, Write };
-use std::path::Path;
+use std::path::{ Path, PathBuf };
+use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
+
+mod preview;
+mod wire_v1;
+
+pub use preview::preview_stripes;
 
 pub const FILE_EXTENSION: &str = "mvtheme";
 
@@ -38,27 +43,14 @@ const CSS_FUNCTIONS: [&str; 16] = [
     "oklab", "oklch", "color", "color-mix",
 ];
 
-/// The theme colours a look uses.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
+/// The theme colours a look uses. In a file they are written as
+/// `wire_v1::ColorsV1`.
+#[derive(Debug, Clone, PartialEq)]
 pub enum SharedColors {
     BuiltIn(BuiltInTheme),
     Custom {
         css: String,
     },
-}
-
-/// `theme.json`. The logo and background image fields name files inside the
-/// `.mvtheme`; a part is left out when the person sharing has it switched off.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-struct Manifest {
-    format: u32,
-    name: String,
-    colors: SharedColors,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    logo: Option<LogoCustomization>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    background: Option<BackgroundCustomization>,
 }
 
 /// A look read from a file or gathered from this app, with its images held in
@@ -81,6 +73,26 @@ impl SharedTheme {
         }
     }
 
+    /// What the look brings for the logo, as the import dialog shows it, or
+    /// `None` when it leaves the logo out.
+    pub fn logo_label(&self) -> Option<&'static str> {
+        self.logo.as_ref().map(|logo| {
+            if logo.use_background_image || logo.use_muted_background_image {
+                "Logo with images"
+            } else {
+                "Logo style"
+            }
+        })
+    }
+
+    /// What the look brings for the background, as the import dialog shows
+    /// it, or `None` when it leaves the background out.
+    pub fn background_label(&self) -> Option<&'static str> {
+        self.background
+            .as_ref()
+            .map(|background| if background.use_image { "Background image" } else { "Background color" })
+    }
+
     /// Give the look another name, tidied the way a name from a file is.
     /// Keeps the old one when nothing is left of `name` after tidying.
     pub fn rename(&mut self, name: &str) {
@@ -88,6 +100,165 @@ impl SharedTheme {
             self.name = name;
         }
     }
+
+    /// Drops the unticked parts and the images only they used, so putting the
+    /// look on brings nothing of a part the user chose to keep their own of.
+    /// The colours have no images and stay; the caller leaves them out.
+    pub fn keep_parts(&mut self, parts: ImportParts) {
+        if !parts.logo {
+            self.logo = None;
+        }
+        if !parts.background {
+            self.background = None;
+        }
+        let mut used = Vec::new();
+        if let Some(logo) = &self.logo {
+            used.extend(logo.background_image.clone());
+            used.extend(logo.muted_background_image.clone());
+        }
+        if let Some(background) = &self.background {
+            used.extend(background.background_image.clone());
+        }
+        self.images.retain(|name, _| used.contains(name));
+    }
+
+    /// The parts this look brings. Every look has colours.
+    pub fn parts(&self) -> ImportParts {
+        ImportParts { colors: true, logo: self.logo.is_some(), background: self.background.is_some() }
+    }
+}
+
+/// What a theme looks like, without a name or image bytes: the colours, and
+/// the logo and background when they are switched on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Look {
+    pub colors: LookColors,
+    /// `None` when the part is switched off.
+    pub logo: Option<LogoCustomization>,
+    pub background: Option<BackgroundCustomization>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LookColors {
+    Known(SharedColors),
+    /// `config.theme` is `Custom(id)` but the colors list has no such id. The
+    /// screen falls back to System; the look itself never claims to be System.
+    Missing(String),
+}
+
+impl Look {
+    /// The look the app shows now.
+    pub fn from_config(config: &AppConfig, themes: &ThemesConfig) -> Look {
+        let colors = match &config.theme {
+            Theme::BuiltIn(theme) => LookColors::Known(SharedColors::BuiltIn(theme.clone())),
+            Theme::Custom(id) =>
+                match themes.get_theme_by_id(id) {
+                    Some(theme) => LookColors::Known(SharedColors::Custom { css: theme.css.clone() }),
+                    None => LookColors::Missing(id.clone()),
+                }
+        };
+        Look {
+            colors,
+            logo: config.enable_logo_customization.then(|| config.logo_customization.clone()),
+            background: config.enable_background_customization.then(|| config.background_customization.clone()),
+        }
+    }
+}
+
+/// The parts of a theme the user chose to put on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportParts {
+    pub colors: bool,
+    pub logo: bool,
+    pub background: bool,
+}
+
+impl ImportParts {
+    pub const ALL: Self = Self { colors: true, logo: true, background: true };
+
+    pub fn has(&self, part: Part) -> bool {
+        match part {
+            Part::Colors => self.colors,
+            Part::Logo => self.logo,
+            Part::Background => self.background,
+        }
+    }
+
+    /// These parts with `part` ticked or not.
+    pub fn with(mut self, part: Part, ticked: bool) -> Self {
+        match part {
+            Part::Colors => self.colors = ticked,
+            Part::Logo => self.logo = ticked,
+            Part::Background => self.background = ticked,
+        }
+        self
+    }
+
+    /// At least one part is ticked, so using the theme would change something.
+    pub fn any(&self) -> bool {
+        self.colors || self.logo || self.background
+    }
+
+    /// The ticked parts that are also in `offered`.
+    pub fn within(self, offered: ImportParts) -> Self {
+        Self {
+            colors: self.colors && offered.colors,
+            logo: self.logo && offered.logo,
+            background: self.background && offered.background,
+        }
+    }
+}
+
+/// One part of a theme, as the import dialog lists them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Part {
+    Colors,
+    Logo,
+    Background,
+}
+
+/// A line of the import dialog's checklist.
+#[derive(Debug, Clone, PartialEq)]
+pub struct PartRow {
+    pub part: Part,
+    /// What the theme brings for this part, or the part's name when it
+    /// brings nothing.
+    pub label: String,
+    /// The theme brings this part. A line without it cannot be ticked.
+    pub in_theme: bool,
+    /// What ticking it does to the user's own part, when that is worth saying.
+    pub note: Option<&'static str>,
+}
+
+/// The checklist the import dialog shows for `theme`, one line per part,
+/// read from the theme itself so what is listed is what gets put on. `config`
+/// says which of the user's own parts are on, and so get replaced.
+pub fn checklist(theme: &SharedTheme, config: &AppConfig) -> [PartRow; 3] {
+    let row = |part: Part, name: &str, label: Option<&str>, yours_on: bool, replaces: &'static str| PartRow {
+        part,
+        label: label.unwrap_or(name).to_string(),
+        in_theme: label.is_some(),
+        note: match label {
+            Some(_) => yours_on.then_some(replaces),
+            None => Some("Not in this theme. Yours stays as it is."),
+        },
+    };
+    [
+        PartRow {
+            part: Part::Colors,
+            label: format!("Colors: {}", theme.colors_label()),
+            in_theme: true,
+            note: None,
+        },
+        row(Part::Logo, "Logo", theme.logo_label(), config.enable_logo_customization, "Replaces your logo"),
+        row(
+            Part::Background,
+            "Background",
+            theme.background_label(),
+            config.enable_background_customization,
+            "Replaces your background"
+        ),
+    ]
 }
 
 /// The name a share starts with: the custom theme's name, or the built-in one.
@@ -98,34 +269,27 @@ pub fn default_name(config: &AppConfig, themes: &ThemesConfig) -> String {
                 .get_theme_by_id(id)
                 .map(|theme| theme.name.clone())
                 .unwrap_or_else(|| "My theme".to_string()),
-        Theme::BuiltIn(theme) => format!("My {:?} look", theme),
+        Theme::BuiltIn(theme) => format!("My {:?} theme", theme),
     }
 }
 
 // ===== Sharing =====
 
-/// Gather the look this app shows now. Images are read from wherever they are
-/// set, a web address included, so the file works without the internet and
-/// without the person who made it.
-pub async fn gather(
-    name: &str,
-    config: &AppConfig,
-    themes: &ThemesConfig
-) -> Result<SharedTheme, String> {
+/// Gather `look`, usually the one this app shows now. Images are read from
+/// wherever they are set, a web address included, so the file works without
+/// the internet and without the person who made it.
+pub async fn gather(name: &str, look: &Look) -> Result<SharedTheme, String> {
     let name = clean_name(name).ok_or_else(|| "Give the theme a name first.".to_string())?;
-    let colors = match &config.theme {
-        Theme::BuiltIn(theme) => SharedColors::BuiltIn(theme.clone()),
-        Theme::Custom(id) => {
-            let theme = themes
-                .get_theme_by_id(id)
-                .ok_or_else(|| "The selected theme is missing. Pick a theme and try again.".to_string())?;
-            SharedColors::Custom { css: theme.css.clone() }
+    let colors = match &look.colors {
+        LookColors::Known(colors) => colors.clone(),
+        LookColors::Missing(_) => {
+            return Err("The selected theme is missing. Pick a theme and try again.".to_string());
         }
     };
 
     let mut images = HashMap::new();
-    let logo = if config.enable_logo_customization {
-        let mut logo = config.logo_customization.clone();
+    let logo = if let Some(logo) = &look.logo {
+        let mut logo = logo.clone();
         logo.background_image = gather_image(
             logo.use_background_image,
             logo.background_image.as_deref(),
@@ -144,8 +308,8 @@ pub async fn gather(
     } else {
         None
     };
-    let background = if config.enable_background_customization {
-        let mut background = config.background_customization.clone();
+    let background = if let Some(background) = &look.background {
+        let mut background = background.clone();
         background.background_image = gather_image(
             background.use_image,
             background.background_image.as_deref(),
@@ -232,6 +396,30 @@ async fn download_image(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
+/// Where Share writes, and the name the theme in the file takes, from the path
+/// the save dialog gave. A dialog that leaves the extension off gets it added
+/// after what the user typed, never in place of part of it, so "Neon v1.2"
+/// stays "Neon v1.2". When that lands on a file the dialog never asked about,
+/// it is refused rather than written over.
+pub fn share_target(chosen: &Path) -> Result<(PathBuf, String), String> {
+    let is_theme_file = chosen
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case(FILE_EXTENSION));
+    let name = if is_theme_file { chosen.file_stem() } else { chosen.file_name() };
+    let name = name.map(|name| name.to_string_lossy().to_string()).unwrap_or_default();
+    if is_theme_file {
+        return Ok((chosen.to_path_buf(), name));
+    }
+    let mut path = chosen.as_os_str().to_os_string();
+    path.push(format!(".{}", FILE_EXTENSION));
+    let path = PathBuf::from(path);
+    if path.symlink_metadata().is_ok() {
+        return Err(format!("There is already a file called \"{}.{}\". Share again and pick another name.", name, FILE_EXTENSION));
+    }
+    Ok((path, name))
+}
+
 /// Write the look to `path` as a `.mvtheme`, its images cut down first. Slow
 /// for a large wallpaper, so call it off the UI thread.
 pub fn save(theme: &SharedTheme, path: &Path) -> Result<(), String> {
@@ -282,16 +470,7 @@ const JPEG_QUALITY: u8 = 85;
 fn shrink_image(bytes: &[u8], background: bool) -> Option<Vec<u8>> {
     use image::{ codecs::jpeg::JpegEncoder, imageops::FilterType, ImageFormat };
 
-    if is_animated(bytes) {
-        return None;
-    }
-    let (width, height) = image::io::Reader
-        ::new(Cursor::new(bytes))
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()?;
-    if width == 0 || height == 0 || (width as u64) * (height as u64) > MAX_SHRINK_PIXELS {
+    if is_animated(bytes) || !small_enough_to_decode(bytes, MAX_SHRINK_PIXELS) {
         return None;
     }
     // The decoder ignores the EXIF orientation a camera writes, while the
@@ -334,6 +513,85 @@ fn is_animated(bytes: &[u8]) -> bool {
         Some("webp") => bytes.get(12..16) == Some(b"VP8X") && bytes.get(20).is_some_and(|flags| flags & 0x02 != 0),
         _ => false,
     }
+}
+
+/// Whether `bytes` is an image of at most `max_pixels`, found from its
+/// headers alone, so a file that only claims a huge size never reaches the
+/// decoder.
+fn small_enough_to_decode(bytes: &[u8], max_pixels: u64) -> bool {
+    // The image crate decodes a WebP's whole first picture just to report its
+    // size, before any limit applies, so a few bytes that claim 16384 x 16384
+    // would take gigabytes. Its sizes are read from its chunks instead.
+    if image_extension(bytes) == Some("webp") {
+        return webp_chunks_fit(&bytes[12..], None, false, max_pixels);
+    }
+    image::io::Reader
+        ::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()
+        .and_then(|reader| reader.into_dimensions().ok())
+        .is_some_and(|size| fits_in(size, max_pixels, None))
+}
+
+/// A picture with something in it, at most `max_pixels`, and no wider or
+/// taller than `within` when there is one.
+fn fits_in((width, height): (u32, u32), max_pixels: u64, within: Option<(u32, u32)>) -> bool {
+    width > 0 &&
+        height > 0 &&
+        (width as u64) * (height as u64) <= max_pixels &&
+        within.is_none_or(|(max_width, max_height)| width <= max_width && height <= max_height)
+}
+
+/// Whether every picture the WebP chunks in `chunks` hold fits `max_pixels`
+/// and the canvas a `VP8X` chunk sets. A picture whose size cannot be read
+/// counts as too large. Each chunk is a four letter name, its length (little
+/// endian), its data, and a pad byte when the length is odd. The decoder reads
+/// on to the end of the file whatever the RIFF header says, so this does too.
+fn webp_chunks_fit(mut chunks: &[u8], mut canvas: Option<(u32, u32)>, in_frame: bool, max_pixels: u64) -> bool {
+    let u24 = |b: &[u8]| u32::from_le_bytes([b[0], b[1], b[2], 0]);
+    while chunks.len() >= 8 {
+        let length = u32::from_le_bytes([chunks[4], chunks[5], chunks[6], chunks[7]]) as usize;
+        let data = &chunks[8..chunks.len().min(length.saturating_add(8))];
+        let fits = match &chunks[0..4] {
+            // Flags and reserved bytes, then the canvas width and height less one.
+            b"VP8X" => {
+                canvas = (data.len() >= 10).then(|| (u24(&data[4..7]) + 1, u24(&data[7..10]) + 1));
+                canvas.is_some_and(|size| fits_in(size, max_pixels, None))
+            }
+            // A frame of an animation: its offset (halved) and size less one
+            // on the canvas, a duration and flags, then its own picture chunks.
+            // A frame never holds another, and the decoder refuses one that
+            // does, so a file nesting frames deeply cannot run this out of stack.
+            b"ANMF" =>
+                !in_frame &&
+                    data.len() >= 16 && {
+                        let corner = (u24(&data[0..3]) * 2 + u24(&data[6..9]) + 1, u24(&data[3..6]) * 2 + u24(&data[9..12]) + 1);
+                        canvas.is_some_and(|canvas| fits_in(corner, u64::MAX, Some(canvas))) &&
+                            webp_chunks_fit(&data[16..], canvas, true, max_pixels)
+                    },
+            // Lossless: a 0x2f signature, then the width and height less one in
+            // 14 bits each, lowest bits first.
+            b"VP8L" =>
+                data.len() >= 5 && data[0] == 0x2f && {
+                    let bits = u32::from_le_bytes([data[1], data[2], data[3], data[4]]);
+                    fits_in(((bits & 0x3fff) + 1, ((bits >> 14) & 0x3fff) + 1), max_pixels, canvas)
+                },
+            // Lossy: a frame tag, the 9d 01 2a start code, then the width and
+            // height in the low 14 bits of two little endian numbers.
+            b"VP8 " =>
+                data.len() >= 10 && data[3..6] == [0x9d, 0x01, 0x2a] && {
+                    let width = u16::from_le_bytes([data[6], data[7]]) & 0x3fff;
+                    let height = u16::from_le_bytes([data[8], data[9]]) & 0x3fff;
+                    fits_in((width as u32, height as u32), max_pixels, canvas)
+                },
+            _ => true,
+        };
+        if !fits {
+            return false;
+        }
+        chunks = chunks.get(length.saturating_add(8 + (length % 2))..).unwrap_or_default();
+    }
+    true
 }
 
 /// `image` turned the way an EXIF orientation (1 to 8) says it is shown.
@@ -404,12 +662,12 @@ fn exif_orientation(app1: &[u8]) -> Option<u16> {
 }
 
 fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
-    let manifest = Manifest {
+    let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
-        colors: theme.colors.clone(),
-        logo: theme.logo.clone(),
-        background: theme.background.clone(),
+        colors: ColorsV1::from_shared(&theme.colors),
+        logo: theme.logo.as_ref().map(LogoV1::from_config),
+        background: theme.background.as_ref().map(BackgroundV1::from_config),
     };
     let json = serde_json
         ::to_vec_pretty(&manifest)
@@ -436,12 +694,28 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
 
 /// Read and check a `.mvtheme`. Nothing is installed yet; the user sees what
 /// the file holds first.
+///
+/// A folder or a pipe is refused before it is opened, since opening a pipe
+/// waits until something writes to it. The checks run again on the opened
+/// file itself, so it cannot be swapped between the check and the read, and
+/// at most one byte past the limit is read, so a file that keeps growing is
+/// refused rather than read without end.
 pub fn open(path: &Path) -> Result<SharedTheme, String> {
-    let size = std::fs::metadata(path).map_err(|e| format!("Could not open the file: {}", e))?.len();
-    if size > MAX_FILE_BYTES {
+    let failed = |e: std::io::Error| format!("Could not open the file: {}", e);
+    if !std::fs::metadata(path).map_err(failed)?.is_file() {
+        return Err("This is not a Mechvibes theme file.".to_string());
+    }
+    let file = std::fs::File::open(path).map_err(failed)?;
+    if !file.metadata().map_err(failed)?.is_file() {
+        return Err("This is not a Mechvibes theme file.".to_string());
+    }
+    let mut bytes = Vec::new();
+    file.take(MAX_FILE_BYTES + 1)
+        .read_to_end(&mut bytes)
+        .map_err(failed)?;
+    if (bytes.len() as u64) > MAX_FILE_BYTES {
         return Err("This theme file is too large.".to_string());
     }
-    let bytes = std::fs::read(path).map_err(|e| format!("Could not open the file: {}", e))?;
     from_bytes(&bytes)
 }
 
@@ -463,12 +737,12 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
     if format > (FORMAT as u64) {
         return Err("This theme was made with a newer Mechvibes. Update the app to use it.".to_string());
     }
-    let manifest: Manifest = serde_json
+    let manifest: ManifestV1 = serde_json
         ::from_slice(&manifest)
         .map_err(|_| "This theme file is damaged.".to_string())?;
 
     let name = clean_name(&manifest.name).ok_or_else(|| "This theme file is damaged.".to_string())?;
-    let colors = match manifest.colors {
+    let colors = match manifest.colors.into_shared().ok_or_else(|| "This theme file is damaged.".to_string())? {
         SharedColors::BuiltIn(theme) => SharedColors::BuiltIn(theme),
         SharedColors::Custom { css } => {
             let css = safe_theme_css(&css);
@@ -480,7 +754,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
     };
 
     let mut images = HashMap::new();
-    let logo = match manifest.logo {
+    let logo = match manifest.logo.map(LogoV1::into_config) {
         Some(mut logo) => {
             let defaults = LogoCustomization::default();
             for (color, default) in [
@@ -500,7 +774,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         }
         None => None,
     };
-    let background = match manifest.background {
+    let background = match manifest.background.map(BackgroundV1::into_config) {
         Some(mut background) => {
             background.background_color = safe_color(
                 &background.background_color,
@@ -565,35 +839,35 @@ fn read_entry<R: Read + std::io::Seek>(
 }
 
 /// Copy the look's images into this app's images folder and point the logo
-/// and background at the copies. Each copy gets a new name, so importing never
-/// replaces an image already in use. Returns the files written, so a caller
-/// that fails afterwards can take them back with `remove_images`.
+/// and background at the copies. Each copy is named after its content, so the
+/// same image imported twice is one file. Returns only the files this call
+/// created, so a caller that fails afterwards can take them back with
+/// `remove_images` without removing an image something else already uses.
 pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>, String> {
-    let dir = crate::state::paths::data::custom_images_dir();
-    crate::utils::path::ensure_directory_exists(&dir)?;
-    let stem: String = theme.name
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '-' || c == '_' { c } else { '_' })
-        .collect();
+    install_images_in(theme, &crate::state::paths::data::custom_images_dir())
+}
 
+fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
     let mut installed = HashMap::new();
-    let mut written = Vec::new();
+    let mut created = Vec::new();
     for (name, bytes) in &theme.images {
-        let extension = image_extension(bytes).unwrap_or("png");
-        let file_name = format!("{}_{}.{}", stem, &uuid::Uuid::new_v4().simple().to_string()[..8], extension);
-        let path = dir.join(&file_name);
-        if let Err(e) = std::fs::write(&path, bytes) {
-            let _ = std::fs::remove_file(&path);
-            remove_images(&written);
-            return Err(format!("Could not save the theme's images: {}", e));
+        match crate::utils::custom_images::save_in(dir, bytes, None) {
+            Ok((file_name, is_new)) => {
+                if is_new {
+                    created.push(dir.join(&file_name));
+                }
+                installed.insert(name.clone(), format!("/custom-images/{}", file_name));
+            }
+            Err(e) => {
+                remove_images(&created);
+                return Err(format!("Could not save the theme's images. {}", e));
+            }
         }
-        written.push(path);
-        installed.insert(name.clone(), format!("/custom-images/{}", file_name));
     }
 
     relink_images(theme, &installed);
     theme.images.clear();
-    Ok(written)
+    Ok(created)
 }
 
 /// Point the logo and background image fields at the new names in `names`.
@@ -618,17 +892,20 @@ pub fn remove_images(paths: &[std::path::PathBuf]) {
     }
 }
 
-/// Put the look on `config`. A part the file leaves out is switched off, so
-/// the result looks as it did for the person who shared it; the settings for
-/// that part stay as they were for when it is switched back on.
-pub fn apply_to_config(theme: &SharedTheme, theme_choice: Theme, config: &mut AppConfig) {
-    config.theme = theme_choice;
-    config.enable_logo_customization = theme.logo.is_some();
-    if let Some(logo) = &theme.logo {
+/// Put the ticked `parts` of the look on `config`, with `colors` as the theme
+/// its colours became. A part the file leaves out, an unticked part, and
+/// colours given as `None` leave the config as it was.
+pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: ImportParts, config: &mut AppConfig) {
+    if let (true, Some(choice)) = (parts.colors, colors) {
+        config.theme = choice;
+    }
+    // A part the theme leaves out stays as the user has it, on or off.
+    if let (true, Some(logo)) = (parts.logo, &theme.logo) {
+        config.enable_logo_customization = true;
         config.logo_customization = logo.clone();
     }
-    config.enable_background_customization = theme.background.is_some();
-    if let Some(background) = &theme.background {
+    if let (true, Some(background)) = (parts.background, &theme.background) {
+        config.enable_background_customization = true;
         config.background_customization = background.clone();
     }
 }
@@ -636,21 +913,27 @@ pub fn apply_to_config(theme: &SharedTheme, theme_choice: Theme, config: &mut Ap
 // ===== Checks =====
 
 pub(crate) fn clean_name(name: &str) -> Option<String> {
-    let name: String = name
+    clean_text(name, MAX_NAME_CHARS)
+}
+
+/// `text` on one line, without control characters and cut to `max_chars`,
+/// or `None` when nothing is left.
+pub(crate) fn clean_text(text: &str, max_chars: usize) -> Option<String> {
+    let text: String = text
         .chars()
         .filter(|c| !c.is_control())
         .collect::<String>()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    let name: String = name.chars().take(MAX_NAME_CHARS).collect();
-    let name = name.trim().to_string();
-    (!name.is_empty()).then_some(name)
+    let text: String = text.chars().take(max_chars).collect();
+    let text = text.trim().to_string();
+    (!text.is_empty()).then_some(text)
 }
 
 /// The kind of image `bytes` holds, read from its first bytes rather than a
 /// name the file could get wrong.
-fn image_extension(bytes: &[u8]) -> Option<&'static str> {
+pub(crate) fn image_extension(bytes: &[u8]) -> Option<&'static str> {
     if bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
         Some("png")
     } else if bytes.starts_with(b"\xff\xd8\xff") {
@@ -716,13 +999,66 @@ fn safe_color(value: &str, default: String) -> Result<String, String> {
     if value.trim().is_empty() {
         return Ok(default);
     }
-    safe_css_value(value).ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
+    safe_css_value(value)
+        .filter(|value| is_one_value(value))
+        .ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
 }
 
-/// The colour declarations of a theme's CSS, one per line. Anything else,
-/// rules, at-rules and declarations whose value is not a plain colour or
-/// length, is dropped.
+/// Whether `value` is one value rather than a list or several: no comma or
+/// space outside a function's brackets. The logo puts its colours in a
+/// `box-shadow`, which takes a list, so `red, 0 0 0 100vmax black` would add
+/// a shadow of its own over the page.
+pub(crate) fn is_one_value(value: &str) -> bool {
+    let mut depth: usize = 0;
+    for c in value.trim().chars() {
+        match c {
+            '(' => {
+                depth += 1;
+            }
+            ')' => {
+                depth = depth.saturating_sub(1);
+            }
+            ',' if depth == 0 => {
+                return false;
+            }
+            c if c.is_whitespace() && depth == 0 => {
+                return false;
+            }
+            _ => {}
+        }
+    }
+    true
+}
+
+/// The declarations of a theme's CSS this app knows, one per line: the
+/// `--color-*` colours, `color-scheme` and the daisyUI sizes, each with a
+/// value it can use. Anything else, rules, at-rules, other properties, a
+/// colour that draws nothing and a size out of range, is dropped, so a theme
+/// can change how the app looks but cannot hide its text or blow up its
+/// controls.
 pub fn safe_theme_css(css: &str) -> String {
+    without_comments(css)
+        .split(';')
+        .filter_map(|declaration| {
+            let (property, value) = declaration.split_once(':')?;
+            let property = property.trim();
+            let value = safe_css_value(value)?;
+            theme_value_fits(property, &value).then(|| format!("{}: {};", property, value))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// How many declarations `css` holds, kept or not, so a caller can tell
+/// whether `safe_theme_css` left any out.
+pub(crate) fn theme_css_declarations(css: &str) -> usize {
+    without_comments(css)
+        .split(';')
+        .filter(|declaration| !declaration.trim().is_empty())
+        .count()
+}
+
+fn without_comments(css: &str) -> String {
     let mut without_comments = String::new();
     let mut rest = css;
     // A comment reads as a space, as in CSS itself, so removing one never
@@ -736,25 +1072,144 @@ pub fn safe_theme_css(css: &str) -> String {
         };
     }
     without_comments.push_str(rest);
-
     without_comments
-        .split(';')
-        .filter_map(|declaration| {
-            let (property, value) = declaration.split_once(':')?;
-            let property = property.trim();
-            let custom = property
-                .strip_prefix("--")
-                .is_some_and(|name| {
-                    !name.is_empty() &&
-                        name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
-                });
-            if !custom && property != "color-scheme" {
-                return None;
+}
+
+/// The colour functions whose alpha comes after a `/`.
+const ALPHA_FUNCTIONS: [&str; 10] = [
+    "rgb", "rgba", "hsl", "hsla", "hwb", "lab", "lch", "oklab", "oklch", "color",
+];
+
+/// Whether `property` is a theme variable this app knows and `value`, already
+/// through `safe_css_value`, is one it can use.
+fn theme_value_fits(property: &str, value: &str) -> bool {
+    // A value never needs `!important`, and `transparent !important` would
+    // still draw nothing.
+    if value.contains('!') {
+        return false;
+    }
+    if let Some(name) = property.strip_prefix("--color-") {
+        return !name.is_empty() &&
+            name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') &&
+            is_one_value(value) &&
+            !is_invisible_color(value);
+    }
+    let length_within = |low: f64, high: f64| length_px(value).is_some_and(|px| (low..=high).contains(&px));
+    match property {
+        "color-scheme" => value == "light" || value == "dark",
+        "--radius-selector" | "--radius-field" | "--radius-box" => length_within(0.0, 32.0),
+        "--size-selector" | "--size-field" => length_within(2.0, 8.0),
+        "--border" => length_within(0.5, 2.0),
+        "--depth" | "--noise" => value == "0" || value == "1",
+        _ => false,
+    }
+}
+
+/// A colour that draws nothing: `transparent`, a hex colour whose alpha is
+/// zero, or a colour function whose alpha is not a number above zero (`0`,
+/// `-1`, `none`, `calc(0)` all draw nothing). The whole value is searched, so
+/// such a colour cannot hide in a `var()` fallback, a `color-mix()` or the
+/// colour a relative colour starts from.
+pub(crate) fn is_invisible_color(value: &str) -> bool {
+    let value = value.trim().to_ascii_lowercase();
+    let word = |c: char| c.is_ascii_alphanumeric() || c == '-' || c == '_';
+    let draws_nothing = value
+        .split(|c: char| !word(c) && c != '#')
+        .any(|token| {
+            token == "transparent" ||
+                token.strip_prefix('#').is_some_and(|hex| {
+                    (hex.len() == 4 && hex.ends_with('0')) || (hex.len() == 8 && hex.ends_with("00"))
+                })
+        });
+    if draws_nothing {
+        return true;
+    }
+
+    let mut word_start = None;
+    for (open, c) in value.char_indices() {
+        if word(c) {
+            word_start.get_or_insert(open);
+            continue;
+        }
+        let function = word_start.take().map(|start| &value[start..open]);
+        if c == '(' && function.is_some_and(|function| ALPHA_FUNCTIONS.contains(&function)) {
+            let alpha = function_alpha(&value[open + 1..]);
+            if alpha.is_some_and(|alpha| !is_visible_alpha(alpha)) {
+                return true;
             }
-            Some(format!("{}: {};", property, safe_css_value(value)?))
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+        }
+    }
+    false
+}
+
+/// The alpha of a colour function, given the text after its `(`: what follows
+/// a `/`, or the fourth of the comma separated values of the older
+/// `rgba(r, g, b, a)` form, at the function's own level.
+fn function_alpha(after_open: &str) -> Option<&str> {
+    let mut depth: usize = 0;
+    let mut slash = None;
+    let mut commas = Vec::new();
+    let mut end = after_open.len();
+    for (i, c) in after_open.char_indices() {
+        match c {
+            '(' => {
+                depth += 1;
+            }
+            ')' if depth == 0 => {
+                end = i;
+                break;
+            }
+            ')' => {
+                depth -= 1;
+            }
+            '/' if depth == 0 => {
+                slash = Some(i);
+            }
+            ',' if depth == 0 => commas.push(i),
+            _ => {}
+        }
+    }
+    let at = match (slash, commas.as_slice()) {
+        (Some(at), _) => at,
+        (None, [_, _, at]) => *at,
+        _ => {
+            return None;
+        }
+    };
+    Some(after_open[at + 1..end].trim())
+}
+
+/// An alpha that draws something: a number or percentage above zero, or
+/// `alpha`, which keeps the alpha of the colour a relative colour starts from.
+fn is_visible_alpha(alpha: &str) -> bool {
+    if alpha == "alpha" {
+        return true;
+    }
+    let number = alpha.strip_suffix('%').unwrap_or(alpha);
+    number.chars().all(|c| c.is_ascii_digit() || matches!(c, '.' | '+' | '-' | 'e')) &&
+        number.parse::<f64>().is_ok_and(|n| n.is_finite() && n > 0.0)
+}
+
+/// A plain length in px: `0`, or a number in `px` or `rem` (16px).
+fn length_px(value: &str) -> Option<f64> {
+    if value == "0" {
+        return Some(0.0);
+    }
+    match value.strip_suffix("rem") {
+        Some(number) => plain_number(number).map(|rem| rem * 16.0),
+        None => plain_number(value.strip_suffix("px")?),
+    }
+}
+
+/// A number written with digits and at most one point, such as `2`, `0.5`
+/// or `.25`. No sign, exponent or anything else.
+fn plain_number(text: &str) -> Option<f64> {
+    let (whole, fraction) = text.split_once('.').unwrap_or((text, "0"));
+    let digits = |part: &str| part.chars().all(|c| c.is_ascii_digit());
+    if text.is_empty() || fraction.is_empty() || !digits(whole) || !digits(fraction) {
+        return None;
+    }
+    text.parse().ok()
 }
 
 #[cfg(test)]
@@ -792,6 +1247,188 @@ mod tests {
             zip.write_all(bytes).unwrap();
         }
         zip.finish().unwrap().into_inner()
+    }
+
+    /// The `theme.json` of a `.mvtheme`, as JSON.
+    fn manifest_json(bytes: &[u8]) -> serde_json::Value {
+        let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).unwrap();
+        let manifest = read_entry(&mut archive, MANIFEST_NAME, MAX_MANIFEST_BYTES).unwrap().unwrap();
+        serde_json::from_slice(&manifest).unwrap()
+    }
+
+    fn keys(value: &serde_json::Value) -> Vec<&str> {
+        let mut keys: Vec<&str> = value.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        keys
+    }
+
+    /// The file keeps the keys format 1 has, whatever the app's own settings
+    /// grow into: 3.3 refuses a file missing one of these as damaged.
+    #[test]
+    fn written_parts_keep_exactly_the_format_one_keys() {
+        let full = manifest_json(&to_bytes(&look()).unwrap());
+        assert_eq!(keys(&full), ["background", "colors", "format", "logo", "name"]);
+        assert_eq!(
+            keys(&full["logo"]),
+            [
+                "background_color",
+                "background_image",
+                "border_color",
+                "dimmed_when_muted",
+                "muted_background",
+                "muted_background_image",
+                "shadow_color",
+                "text_color",
+                "use_background_image",
+                "use_muted_background_image",
+            ]
+        );
+        assert_eq!(keys(&full["background"]), ["background_color", "background_image", "use_image"]);
+        assert_eq!(full["format"], 1);
+        assert_eq!(full["colors"], serde_json::json!({ "custom": { "css": "--color-primary: oklch(55% 0.3 240);" } }));
+
+        // An empty image is written as null, as 3.3 does, and a part that is
+        // switched off is left out rather than written as null.
+        let mut plain = look();
+        plain.logo.as_mut().unwrap().background_image = None;
+        plain.images.remove("logo.png");
+        plain.background = None;
+        plain.colors = SharedColors::BuiltIn(BuiltInTheme::Synthwave);
+        let plain = manifest_json(&to_bytes(&plain).unwrap());
+        assert_eq!(keys(&plain), ["colors", "format", "logo", "name"]);
+        assert!(plain["logo"]["background_image"].is_null());
+        assert_eq!(keys(&plain["logo"]).len(), 10);
+        assert_eq!(plain["colors"], serde_json::json!({ "built_in": "Synthwave" }));
+    }
+
+    /// A file from `theme_share/fixtures/v1/` and what Mechvibes 3.3 made of
+    /// it. The README there says how they were made.
+    macro_rules! v3_3_file {
+        ($name:literal) => {
+            (
+                $name,
+                include_bytes!(concat!("theme_share/fixtures/v1/", $name, ".mvtheme")).as_slice(),
+                include_str!(concat!("theme_share/fixtures/v1/", $name, ".expected.json")),
+            )
+        };
+    }
+
+    fn v3_3_files() -> Vec<(&'static str, &'static [u8], serde_json::Value)> {
+        [
+            v3_3_file!("custom-full"),
+            v3_3_file!("built-in-plain"),
+            v3_3_file!("logo-colors-only"),
+            v3_3_file!("background-color-only"),
+            v3_3_file!("older-empty-colors"),
+            v3_3_file!("unknown-fields"),
+            v3_3_file!("library-rewritten"),
+        ]
+            .into_iter()
+            .map(|(name, bytes, expected)| (name, bytes, as_this_build_reads(name, serde_json::from_str(expected).unwrap())))
+            .collect()
+    }
+
+    /// The one place this build reads a 3.3 file differently on purpose:
+    /// theme CSS keeps only the variables this app knows, so the
+    /// `--sparkle-size` line of `unknown-fields` is left out.
+    fn as_this_build_reads(name: &str, mut expected: serde_json::Value) -> serde_json::Value {
+        if name == "unknown-fields" {
+            for snapshot in ["read", "written_again"] {
+                let css = &mut expected[snapshot]["colors"]["custom"]["css"];
+                let kept = css.as_str().unwrap().replace("\n--sparkle-size: 3rem;", "");
+                assert_ne!(css.as_str().unwrap(), kept, "{}: the line 3.3 kept", snapshot);
+                *css = kept.into();
+            }
+        }
+        expected
+    }
+
+    /// `base` with the theme, logo and background settings a snapshot's
+    /// `start` or `applied` holds.
+    fn with_look(base: &AppConfig, look: &serde_json::Value) -> AppConfig {
+        let field = |key: &str| look[key].clone();
+        let mut config = base.clone();
+        config.theme = serde_json::from_value(field("theme")).unwrap();
+        config.enable_logo_customization = serde_json::from_value(field("enable_logo_customization")).unwrap();
+        config.logo_customization = serde_json::from_value(field("logo_customization")).unwrap();
+        config.enable_background_customization = serde_json::from_value(field("enable_background_customization")).unwrap();
+        config.background_customization = serde_json::from_value(field("background_customization")).unwrap();
+        config
+    }
+
+    #[test]
+    fn format_one_files_from_v3_3_read_the_same() {
+        use sha2::{ Digest, Sha256 };
+
+        for (name, bytes, expected) in v3_3_files() {
+            let read = from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e));
+            let expected = &expected["read"];
+
+            assert_eq!(read.name, expected["name"], "{}: name", name);
+            let colors = match &read.colors {
+                SharedColors::BuiltIn(theme) => serde_json::json!({ "built_in": format!("{:?}", theme) }),
+                SharedColors::Custom { css } => serde_json::json!({ "custom": { "css": css } }),
+            };
+            assert_eq!(colors, expected["colors"], "{}: colors", name);
+            let logo: Option<LogoCustomization> = serde_json::from_value(expected["logo"].clone()).unwrap();
+            assert_eq!(read.logo, logo, "{}: logo", name);
+            let background: Option<BackgroundCustomization> = serde_json
+                ::from_value(expected["background"].clone())
+                .unwrap();
+            assert_eq!(read.background, background, "{}: background", name);
+            let images: serde_json::Map<String, serde_json::Value> = read.images
+                .iter()
+                .map(|(image, bytes)| {
+                    (image.clone(), crate::utils::update_installer::hex_encode(&Sha256::digest(bytes)).into())
+                })
+                .collect();
+            assert_eq!(serde_json::Value::Object(images), expected["images"], "{}: images", name);
+        }
+    }
+
+    #[test]
+    fn format_one_files_apply_the_same_as_v3_3() {
+        let base = AppConfig::default();
+        for (name, bytes, expected) in v3_3_files() {
+            let theme = from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e));
+            let choice = match &theme.colors {
+                SharedColors::BuiltIn(built_in) => Theme::BuiltIn(built_in.clone()),
+                SharedColors::Custom { .. } => Theme::Custom("imported-colors".to_string()),
+            };
+            let start = with_look(&base, &expected["start"]);
+            let mut config = start.clone();
+            apply_to_config(&theme, Some(choice), ImportParts::ALL, &mut config);
+            // On purpose unlike 3.3: a part the file leaves out stays as the
+            // user has it, where 3.3 switched it off. 3.3 kept its settings.
+            let mut applied = with_look(&base, &expected["applied"]);
+            if theme.logo.is_none() {
+                assert!(!applied.enable_logo_customization, "{}: 3.3 switched the logo off", name);
+                applied.enable_logo_customization = start.enable_logo_customization;
+            }
+            if theme.background.is_none() {
+                assert!(!applied.enable_background_customization, "{}: 3.3 switched the background off", name);
+                applied.enable_background_customization = start.enable_background_customization;
+            }
+            assert_eq!(config, applied, "{}", name);
+        }
+    }
+
+    /// A file read and written again holds what 3.3 wrote back, so a file
+    /// that passes through this build still opens in 3.3 as it did.
+    #[test]
+    fn writing_a_v3_3_file_again_keeps_its_fields() {
+        for (name, bytes, expected) in v3_3_files() {
+            let written = to_bytes(&from_bytes(bytes).unwrap_or_else(|e| panic!("{}: {}", name, e))).unwrap();
+            assert_eq!(manifest_json(&written), expected["written_again"], "{}", name);
+        }
+    }
+
+    #[test]
+    fn an_unknown_built_in_name_is_damaged() {
+        let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Neon"}}"#;
+        assert_eq!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).unwrap_err(), "This theme file is damaged.");
+        let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Synthwave"}}"#;
+        assert!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).is_ok());
     }
 
     #[test]
@@ -890,19 +1527,134 @@ mod tests {
 
     #[test]
     fn removing_a_comment_never_joins_a_new_one() {
-        let css = safe_theme_css("--a: red//**/*x;\n--b: blue;");
+        let css = safe_theme_css("--color-a: red//**/*x;\n--color-b: blue;");
         assert!(!css.contains("/*"), "{}", css);
-        assert!(css.ends_with("--b: blue;"));
+        assert!(css.ends_with("--color-b: blue;"));
     }
 
     #[test]
     fn theme_css_keeps_only_colour_declarations() {
         let css = "/* Colors */\n--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n\
-                   --evil: url(https://example.com/x);\n} body { display: none; }\n@import url(x);\n--last: #fff";
+                   --evil: url(https://example.com/x);\n} body { display: none; }\n@import url(x);\n--color-last: #fff";
         assert_eq!(
             safe_theme_css(css),
-            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n--last: #fff;"
+            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;\n--color-last: #fff;"
         );
+    }
+
+    #[test]
+    fn a_theme_cannot_hide_the_text() {
+        let css = "--color-base-content: transparent;\n--color-primary: #0000;\n\
+                   --color-base-100: oklch(50% 0.1 30 / 0);\n--size-field: 999rem;\n--evil: red;\n\
+                   --color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;";
+        assert_eq!(
+            safe_theme_css(css),
+            "--color-primary: oklch(55% 0.3 240);\n--radius-box: 0.5rem;\ncolor-scheme: dark;"
+        );
+    }
+
+    #[test]
+    fn colours_that_draw_nothing_are_recognised() {
+        for invisible in [
+            "transparent",
+            "TRANSPARENT",
+            "#0000",
+            "#ffffff00",
+            "rgb(0 0 0 / 0)",
+            "rgba(255, 0, 0, 0)",
+            "hsla(10, 50%, 50%, 0.0)",
+            "oklch(50% 0.1 30 / 0%)",
+            "oklch(from var(--color-primary) l c h / .0)",
+        ] {
+            assert!(is_invisible_color(invisible), "{}", invisible);
+        }
+        for visible in [
+            "#000",
+            "#00000001",
+            "red",
+            "rgb(0 0 0)",
+            "rgba(0, 0, 0, 0.5)",
+            "oklch(50% calc(0.2 / 2) 0)",
+            "oklch(from var(--color-primary) l c h / 0.05)",
+            "var(--color-base-100)",
+            "color-mix(in oklab, red 0%, blue)",
+        ] {
+            assert!(!is_invisible_color(visible), "{}", visible);
+        }
+    }
+
+    #[test]
+    fn a_colour_cannot_draw_nothing_by_another_spelling() {
+        for invisible in [
+            "oklch(50% 0.1 30 / -1)",
+            "oklch(50% 0.1 30 / none)",
+            "oklch(50% 0.1 30 / calc(0))",
+            "rgb(0 0 0 / +0)",
+            "rgb(0 0 0 / 0e0)",
+            "var(--color-nothing, transparent)",
+            "var(--color-nothing, #0000)",
+            "color-mix(in oklab, transparent, transparent)",
+            "oklch(from transparent l c h)",
+            "oklch(from rgb(0 0 0 / 0) l c h / alpha)",
+        ] {
+            assert!(is_invisible_color(invisible), "{}", invisible);
+        }
+        assert!(!is_invisible_color("oklch(from var(--color-primary) l c h / alpha)"));
+        assert!(!is_invisible_color("rgb(0 0 0 / 1e0)"));
+        assert_eq!(safe_theme_css("--color-base-content: transparent !important;"), "");
+        assert_eq!(safe_theme_css("--color-base-content: red !important;"), "");
+    }
+
+    #[test]
+    fn a_colour_is_one_colour_not_a_list() {
+        let list = "red, 0 0 0 100vmax rgb(0 0 0)";
+        assert_eq!(safe_theme_css(&format!("--color-primary: {};", list)), "");
+        assert_eq!(safe_theme_css("--color-primary: red blue;"), "");
+        assert_eq!(
+            safe_theme_css("--color-primary: color-mix(in oklab, red 40%, blue);"),
+            "--color-primary: color-mix(in oklab, red 40%, blue);"
+        );
+
+        let mut theme = look();
+        theme.logo.as_mut().unwrap().shadow_color = list.to_string();
+        assert_eq!(
+            from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(),
+            "This theme file has a color this app cannot use."
+        );
+        let mut theme = look();
+        theme.background.as_mut().unwrap().background_color = list.to_string();
+        assert!(from_bytes(&to_bytes(&theme).unwrap()).is_err());
+
+        let mut theme = look();
+        theme.logo.as_mut().unwrap().shadow_color = "oklch(from var(--color-primary) l c h / 0.05)".to_string();
+        assert!(from_bytes(&to_bytes(&theme).unwrap()).is_ok(), "spaces inside a function are fine");
+    }
+
+    #[test]
+    fn theme_sizes_must_stay_in_range() {
+        let kept = |declaration: &str| !safe_theme_css(declaration).is_empty();
+        assert!(kept("--radius-box: 0;") && kept("--radius-box: 2rem;") && kept("--radius-field: 32px;"));
+        assert!(!kept("--radius-box: 2.5rem;") && !kept("--radius-box: -1px;") && !kept("--radius-box: 1em;"));
+        assert!(kept("--size-field: 0.125rem;") && kept("--size-selector: 8px;"));
+        assert!(!kept("--size-field: 0;") && !kept("--size-field: 1px;") && !kept("--size-field: 1e1px;"));
+        assert!(kept("--border: 0.5px;") && kept("--border: 2px;"));
+        assert!(!kept("--border: 0;") && !kept("--border: 3px;"));
+        assert!(kept("--depth: 1;") && kept("--noise: 0;"));
+        assert!(!kept("--depth: 2;") && !kept("--noise: 0.5;"));
+        assert!(kept("color-scheme: light;") && !kept("color-scheme: normal;"));
+        assert!(!kept("--color-: red;") && !kept("--color-a_b: red;") && !kept("--radius-other: 1px;"));
+    }
+
+    #[test]
+    fn the_default_colors_template_passes_the_filter() {
+        use crate::components::customize::colors_editor_modal::THEME_DEFAULT_CSS;
+
+        let declarations: Vec<&str> = THEME_DEFAULT_CSS.lines()
+            .map(str::trim)
+            .filter(|line| !line.is_empty() && !line.starts_with("/*"))
+            .collect();
+        assert!(declarations.len() > 20);
+        assert_eq!(safe_theme_css(THEME_DEFAULT_CSS), declarations.join("\n"));
     }
 
     #[test]
@@ -1069,17 +1821,465 @@ mod tests {
         assert!(is_animated(b"GIF89a"));
     }
 
+    /// A RIFF chunk: its name, its length, its data and a pad byte when the
+    /// length is odd.
+    fn riff_chunk(name: &[u8; 4], data: &[u8]) -> Vec<u8> {
+        let mut out = name.to_vec();
+        out.extend_from_slice(&(data.len() as u32).to_le_bytes());
+        out.extend_from_slice(data);
+        if data.len() % 2 == 1 {
+            out.push(0);
+        }
+        out
+    }
+
+    fn webp_file(chunks: &[Vec<u8>]) -> Vec<u8> {
+        let body = chunks.concat();
+        [b"RIFF".as_slice(), &((body.len() + 4) as u32).to_le_bytes(), b"WEBP", &body].concat()
+    }
+
+    fn u24(value: u32) -> [u8; 3] {
+        let [a, b, c, _] = value.to_le_bytes();
+        [a, b, c]
+    }
+
+    /// The start of a lossless picture that claims `width` x `height`.
+    fn vp8l(width: u32, height: u32) -> Vec<u8> {
+        let bits = (width - 1) | ((height - 1) << 14);
+        riff_chunk(b"VP8L", &[[0x2f].as_slice(), &bits.to_le_bytes()].concat())
+    }
+
+    /// The start of a lossy picture that claims `width` x `height`.
+    fn vp8(width: u16, height: u16) -> Vec<u8> {
+        riff_chunk(b"VP8 ", &[[0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a].as_slice(), &width.to_le_bytes(), &height.to_le_bytes()].concat())
+    }
+
+    fn vp8x(width: u32, height: u32) -> Vec<u8> {
+        riff_chunk(b"VP8X", &[[0x02, 0, 0, 0].as_slice(), &u24(width - 1), &u24(height - 1)].concat())
+    }
+
+    /// A frame of an animation at `x`, `y` on the canvas, holding `picture`.
+    fn anmf(x: u32, y: u32, width: u32, height: u32, picture: &[u8]) -> Vec<u8> {
+        let header = [u24(x / 2), u24(y / 2), u24(width - 1), u24(height - 1), u24(100)].concat();
+        riff_chunk(b"ANMF", &[header.as_slice(), &[0], picture].concat())
+    }
+
+    /// The two pictures of the `library-rewritten` fixture, as the theme
+    /// library wrote them: a lossless and a lossy WebP of one pixel.
+    const LIBRARY_VP8L: &[u8] = &[
+        0x52, 0x49, 0x46, 0x46, 0x1a, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x4c, 0x0d, 0x00,
+        0x00, 0x00, 0x2f, 0x00, 0x00, 0x00, 0x10, 0x07, 0x10, 0x11, 0x11, 0x88, 0x88, 0xfe, 0x07, 0x00,
+    ];
+    const LIBRARY_VP8: &[u8] = &[
+        0x52, 0x49, 0x46, 0x46, 0x22, 0x00, 0x00, 0x00, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 0x16, 0x00,
+        0x00, 0x00, 0x30, 0x01, 0x00, 0x9d, 0x01, 0x2a, 0x01, 0x00, 0x01, 0x00, 0x0e, 0xc0, 0xfe, 0x25, 0xa4, 0x00,
+        0x03, 0x70, 0x00, 0x00, 0x00, 0x00,
+    ];
+
     #[test]
-    fn applying_switches_off_the_parts_a_look_leaves_out() {
+    fn a_webp_size_is_read_from_its_chunks() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(small_enough_to_decode(LIBRARY_VP8L, MAX_SHRINK_PIXELS));
+        assert!(small_enough_to_decode(LIBRARY_VP8, MAX_SHRINK_PIXELS));
+        assert!(fits(&[vp8x(1, 1), LIBRARY_VP8L[12..].to_vec()]), "a still picture with a canvas");
+        assert!(fits(&[vp8l(16384, 2441)]), "just under 40 million pixels");
+        assert!(fits(&[vp8x(64, 64), riff_chunk(b"ANIM", &[0; 6]), anmf(32, 32, 32, 32, &vp8l(32, 32))]));
+        for (pixels, size) in [(10_000, (100, 100)), (9_999, (100, 100))] {
+            let file = webp_file(&[vp8l(size.0, size.1)]);
+            assert_eq!(small_enough_to_decode(&file, pixels), pixels == 10_000);
+        }
+    }
+
+    /// The image crate decodes a WebP's first picture to report its size, so
+    /// a few bytes that claim a huge picture have to be turned away before it
+    /// sees them.
+    #[test]
+    fn a_webp_that_claims_a_huge_picture_is_never_decoded() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(!fits(&[vp8l(16384, 16384)]));
+        assert!(!fits(&[vp8(16383, 16383)]));
+        assert!(!fits(&[vp8x(16384, 16384), vp8l(1, 1)]), "a huge canvas");
+        assert!(!fits(&[vp8x(1, 1), vp8l(16384, 16384)]), "a picture larger than its canvas");
+        assert!(!fits(&[vp8x(1, 1), vp8l(2, 1)]), "a picture wider than its canvas");
+        assert!(!fits(&[vp8x(64, 64), anmf(0, 0, 64, 64, &vp8l(16384, 16384))]), "a huge frame picture");
+        assert!(!fits(&[vp8x(64, 64), anmf(34, 0, 32, 32, &vp8l(32, 32))]), "a frame off the canvas");
+        assert!(!fits(&[anmf(0, 0, 1, 1, &vp8l(1, 1))]), "a frame without a canvas");
+        assert!(!fits(&[vp8x(1, 1), anmf(0, 0, 1, 1, &anmf(0, 0, 1, 1, &vp8l(1, 1)))]), "a frame in a frame");
+    }
+
+    #[test]
+    fn a_webp_whose_size_cannot_be_read_is_never_decoded() {
+        let fits = |chunks: &[Vec<u8>]| small_enough_to_decode(&webp_file(chunks), MAX_SHRINK_PIXELS);
+        assert!(!fits(&[riff_chunk(b"VP8L", &[0x2f, 0, 0])]), "cut short");
+        assert!(!fits(&[riff_chunk(b"VP8L", &[0x2e, 0, 0, 0, 0])]), "no signature");
+        assert!(!fits(&[riff_chunk(b"VP8 ", &[0x30, 0x01, 0x00, 0, 0, 0, 1, 0, 1, 0])]), "no start code");
+        assert!(!fits(&[vp8(0, 10)]), "no width");
+        assert!(!fits(&[riff_chunk(b"VP8X", &[0; 9])]));
+        // The decoder reads on past the length the RIFF header gives.
+        let mut file = webp_file(&[vp8l(1, 1)]);
+        file.extend_from_slice(&vp8l(16384, 16384));
+        assert!(!small_enough_to_decode(&file, MAX_SHRINK_PIXELS));
+    }
+
+    #[test]
+    fn frames_nested_deep_are_turned_away_without_running_out_of_stack() {
+        let depth = 100_000;
+        let mut file = webp_file(&[vp8x(1, 1)]);
+        for level in 0..depth {
+            let length = 16 + 24 * (depth - 1 - level);
+            file.extend_from_slice(b"ANMF");
+            file.extend_from_slice(&(length as u32).to_le_bytes());
+            file.extend_from_slice(&[0; 15]);
+            file.push(0);
+        }
+        assert!(!small_enough_to_decode(&file, MAX_SHRINK_PIXELS));
+    }
+
+    #[test]
+    fn a_huge_webp_is_kept_as_it_is_when_sharing() {
+        assert_eq!(shrink_image(&webp_file(&[vp8l(16384, 16384)]), true), None);
+    }
+
+    #[test]
+    fn applying_leaves_the_parts_a_look_leaves_out_alone() {
         let mut config = AppConfig::default();
         config.enable_logo_customization = true;
         config.logo_customization.text_color = "red".to_string();
         let theme = SharedTheme { logo: None, ..look() };
-        apply_to_config(&theme, Theme::BuiltIn(BuiltInTheme::Dark), &mut config);
+        apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
         assert_eq!(config.theme, Theme::BuiltIn(BuiltInTheme::Dark));
-        assert!(!config.enable_logo_customization);
+        assert!(config.enable_logo_customization);
         assert_eq!(config.logo_customization.text_color, "red");
         assert!(config.enable_background_customization);
         assert_eq!(config.background_customization.background_color, "#101010");
+    }
+
+    /// A config with its own colours, logo and background, all switched on.
+    fn my_config() -> AppConfig {
+        let mut config = AppConfig::default();
+        config.theme = Theme::BuiltIn(BuiltInTheme::Synthwave);
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "red".to_string();
+        config.enable_background_customization = true;
+        config.background_customization.background_color = "#202020".to_string();
+        config
+    }
+
+    #[test]
+    fn all_parts_ticked_changes_only_what_the_look_has() {
+        let mut config = AppConfig::default();
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "red".to_string();
+        let theme = SharedTheme { logo: None, ..look() };
+        let mut expected = config.clone();
+        apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
+
+        expected.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        expected.enable_background_customization = true;
+        expected.background_customization = theme.background.clone().unwrap();
+        assert_eq!(config, expected);
+    }
+
+    #[test]
+    fn unticked_parts_leave_the_config_alone() {
+        let theme = look();
+        let mine = my_config();
+
+        let mut config = mine.clone();
+        let parts = ImportParts { logo: false, ..ImportParts::ALL };
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), parts, &mut config);
+        assert_eq!(config.enable_logo_customization, mine.enable_logo_customization);
+        assert_eq!(config.logo_customization, mine.logo_customization);
+        assert_eq!(config.theme, Theme::Custom("night".to_string()));
+        assert_eq!(config.background_customization, theme.background.clone().unwrap());
+
+        let mut config = mine.clone();
+        let parts = ImportParts { colors: false, ..ImportParts::ALL };
+        apply_to_config(&theme, None, parts, &mut config);
+        assert_eq!(config.theme, mine.theme);
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), parts, &mut config);
+        assert_eq!(config.theme, mine.theme, "unticked colours stay even when a choice is passed");
+
+        let mut config = mine.clone();
+        let none = ImportParts { colors: false, logo: false, background: false };
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), none, &mut config);
+        assert_eq!(config, mine);
+    }
+
+    #[test]
+    fn a_ticked_absent_part_leaves_yours_on_or_off() {
+        let theme = SharedTheme { logo: None, background: None, ..look() };
+        let mine = my_config();
+        let mut config = mine.clone();
+        apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
+        assert_eq!(config, mine, "yours on stays on");
+
+        let off = AppConfig { enable_logo_customization: false, enable_background_customization: false, ..mine };
+        let mut config = off.clone();
+        apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
+        assert_eq!(config, off, "yours off stays off");
+    }
+
+    #[test]
+    fn only_the_parts_a_look_has_can_be_ticked() {
+        assert_eq!(look().parts(), ImportParts::ALL);
+        let theme = SharedTheme { logo: None, ..look() };
+        assert_eq!(theme.parts(), ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(ImportParts::ALL.within(theme.parts()), theme.parts());
+
+        // Unticking the colours of a look with only colours leaves nothing to use.
+        let colors_only = SharedTheme { logo: None, background: None, ..look() };
+        let ticked = ImportParts::ALL.with(Part::Colors, false);
+        assert!(ticked.any());
+        assert!(!ticked.within(colors_only.parts()).any());
+    }
+
+    #[test]
+    fn unticked_parts_bring_no_images() {
+        let mut theme = look();
+        theme.keep_parts(ImportParts { background: false, ..ImportParts::ALL });
+        assert_eq!(theme.background, None);
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["logo.png"]);
+
+        let mut theme = look();
+        theme.keep_parts(ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(theme.logo, None);
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["background.jpg"]);
+
+        // An image both parts use stays while one of them is kept.
+        let mut theme = look();
+        theme.background.as_mut().unwrap().background_image = Some("logo.png".to_string());
+        theme.images.remove("background.jpg");
+        theme.keep_parts(ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["logo.png"]);
+
+        let mut theme = look();
+        theme.keep_parts(ImportParts::ALL);
+        assert_eq!(theme, look());
+    }
+
+    /// The import dialog lists what the file holds, so a library theme shows
+    /// what will be put on rather than what the library page said.
+    #[test]
+    fn what_a_theme_holds_is_read_from_the_file() {
+        let theme = look();
+        assert_eq!(theme.colors_label(), "Custom colors");
+        assert_eq!(theme.logo_label(), Some("Logo with images"));
+        assert_eq!(theme.background_label(), Some("Background image"));
+
+        let mut theme = SharedTheme { colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave), background: None, ..look() };
+        theme.logo.as_mut().unwrap().use_background_image = false;
+        assert_eq!(theme.colors_label(), "Synthwave");
+        assert_eq!(theme.logo_label(), Some("Logo style"));
+        assert_eq!(theme.background_label(), None);
+
+        theme.background = Some(BackgroundCustomization { use_image: false, ..look().background.unwrap() });
+        assert_eq!(theme.background_label(), Some("Background color"));
+    }
+
+    #[test]
+    fn a_part_that_is_on_says_it_will_be_replaced() {
+        let theme = look();
+        let mut config = AppConfig::default();
+        config.enable_logo_customization = true;
+        let [colors, logo, background] = checklist(&theme, &config);
+        assert_eq!((colors.part, colors.label.as_str(), colors.note), (Part::Colors, "Colors: Custom colors", None));
+        assert_eq!((logo.part, logo.label.as_str(), logo.note), (Part::Logo, "Logo with images", Some("Replaces your logo")));
+        assert_eq!((background.part, background.label.as_str(), background.note), (Part::Background, "Background image", None));
+
+        config.enable_logo_customization = false;
+        config.enable_background_customization = true;
+        let [_, logo, background] = checklist(&theme, &config);
+        assert_eq!(logo.note, None);
+        assert_eq!(background.note, Some("Replaces your background"));
+    }
+
+    #[test]
+    fn a_library_part_the_api_left_out_is_not_installed() {
+        // The library listed a logo (`has_logo: true`), but the file it served
+        // has none. The checklist only ever reads the file.
+        let dir = temp_dir("library");
+        let mut theme = SharedTheme { logo: None, ..look() };
+        let [_, logo, _] = checklist(&theme, &my_config());
+        assert_eq!(logo.label, "Logo");
+        assert!(!logo.in_theme);
+        assert_eq!(logo.note, Some("Not in this theme. Yours stays as it is."));
+
+        theme.keep_parts(ImportParts::ALL);
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
+        assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))], "no logo image is saved");
+        let mut config = my_config();
+        apply_to_config(&theme, None, ImportParts::ALL, &mut config);
+        assert!(config.enable_logo_customization);
+        assert_eq!(config.logo_customization, my_config().logo_customization, "nothing of a logo is put on");
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // The library said there is no logo (`has_logo: false`), but the file
+        // has one: the dialog lists the file's logo, which is what gets put on.
+        let [_, logo, _] = checklist(&look(), &AppConfig::default());
+        assert_eq!(logo.label, "Logo with images");
+        assert!(logo.in_theme);
+        assert_eq!(logo.note, None);
+    }
+
+    #[test]
+    fn parts_are_ticked_one_at_a_time() {
+        let parts = ImportParts::ALL.with(Part::Logo, false);
+        assert_eq!(parts, ImportParts { logo: false, ..ImportParts::ALL });
+        assert!(!parts.has(Part::Logo) && parts.has(Part::Colors) && parts.has(Part::Background));
+        assert!(parts.any());
+
+        let none = parts.with(Part::Colors, false).with(Part::Background, false);
+        assert!(!none.any(), "nothing ticked leaves nothing to use");
+        assert!(none.with(Part::Background, true).any());
+    }
+
+    #[test]
+    fn the_look_on_screen_reads_custom_colors_from_the_list() {
+        let mut themes = ThemesConfig::default();
+        let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
+        let mut config = my_config();
+        config.theme = Theme::Custom(id);
+        config.enable_background_customization = false;
+
+        let look = Look::from_config(&config, &themes);
+        assert_eq!(look.colors, LookColors::Known(SharedColors::Custom { css: "--color-primary: red;".to_string() }));
+        assert_eq!(look.logo, Some(config.logo_customization.clone()));
+        assert_eq!(look.background, None, "a part that is off is not in the look");
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        let look = Look::from_config(&config, &themes);
+        assert_eq!(look.colors, LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::Dark)));
+    }
+
+    #[test]
+    fn missing_custom_colors_read_as_missing_not_system() {
+        let mut config = my_config();
+        config.theme = Theme::Custom("gone".to_string());
+        let look = Look::from_config(&config, &ThemesConfig::default());
+        assert_eq!(look.colors, LookColors::Missing("gone".to_string()));
+    }
+
+    #[tokio::test]
+    async fn sharing_missing_colors_is_refused() {
+        let mut config = my_config();
+        config.theme = Theme::Custom("gone".to_string());
+        let look = Look::from_config(&config, &ThemesConfig::default());
+        assert_eq!(
+            gather("Mine", &look).await.unwrap_err(),
+            "The selected theme is missing. Pick a theme and try again."
+        );
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        let shared = gather("Mine", &Look::from_config(&config, &ThemesConfig::default())).await.unwrap();
+        assert_eq!(shared.colors, SharedColors::BuiltIn(BuiltInTheme::Dark));
+        assert_eq!(shared.logo, Some(config.logo_customization.clone()));
+    }
+
+    #[test]
+    fn a_shared_name_says_theme_not_look() {
+        let mut themes = ThemesConfig::default();
+        let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
+        let mut config = my_config();
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        assert_eq!(default_name(&config, &themes), "My Dark theme");
+        config.theme = Theme::Custom(id);
+        assert_eq!(default_name(&config, &themes), "Night");
+        config.theme = Theme::Custom("gone".to_string());
+        assert_eq!(default_name(&config, &themes), "My theme");
+    }
+
+    /// An empty folder of its own under the system temp folder.
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("mechvibes-theme-{}-{}", name, uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn installing_reports_only_files_it_created() {
+        let dir = temp_dir("install");
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+
+        let mut theme = look();
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        let logo = theme.logo.as_ref().unwrap().background_image.clone().unwrap();
+        let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
+        assert_eq!(logo, format!("/custom-images/{}", in_use), "the same image is not saved again");
+        assert!(background.starts_with("/custom-images/img-") && background.ends_with(".jpg"), "{}", background);
+        assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))]);
+        assert!(theme.images.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn undoing_an_import_keeps_an_image_already_in_use() {
+        let dir = temp_dir("undo");
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+
+        let mut theme = look();
+        let created = install_images_in(&mut theme, &dir).unwrap();
+        remove_images(&created);
+        assert_eq!(std::fs::read(dir.join(&in_use)).unwrap(), PNG);
+        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
+        assert_eq!(left.len(), 1, "only the image that was there before");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_folder_is_not_opened_as_a_theme() {
+        let dir = temp_dir("folder");
+        let folder = dir.join("looks-like-a.mvtheme");
+        std::fs::create_dir_all(&folder).unwrap();
+        assert_eq!(open(&folder).unwrap_err(), "This is not a Mechvibes theme file.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_refused_without_waiting_for_a_writer() {
+        let dir = temp_dir("pipe");
+        let pipe = dir.join("cool.mvtheme");
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+        assert!(made.success());
+        assert_eq!(open(&pipe).unwrap_err(), "This is not a Mechvibes theme file.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sharing_adds_the_extension_without_cutting_the_name_or_replacing_a_file() {
+        let dir = temp_dir("share");
+        std::fs::write(dir.join("Neon v1.mvtheme"), b"another theme").unwrap();
+        std::fs::write(dir.join("notes.mvtheme"), b"another theme").unwrap();
+
+        assert_eq!(
+            share_target(&dir.join("Neon v1.2")).unwrap(),
+            (dir.join("Neon v1.2.mvtheme"), "Neon v1.2".to_string())
+        );
+        assert!(share_target(&dir.join("notes")).is_err(), "the dialog never asked about notes.mvtheme");
+        // A name the dialog showed with its extension was already asked about.
+        assert_eq!(
+            share_target(&dir.join("notes.mvtheme")).unwrap(),
+            (dir.join("notes.mvtheme"), "notes".to_string())
+        );
+        assert_eq!(share_target(&dir.join("Night.MVTHEME")).unwrap().1, "Night");
+        assert_eq!(std::fs::read(dir.join("Neon v1.mvtheme")).unwrap(), b"another theme");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_file_over_the_limit_is_refused_without_reading_it_all() {
+        let dir = temp_dir("large");
+        let path = dir.join("large.mvtheme");
+        std::fs::File::create(&path).unwrap().set_len(MAX_FILE_BYTES * 4).unwrap();
+        assert_eq!(open(&path).unwrap_err(), "This theme file is too large.");
+
+        let theme = look();
+        let path = dir.join("fine.mvtheme");
+        std::fs::write(&path, to_bytes(&theme).unwrap()).unwrap();
+        assert_eq!(open(&path).unwrap(), theme);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -57,6 +57,9 @@ zip = "2.2.0"
 device_query = "4.0.1"
 directories = "6.0.0"
 sha2 = "0.11.0"
+# Turns a `file://` URL from a Linux file manager into a path. Already in the
+# tree via tao.
+url = "2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
 evdev = "0.13"
@@ -155,6 +158,9 @@ assets = [
   ["assets/**/*", "usr/lib/mechvibes/assets/", "644"],
   ["assets/icon.png", "usr/share/icons/hicolor/512x512/apps/mechvibes.png", "644"],
   ["mechvibes.desktop", "usr/share/applications/", "644"],
+  # The .mvtheme file type. The package has no scripts to rebuild the MIME
+  # cache; shared-mime-info's dpkg trigger on this folder is what does it.
+  ["packaging/linux/mechvibes.xml", "usr/share/mime/packages/mechvibes.xml", "644"],
   ["README.md", "usr/share/doc/mechvibes/", "644"],
   ["soundpacks/**/*", "usr/share/mechvibes/soundpacks/", "644"],
 ]

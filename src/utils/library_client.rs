@@ -16,6 +16,8 @@ const MAX_PACK_BYTES: u64 = 50 * 1024 * 1024;
 /// The details of one pack or theme are a few hundred bytes.
 const MAX_DETAILS_BYTES: usize = 64 * 1024;
 const DETAILS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+/// The longest description the theme library takes.
+const MAX_DESCRIPTION_CHARS: usize = 500;
 
 /// What the install dialog shows before anything is downloaded.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -55,6 +57,8 @@ pub struct LibraryTheme {
     pub name: String,
     #[serde(default)]
     pub author: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
     pub colors_label: String,
     pub has_logo: bool,
     pub has_background: bool,
@@ -134,6 +138,13 @@ fn check_theme(id: &str, mut theme: LibraryTheme) -> Result<LibraryTheme, String
         ::clean_name(&theme.name)
         .ok_or_else(|| "The theme library sent a theme without a name.".to_string())?;
     theme.author = theme.author.as_deref().and_then(theme_share::clean_name);
+    theme.description = theme.description
+        .as_deref()
+        // Line breaks part sentences here, so they become spaces rather than
+        // being dropped with the other control characters.
+        .and_then(|description| {
+            theme_share::clean_text(&description.replace(char::is_whitespace, " "), MAX_DESCRIPTION_CHARS)
+        });
     theme.colors_label = theme_share::clean_name(&theme.colors_label).unwrap_or_else(|| "Custom colors".to_string());
     Ok(theme)
 }
@@ -286,6 +297,7 @@ mod tests {
         let theme = check_theme(THEME_ID, theme()).expect("valid theme");
         assert_eq!(theme.name, "Night drive");
         assert_eq!(theme.author.as_deref(), Some("Hai"));
+        assert_eq!(theme.description.as_deref(), Some("Dark and pink."));
         assert_eq!(theme.colors_label, "Custom colors");
         assert!(theme.has_logo && !theme.has_background);
         assert_eq!(theme.size, 812345);
@@ -312,5 +324,25 @@ mod tests {
         let theme = check_theme(THEME_ID, odd).unwrap();
         assert!(theme.name.starts_with("Night drive") && theme.name.chars().count() == 64);
         assert_eq!(theme.author.as_deref(), Some("[31m"));
+    }
+
+    #[test]
+    fn a_description_is_tidied_bounded_and_optional() {
+        let mut long = theme();
+        long.description = Some(format!("Dark\n\n and\tpink. {}", "x".repeat(600)));
+        let description = check_theme(THEME_ID, long).unwrap().description.unwrap();
+        assert!(description.starts_with("Dark and pink. x"));
+        assert_eq!(description.chars().count(), MAX_DESCRIPTION_CHARS);
+
+        let mut blank = theme();
+        blank.description = Some(" \n ".to_string());
+        assert_eq!(check_theme(THEME_ID, blank).unwrap().description, None);
+
+        let without = THEME_RESPONSE.replace(r#""description":"Dark and pink.","#, "");
+        assert_ne!(without, THEME_RESPONSE);
+        let theme = serde_json::from_str::<ThemeResponse>(&without).expect("description is optional").theme;
+        assert_eq!(theme.description, None);
+        let null = THEME_RESPONSE.replace(r#""Dark and pink.""#, "null");
+        assert_eq!(serde_json::from_str::<ThemeResponse>(&null).unwrap().theme.description, None);
     }
 }

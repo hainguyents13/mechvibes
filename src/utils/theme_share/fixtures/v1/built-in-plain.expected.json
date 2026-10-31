@@ -1,0 +1,66 @@
+{
+  "applied": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": false,
+    "enable_logo_customization": false,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Synthwave"
+    }
+  },
+  "read": {
+    "background": null,
+    "colors": {
+      "built_in": "Synthwave"
+    },
+    "images": {},
+    "logo": null,
+    "name": "Plain synthwave"
+  },
+  "start": {
+    "background_customization": {
+      "background_color": "#060606",
+      "background_image": "/custom-images/my-wallpaper.jpg",
+      "use_image": true
+    },
+    "enable_background_customization": true,
+    "enable_logo_customization": true,
+    "logo_customization": {
+      "background_color": "#040404",
+      "background_image": "/custom-images/mine.png",
+      "border_color": "#010101",
+      "dimmed_when_muted": false,
+      "muted_background": "#050505",
+      "muted_background_image": null,
+      "shadow_color": "#030303",
+      "text_color": "#020202",
+      "use_background_image": true,
+      "use_muted_background_image": false
+    },
+    "theme": {
+      "BuiltIn": "Retro"
+    }
+  },
+  "written_again": {
+    "colors": {
+      "built_in": "Synthwave"
+    },
+    "format": 1,
+    "name": "Plain synthwave"
+  }
+}

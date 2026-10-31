@@ -101,12 +101,21 @@ fn main() {
         libs::console_attach::attach_to_parent_console();
     }
 
+    // A theme file opened from the file manager travels the same way as a
+    // library link, as text: `deliver_link` tells the two apart. A headless
+    // run has no window to ask in, so it takes no theme file.
+    let deep_link = utils::deep_link::link_from_args(std::env::args_os()).or_else(|| {
+        (!cli.headless)
+            .then(|| utils::deep_link::theme_file_from_args(std::env::args_os()))
+            .flatten()
+            .map(|path| path.to_string_lossy().into_owned())
+    });
+
     // Refuse to start a second copy: two instances means two input listeners
     // and two audio engines, so every keystroke would play twice. Claimed
     // after the worker branch above on purpose - the worker is a child of an
     // instance that already holds this lock and must not be turned away.
     // Held for the whole run; Windows releases it when this process dies.
-    let deep_link = utils::deep_link::link_from_args(std::env::args_os());
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     let _instance_guard = match libs::single_instance::acquire() {
         Some(guard) => guard,
@@ -128,8 +137,9 @@ fn main() {
             // `#![windows_subsystem = "windows"]` means the message below
             // reaches no console.
             //
-            // A library link that started this launch goes to the running
-            // copy, which picks it up when it wakes.
+            // A library link or theme file that started this launch goes to
+            // the running copy, which picks it up when it wakes. Only the
+            // path is passed on; the running copy reads the file.
             if let Some(link) = &deep_link {
                 if let Err(e) = utils::deep_link::hand_over(link) {
                     always_eprint!("⚠️ {}", e);
@@ -144,7 +154,7 @@ fn main() {
     // Answer those requests for the rest of this process's life. Routed
     // through the same WindowAction::Show the tray's "Show" item uses, so a
     // second launch and the tray converge on one show/focus path. A library
-    // link that launch left behind is passed on to the window.
+    // link or theme file that launch left behind is passed on to the window.
     #[cfg(any(target_os = "windows", target_os = "linux"))]
     libs::single_instance::listen_for_wake_requests(|| {
         WINDOW_MANAGER.request_show();
@@ -153,8 +163,8 @@ fn main() {
         }
     });
 
-    // A link that started this launch, and any left over from a launch that
-    // handed one over just as the last copy was closing.
+    // A link or theme file that started this launch, and any left over from a
+    // launch that handed one over just as the last copy was closing.
     let pending_link = deep_link.or_else(utils::deep_link::take_handed_over);
     let opened_by_link = pending_link.is_some();
     if let Some(link) = pending_link {
@@ -206,8 +216,8 @@ fn main() {
     // `auto_start` against the registry) - every later read and write in the
     // process goes to that same in-memory state rather than re-parsing.
     let startup_config = state::config_writer::current();
-    // A library link always opens the window: its dialog is the point of
-    // the launch, even when "start minimized" is on.
+    // A library link or theme file always opens the window: its dialog is
+    // the point of the launch, even when "start minimized" is on.
     let should_start_minimized =
         !opened_by_link &&
         (cli.minimized || (startup_config.auto_start && startup_config.start_minimized));
@@ -216,12 +226,13 @@ fn main() {
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();
 
-    // Windows registers mechvibes:// in the installer and the .deb in its
-    // desktop file. An AppImage installs nothing, so it registers itself.
+    // Windows registers mechvibes:// and .mvtheme files in the installer and
+    // the .deb in its desktop and MIME files. An AppImage installs nothing,
+    // so it registers itself.
     #[cfg(target_os = "linux")]
     if libs::protocol::should_self_register() {
         if let Err(e) = libs::protocol::register_protocol() {
-            always_eprint!("⚠️  Could not register mechvibes:// links: {}", e);
+            always_eprint!("⚠️  Could not register mechvibes:// links and theme files: {}", e);
         }
     }
 

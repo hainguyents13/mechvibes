@@ -1,6 +1,69 @@
+use crate::state::config::LogoCustomization;
 use crate::state::keyboard::KeyboardState;
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
+
+/// The classes and inline style that colour the logo. `logo` is the user's
+/// own logo, or `None` when the theme's logo is used. The classes say only
+/// what changes with the state; the size and shape stay with the caller, so
+/// the Customize preview can draw the same logo smaller.
+pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: bool) -> (String, String) {
+    let mut classes = Vec::new();
+    if pressed || !sound_on {
+        classes.push("logo-pressed");
+    }
+    let shadow = !pressed && sound_on;
+
+    // Every style below names the same properties, and the background ones
+    // through a shorthand with nothing deferred in it: Dioxus puts back any
+    // inline property a new `style` leaves out, which kept an own logo's image
+    // and border on screen after switching back to the theme's logo.
+    // `revert-layer` hands a property back to the stylesheet.
+    let style = if let Some(logo) = logo {
+        // Normal state uses the background image if it is on, otherwise the
+        // colour; the muted state has its own pair.
+        let (use_image, image, color) = if sound_on {
+            (logo.use_background_image, &logo.background_image, &logo.background_color)
+        } else {
+            (logo.use_muted_background_image, &logo.muted_background_image, &logo.muted_background)
+        };
+        let background_style = match image {
+            Some(img) if use_image => format!("background: url('{}') center / cover", img),
+            _ => format!("background: revert-layer; background-color: {}", color),
+        };
+
+        if !sound_on {
+            classes.push("logo-muted");
+            if logo.dimmed_when_muted {
+                classes.push("opacity-50");
+            }
+        }
+
+        format!(
+            "border-color: {}; color: {}; {}; box-shadow: {}",
+            logo.border_color,
+            logo.text_color,
+            background_style,
+            if shadow {
+                format!("0 5px 0 {}", logo.shadow_color)
+            } else {
+                "revert-layer".to_string()
+            }
+        )
+    } else {
+        // Let the theme's colours do the work.
+        classes.push("border-primary text-primary bg-transparent");
+        if !sound_on {
+            classes.push("logo-muted opacity-50");
+        }
+        format!(
+            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: {}",
+            if shadow { "0 5px 0 var(--color-primary)" } else { "revert-layer" }
+        )
+    };
+
+    (classes.join(" "), style)
+}
 
 #[component]
 pub fn Logo() -> Element {
@@ -16,8 +79,6 @@ pub fn Logo() -> Element {
     // Get the current key press state
     let key_pressed = keyboard_state.read().key_pressed;
 
-    // Apply dynamic styling based on whether a key is pressed.
-    //
     // `duration-150` is left in the class list but overridden inline below:
     // the Tailwind stylesheet is a committed build artifact and does not
     // contain an arbitrary-value duration utility, so a class like
@@ -25,82 +86,10 @@ pub fn Logo() -> Element {
     let base =
         "logo select-none border-4 font-black py-6 px-8 pt-7 text-5xl rounded-box transition-all duration-150 ease-in-out flex justify-center items-center ";
 
-    // Create dynamic styles - only apply custom colors if logo customization is enabled
-    let dynamic_style = if enable_logo_customization() {
-        let logo_colors = logo_customization();
-
-        // Determine background style based on current state (normal vs muted)
-        let background_style = if enable_sound() {
-            // Normal state - use background image if enabled, otherwise use color
-            if logo_colors.use_background_image {
-                if let Some(ref img) = logo_colors.background_image {
-                    format!("background-image: url('{}'); background-size: cover; background-position: center", img)
-                } else {
-                    format!("background: {}", logo_colors.background_color)
-                }
-            } else {
-                format!("background: {}", logo_colors.background_color)
-            }
-        } else {
-            // Muted state - use muted background image if enabled, otherwise use muted color
-            if logo_colors.use_muted_background_image {
-                if let Some(ref img) = logo_colors.muted_background_image {
-                    format!("background-image: url('{}'); background-size: cover; background-position: center", img)
-                } else {
-                    format!("background: {}", logo_colors.muted_background)
-                }
-            } else {
-                format!("background: {}", logo_colors.muted_background)
-            }
-        };
-
-        format!(
-            "border-color: {}; color: {}; {}; {}",
-            logo_colors.border_color,
-            logo_colors.text_color,
-            background_style,
-            if !key_pressed && enable_sound() {
-                format!("box-shadow: 0 5px 0 {}", logo_colors.shadow_color)
-            } else {
-                String::new()
-            }
-        )
-    } else {
-        // Default style - let CSS handle the default colors
-        if !key_pressed && enable_sound() {
-            "box-shadow: 0 5px 0 var(--color-primary); background: oklch(from var(--color-primary) l c h / 0.05)".to_string()
-        } else {
-            "background: oklch(from var(--color-primary) l c h / 0.05)".to_string()
-        }
-    };
-
-    // Determine the class based on key press state
-    let class = if key_pressed || !enable_sound() {
-        format!("{} logo-pressed", base)
-    } else {
-        base.to_string()
-    }; // Add default logo styling classes when customization is disabled
-    let mut final_class = if enable_logo_customization() {
-        class
-    } else {
-        format!("{} border-primary text-primary bg-transparent", class)
-    };
-
-    // Logo muted - add opacity when not using custom logo and sound is disabled
-    final_class = if !enable_sound() {
-        if enable_logo_customization() {
-            let dimmed_class = if logo_customization().dimmed_when_muted {
-                " opacity-50"
-            } else {
-                ""
-            };
-            format!("{} logo-muted{}", final_class, dimmed_class)
-        } else {
-            format!("{} logo-muted opacity-50", final_class)
-        }
-    } else {
-        final_class
-    };
+    // Custom colors apply only while logo customization is on.
+    let logo = enable_logo_customization().then(|| logo_customization());
+    let (state_class, dynamic_style) = logo_style(logo.as_ref(), enable_sound(), key_pressed);
+    let final_class = format!("{}{}", base, state_class);
 
     // A fast typist can press and release well inside 100ms. A transition
     // longer than the gap between two keystrokes never reaches the pressed
@@ -112,5 +101,79 @@ pub fn Logo() -> Element {
 
     rsx! {
       div { class: "{final_class}", style: "{dynamic_style}", "Mechvibes" }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_theme_logo_uses_the_main_color() {
+        let (class, style) = logo_style(None, true, false);
+        assert_eq!(class, "border-primary text-primary bg-transparent");
+        assert_eq!(
+            style,
+            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: 0 5px 0 var(--color-primary)"
+        );
+
+        let (class, style) = logo_style(None, false, false);
+        assert_eq!(class, "logo-pressed border-primary text-primary bg-transparent logo-muted opacity-50");
+        assert!(style.ends_with("box-shadow: revert-layer"), "{}", style);
+    }
+
+    /// Dioxus keeps an inline property that a new `style` leaves out, so
+    /// every state of the logo has to name the same properties, each
+    /// background through a shorthand with nothing deferred in it. Otherwise
+    /// an own logo's image, border or shadow stays after it is turned off.
+    #[test]
+    fn every_logo_style_names_the_same_properties() {
+        fn properties(style: &str) -> Vec<String> {
+            style
+                .split(';')
+                .filter_map(|d| d.split_once(':'))
+                .map(|(property, _)| property.trim().to_string())
+                .filter(|property| property != "background-color")
+                .collect()
+        }
+        let image = LogoCustomization {
+            background_image: Some("/custom-images/a.png".to_string()),
+            use_background_image: true,
+            ..LogoCustomization::default()
+        };
+        let colour = LogoCustomization::default();
+        let mut styles = Vec::new();
+        for (sound_on, pressed) in [(true, false), (true, true), (false, false)] {
+            for logo in [None, Some(&image), Some(&colour)] {
+                styles.push(logo_style(logo, sound_on, pressed).1);
+            }
+        }
+
+        let expected = properties(&styles[0]);
+        for style in &styles {
+            assert_eq!(properties(style), expected, "{}", style);
+            let background = style.split(';').map(str::trim).find(|d| d.starts_with("background:")).unwrap();
+            assert!(!background.contains("var("), "{}", style);
+        }
+    }
+
+    #[test]
+    fn an_own_logo_uses_its_muted_background_and_fades_only_when_asked() {
+        let logo = LogoCustomization {
+            muted_background: "red".to_string(),
+            muted_background_image: Some("/custom-images/a.png".to_string()),
+            use_muted_background_image: false,
+            dimmed_when_muted: false,
+            ..LogoCustomization::default()
+        };
+        let (class, style) = logo_style(Some(&logo), false, false);
+        assert_eq!(class, "logo-pressed logo-muted");
+        assert!(style.contains("background-color: red"), "{}", style);
+        assert!(style.contains("box-shadow: revert-layer"), "{}", style);
+
+        let logo = LogoCustomization { use_muted_background_image: true, dimmed_when_muted: true, ..logo };
+        let (class, style) = logo_style(Some(&logo), false, false);
+        assert_eq!(class, "logo-pressed logo-muted opacity-50");
+        assert!(style.contains("background: url('/custom-images/a.png') center / cover"), "{}", style);
     }
 }

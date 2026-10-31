@@ -88,7 +88,7 @@ fi
 # from, rather than ship stale code under a new version number. Rebuild it, or
 # run without --skip-build.
 if [ "$SKIP_BUILD" -eq 1 ]; then
-  stale=$({ find src assets patches Cargo.toml Cargo.lock build.rs -type f -newer "$BINARY" 2>/dev/null || true; } | head -5)
+  stale=$({ find src assets patches packaging Cargo.toml Cargo.lock build.rs -type f -newer "$BINARY" 2>/dev/null || true; } | head -5)
   if [ -n "$stale" ]; then
     echo "::error::$BINARY is older than these files - rebuild it, or run without --skip-build:"
     echo "$stale"
@@ -146,8 +146,19 @@ if ! grep -q '^Categories=AudioVideo;$' mechvibes.desktop; then
   echo "  found: $(grep '^Categories=' mechvibes.desktop || echo '<none>')"
   exit 1
 fi
+# The entry opens .mvtheme theme files as well as mechvibes:// links.
+if ! grep -q '^MimeType=x-scheme-handler/mechvibes;application/x-mechvibes-theme;$' mechvibes.desktop; then
+  echo "::error::mechvibes.desktop must declare mechvibes:// links and theme files in MimeType="
+  echo "  found: $(grep '^MimeType=' mechvibes.desktop || echo '<none>')"
+  exit 1
+fi
 cp mechvibes.desktop "$APPDIR/usr/share/applications/${APP_NAME}.desktop"
 cp mechvibes.desktop "$APPDIR/${APP_NAME}.desktop"
+
+# The .mvtheme file type, for desktop-integration helpers. The app registers
+# it for the user itself when run as an AppImage (src/libs/protocol.rs).
+mkdir -p "$APPDIR/usr/share/mime/packages"
+cp packaging/linux/mechvibes.xml "$APPDIR/usr/share/mime/packages/${APP_NAME}.xml"
 
 cp assets/icon.png "$APPDIR/usr/share/icons/hicolor/512x512/apps/${APP_NAME}.png"
 cp assets/icon.png "$APPDIR/${APP_NAME}.png"
