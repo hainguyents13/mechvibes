@@ -27,7 +27,7 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 /// Per image. Wallpapers are the large ones, and 10 MB covers a 4K photo.
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Three images at their limit plus the manifest.
-const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
+pub const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
 const MAX_NAME_CHARS: usize = 64;
 const MAX_CSS_VALUE_CHARS: usize = 200;
 
@@ -78,6 +78,14 @@ impl SharedTheme {
         match &self.colors {
             SharedColors::BuiltIn(theme) => format!("{:?}", theme),
             SharedColors::Custom { .. } => "Custom colors".to_string(),
+        }
+    }
+
+    /// Give the look another name, tidied the way a name from a file is.
+    /// Keeps the old one when nothing is left of `name` after tidying.
+    pub fn rename(&mut self, name: &str) {
+        if let Some(name) = clean_name(name) {
+            self.name = name;
         }
     }
 }
@@ -224,10 +232,90 @@ async fn download_image(url: &str) -> Result<Vec<u8>, String> {
     Ok(bytes)
 }
 
-/// Write the look to `path` as a `.mvtheme`.
+/// Write the look to `path` as a `.mvtheme`, its images cut down first. Slow
+/// for a large wallpaper, so call it off the UI thread.
 pub fn save(theme: &SharedTheme, path: &Path) -> Result<(), String> {
-    let bytes = to_bytes(theme)?;
+    let bytes = to_bytes(&shrink_images(theme))?;
     std::fs::write(path, bytes).map_err(|e| format!("Could not save the file: {}", e))
+}
+
+/// The look with its images cut down to what the app can show, so a shared
+/// file stays small enough to send. An image that cannot be read, or that
+/// comes out no smaller, is kept as it is.
+fn shrink_images(theme: &SharedTheme) -> SharedTheme {
+    let background = theme.background.as_ref().and_then(|b| b.background_image.as_deref());
+    let mut renamed = HashMap::new();
+    let mut images = HashMap::new();
+    for (name, bytes) in &theme.images {
+        let bytes = shrink_image(bytes, background == Some(name.as_str())).unwrap_or_else(|| bytes.clone());
+        let stem = name.rsplit_once('.').map_or(name.as_str(), |(stem, _)| stem);
+        let new_name = format!("{}.{}", stem, image_extension(&bytes).unwrap_or("png"));
+        renamed.insert(name.clone(), new_name.clone());
+        images.insert(new_name, bytes);
+    }
+    let mut shrunk = SharedTheme {
+        name: theme.name.clone(),
+        colors: theme.colors.clone(),
+        logo: theme.logo.clone(),
+        background: theme.background.clone(),
+        images,
+    };
+    relink_images(&mut shrunk, &renamed);
+    shrunk
+}
+
+/// The wallpaper fills a window 470pt wide and at least 600pt tall with
+/// `center / cover`, so it is cut to that widest shape and sized for a 2x
+/// screen up to 1080pt tall. A taller window only trims more off the sides.
+const BACKGROUND_SHAPE: f64 = 470.0 / 600.0;
+const BACKGROUND_BOX: (u32, u32) = (1692, 2160);
+/// The logo box follows the font, so logo images are only shrunk, never cut.
+const LOGO_BOX: (u32, u32) = (960, 960);
+/// Larger images are kept as they are rather than decoded into memory.
+const MAX_SHRINK_PIXELS: u64 = 40_000_000;
+const JPEG_QUALITY: u8 = 85;
+
+/// The image cut and shrunk to its box, as JPEG, or PNG when it has
+/// transparency. `None` when it is better kept as it is: a GIF (resizing
+/// would lose its animation), one too large or damaged to decode, or one
+/// that does not come out smaller.
+fn shrink_image(bytes: &[u8], background: bool) -> Option<Vec<u8>> {
+    use image::{ codecs::jpeg::JpegEncoder, imageops::FilterType, ImageFormat };
+
+    if image_extension(bytes) == Some("gif") {
+        return None;
+    }
+    let (width, height) = image::io::Reader
+        ::new(Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?
+        .into_dimensions()
+        .ok()?;
+    if (width as u64) * (height as u64) > MAX_SHRINK_PIXELS {
+        return None;
+    }
+    let mut image = image::load_from_memory(bytes).ok()?;
+    let (box_width, box_height) = if background {
+        let crop_width = width.min(((height as f64) * BACKGROUND_SHAPE).round() as u32).max(1);
+        let crop_height = height.min(((width as f64) / BACKGROUND_SHAPE).round() as u32).max(1);
+        image = image.crop_imm((width - crop_width) / 2, (height - crop_height) / 2, crop_width, crop_height);
+        BACKGROUND_BOX
+    } else {
+        LOGO_BOX
+    };
+    if image.width() > box_width || image.height() > box_height {
+        // Keeps the shape and fits inside the box.
+        image = image.resize(box_width, box_height, FilterType::Lanczos3);
+    }
+
+    let transparent = image.color().has_alpha() && image.to_rgba8().pixels().any(|pixel| pixel[3] < 255);
+    let mut out = Vec::new();
+    if transparent {
+        image.write_to(&mut Cursor::new(&mut out), ImageFormat::Png).ok()?;
+    } else {
+        JpegEncoder::new_with_quality(&mut out, JPEG_QUALITY).encode_image(&image.to_rgb8()).ok()?;
+    }
+    (out.len() < bytes.len()).then_some(out)
 }
 
 fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
@@ -272,7 +360,12 @@ pub fn open(path: &Path) -> Result<SharedTheme, String> {
     from_bytes(&bytes)
 }
 
-fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
+/// Read and check a `.mvtheme` held in memory, such as one downloaded from
+/// the theme library. Same checks as `open`.
+pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
+    if (bytes.len() as u64) > MAX_FILE_BYTES {
+        return Err("This theme file is too large.".to_string());
+    }
     let not_a_theme = || "This is not a Mechvibes theme file.".to_string();
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| not_a_theme())?;
     let manifest = read_entry(&mut archive, MANIFEST_NAME, MAX_MANIFEST_BYTES)?.ok_or_else(not_a_theme)?;
@@ -413,8 +506,16 @@ pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>
         installed.insert(name.clone(), format!("/custom-images/{}", file_name));
     }
 
+    relink_images(theme, &installed);
+    theme.images.clear();
+    Ok(written)
+}
+
+/// Point the logo and background image fields at the new names in `names`.
+/// A field whose image has no new name is cleared.
+fn relink_images(theme: &mut SharedTheme, names: &HashMap<String, String>) {
     let relink = |image: &mut Option<String>| {
-        *image = image.as_ref().and_then(|name| installed.get(name).cloned());
+        *image = image.as_ref().and_then(|name| names.get(name).cloned());
     };
     if let Some(logo) = &mut theme.logo {
         relink(&mut logo.background_image);
@@ -423,8 +524,6 @@ pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>
     if let Some(background) = &mut theme.background {
         relink(&mut background.background_image);
     }
-    theme.images.clear();
-    Ok(written)
 }
 
 /// Take back images `install_images` saved, when the import stops after it.
@@ -735,6 +834,73 @@ mod tests {
         assert_eq!(image_extension(b"GIF89a..."), Some("gif"));
         assert_eq!(image_extension(b"RIFF\0\0\0\0WEBPVP8 "), Some("webp"));
         assert_eq!(image_extension(b"<svg/>"), None);
+    }
+
+    /// A PNG of noise, so it compresses badly the way a photo does. `alpha`
+    /// below 255 makes it see-through.
+    fn noisy_png(width: u32, height: u32, alpha: u8) -> Vec<u8> {
+        let mut seed: u32 = 0x9e37_79b9;
+        let image = image::RgbaImage::from_fn(width, height, |_, _| {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let [r, g, b, _] = seed.to_le_bytes();
+            image::Rgba([r, g, b, alpha])
+        });
+        let mut bytes = Vec::new();
+        image::DynamicImage::ImageRgba8(image)
+            .write_to(&mut Cursor::new(&mut bytes), image::ImageFormat::Png)
+            .unwrap();
+        bytes
+    }
+
+    fn dimensions(bytes: &[u8]) -> (u32, u32) {
+        image::load_from_memory(bytes).map(|image| (image.width(), image.height())).unwrap()
+    }
+
+    #[test]
+    fn a_wide_wallpaper_is_cut_to_the_window_shape_as_jpeg() {
+        let out = shrink_image(&noisy_png(3000, 1000, 255), true).expect("smaller");
+        assert_eq!(image_extension(&out), Some("jpg"));
+        assert_eq!(dimensions(&out), (783, 1000), "470:600 around the centre, not enlarged");
+    }
+
+    #[test]
+    fn a_huge_wallpaper_is_sized_for_a_2x_screen() {
+        let out = shrink_image(&noisy_png(2400, 3000, 255), true).expect("smaller");
+        assert_eq!(dimensions(&out), (1692, 2160));
+    }
+
+    #[test]
+    fn a_see_through_logo_is_shrunk_to_fit_but_never_cut() {
+        let out = shrink_image(&noisy_png(2000, 1000, 128), false).expect("smaller");
+        assert_eq!(image_extension(&out), Some("png"));
+        assert_eq!(dimensions(&out), (960, 480));
+    }
+
+    #[test]
+    fn an_image_is_kept_when_shrinking_cannot_help() {
+        assert_eq!(shrink_image(b"GIF89a-an-animation", true), None, "a GIF keeps its frames");
+        assert_eq!(shrink_image(PNG, true), None, "unreadable");
+        let tiny = noisy_png(4, 4, 255);
+        assert_eq!(shrink_image(&tiny, false), None, "already smaller than any JPEG");
+    }
+
+    #[test]
+    fn sharing_renames_shrunk_images_and_points_the_look_at_them() {
+        let mut theme = look();
+        theme.images.insert("background.jpg".to_string(), noisy_png(1200, 1200, 255));
+        let shrunk = shrink_images(&theme);
+        assert_eq!(shrunk.background.as_ref().unwrap().background_image.as_deref(), Some("background.jpg"));
+        assert_eq!(dimensions(&shrunk.images["background.jpg"]), (940, 1200));
+
+        theme.images.insert("logo.png".to_string(), noisy_png(1200, 1200, 255));
+        let shrunk = shrink_images(&theme);
+        assert_eq!(shrunk.logo.as_ref().unwrap().background_image.as_deref(), Some("logo.jpg"));
+        assert!(!shrunk.images.contains_key("logo.png"));
+        assert_eq!(dimensions(&shrunk.images["logo.jpg"]), (960, 960));
+        let read_back = from_bytes(&to_bytes(&shrunk).unwrap()).unwrap();
+        assert_eq!(read_back, shrunk);
     }
 
     #[test]

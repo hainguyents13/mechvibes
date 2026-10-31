@@ -452,8 +452,9 @@ pub fn app() -> Element {
 
         Router::<Route> {}
 
-        // Answers mechvibes://install links whatever page is showing.
+        // Answer mechvibes://install and mechvibes://theme links whatever page is showing.
         crate::components::ui::LibraryInstallModal {}
+        crate::components::ui::LibraryThemeModal {}
     }
 }
 

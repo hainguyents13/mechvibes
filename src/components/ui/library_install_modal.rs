@@ -33,7 +33,7 @@ enum Stage {
 }
 
 /// `418 KB`, `1.2 MB`.
-fn format_size(bytes: u64) -> String {
+pub(crate) fn format_size(bytes: u64) -> String {
     if bytes < 1024 * 1024 {
         format!("{} KB", (bytes + 1023) / 1024)
     } else {
@@ -60,7 +60,7 @@ pub fn LibraryInstallModal() -> Element {
     // closing the dialog works as usual.
     use_hook(move || {
         spawn(async move {
-            let Some(mut ids) = crate::utils::deep_link::take_receiver() else {
+            let Some(mut ids) = crate::utils::deep_link::take_pack_receiver() else {
                 return;
             };
             while let Some(id) = ids.recv().await {
