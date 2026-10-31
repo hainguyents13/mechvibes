@@ -11,7 +11,7 @@ use crate::libs::theme::use_theme;
 use crate::utils::config::use_config;
 use crate::utils::library_client::{ self, LibraryTheme };
 use crate::utils::theme::use_themes;
-use crate::utils::theme_share;
+use crate::utils::theme_share::{ self, ImportParts };
 use dioxus::prelude::*;
 use lucide_dioxus::Download;
 
@@ -69,7 +69,7 @@ pub fn LibraryThemeModal() -> Element {
                         Ok(mut look) => {
                             // The name the user just saw, not the one inside the file.
                             look.rename(&theme.name);
-                            put_on(look, update_config, update_themes, theme_signal).await
+                            put_on(look, ImportParts::ALL, update_config, update_themes, theme_signal).await
                         }
                         Err(e) => Err(e),
                     }

@@ -77,6 +77,76 @@ impl SharedTheme {
             self.name = name;
         }
     }
+
+    /// Drops the unticked parts and the images only they used, so putting the
+    /// look on brings nothing of a part the user chose to keep their own of.
+    /// The colours have no images and stay; the caller leaves them out.
+    pub fn keep_parts(&mut self, parts: ImportParts) {
+        if !parts.logo {
+            self.logo = None;
+        }
+        if !parts.background {
+            self.background = None;
+        }
+        let mut used = Vec::new();
+        if let Some(logo) = &self.logo {
+            used.extend(logo.background_image.clone());
+            used.extend(logo.muted_background_image.clone());
+        }
+        if let Some(background) = &self.background {
+            used.extend(background.background_image.clone());
+        }
+        self.images.retain(|name, _| used.contains(name));
+    }
+}
+
+/// What a theme looks like, without a name or image bytes: the colours, and
+/// the logo and background when they are switched on.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Look {
+    pub colors: LookColors,
+    /// `None` when the part is switched off.
+    pub logo: Option<LogoCustomization>,
+    pub background: Option<BackgroundCustomization>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum LookColors {
+    Known(SharedColors),
+    /// `config.theme` is `Custom(id)` but the colors list has no such id. The
+    /// screen falls back to System; the look itself never claims to be System.
+    Missing(String),
+}
+
+impl Look {
+    /// The look the app shows now.
+    pub fn from_config(config: &AppConfig, themes: &ThemesConfig) -> Look {
+        let colors = match &config.theme {
+            Theme::BuiltIn(theme) => LookColors::Known(SharedColors::BuiltIn(theme.clone())),
+            Theme::Custom(id) =>
+                match themes.get_theme_by_id(id) {
+                    Some(theme) => LookColors::Known(SharedColors::Custom { css: theme.css.clone() }),
+                    None => LookColors::Missing(id.clone()),
+                }
+        };
+        Look {
+            colors,
+            logo: config.enable_logo_customization.then(|| config.logo_customization.clone()),
+            background: config.enable_background_customization.then(|| config.background_customization.clone()),
+        }
+    }
+}
+
+/// The parts of a theme the user chose to put on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ImportParts {
+    pub colors: bool,
+    pub logo: bool,
+    pub background: bool,
+}
+
+impl ImportParts {
+    pub const ALL: Self = Self { colors: true, logo: true, background: true };
 }
 
 /// The name a share starts with: the custom theme's name, or the built-in one.
@@ -93,28 +163,21 @@ pub fn default_name(config: &AppConfig, themes: &ThemesConfig) -> String {
 
 // ===== Sharing =====
 
-/// Gather the look this app shows now. Images are read from wherever they are
-/// set, a web address included, so the file works without the internet and
-/// without the person who made it.
-pub async fn gather(
-    name: &str,
-    config: &AppConfig,
-    themes: &ThemesConfig
-) -> Result<SharedTheme, String> {
+/// Gather `look`, usually the one this app shows now. Images are read from
+/// wherever they are set, a web address included, so the file works without
+/// the internet and without the person who made it.
+pub async fn gather(name: &str, look: &Look) -> Result<SharedTheme, String> {
     let name = clean_name(name).ok_or_else(|| "Give the theme a name first.".to_string())?;
-    let colors = match &config.theme {
-        Theme::BuiltIn(theme) => SharedColors::BuiltIn(theme.clone()),
-        Theme::Custom(id) => {
-            let theme = themes
-                .get_theme_by_id(id)
-                .ok_or_else(|| "The selected theme is missing. Pick a theme and try again.".to_string())?;
-            SharedColors::Custom { css: theme.css.clone() }
+    let colors = match &look.colors {
+        LookColors::Known(colors) => colors.clone(),
+        LookColors::Missing(_) => {
+            return Err("The selected theme is missing. Pick a theme and try again.".to_string());
         }
     };
 
     let mut images = HashMap::new();
-    let logo = if config.enable_logo_customization {
-        let mut logo = config.logo_customization.clone();
+    let logo = if let Some(logo) = &look.logo {
+        let mut logo = logo.clone();
         logo.background_image = gather_image(
             logo.use_background_image,
             logo.background_image.as_deref(),
@@ -133,8 +196,8 @@ pub async fn gather(
     } else {
         None
     };
-    let background = if config.enable_background_customization {
-        let mut background = config.background_customization.clone();
+    let background = if let Some(background) = &look.background {
+        let mut background = background.clone();
         background.background_image = gather_image(
             background.use_image,
             background.background_image.as_deref(),
@@ -619,18 +682,26 @@ pub fn remove_images(paths: &[std::path::PathBuf]) {
     }
 }
 
-/// Put the look on `config`. A part the file leaves out is switched off, so
+/// Put the ticked `parts` of the look on `config`, with `colors` as the theme
+/// its colours became. A ticked part the file leaves out is switched off, so
 /// the result looks as it did for the person who shared it; the settings for
-/// that part stay as they were for when it is switched back on.
-pub fn apply_to_config(theme: &SharedTheme, theme_choice: Theme, config: &mut AppConfig) {
-    config.theme = theme_choice;
-    config.enable_logo_customization = theme.logo.is_some();
-    if let Some(logo) = &theme.logo {
-        config.logo_customization = logo.clone();
+/// that part stay as they were for when it is switched back on. An unticked
+/// part, and colours given as `None`, leave the config as it was.
+pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: ImportParts, config: &mut AppConfig) {
+    if let (true, Some(choice)) = (parts.colors, colors) {
+        config.theme = choice;
     }
-    config.enable_background_customization = theme.background.is_some();
-    if let Some(background) = &theme.background {
-        config.background_customization = background.clone();
+    if parts.logo {
+        config.enable_logo_customization = theme.logo.is_some();
+        if let Some(logo) = &theme.logo {
+            config.logo_customization = logo.clone();
+        }
+    }
+    if parts.background {
+        config.enable_background_customization = theme.background.is_some();
+        if let Some(background) = &theme.background {
+            config.background_customization = background.clone();
+        }
     }
 }
 
@@ -1073,7 +1144,7 @@ mod tests {
                 SharedColors::Custom { .. } => Theme::Custom("imported-colors".to_string()),
             };
             let mut config = with_look(&base, &expected["start"]);
-            apply_to_config(&theme, choice, &mut config);
+            apply_to_config(&theme, Some(choice), ImportParts::ALL, &mut config);
             assert_eq!(config, with_look(&base, &expected["applied"]), "{}", name);
         }
     }
@@ -1467,12 +1538,147 @@ mod tests {
         config.enable_logo_customization = true;
         config.logo_customization.text_color = "red".to_string();
         let theme = SharedTheme { logo: None, ..look() };
-        apply_to_config(&theme, Theme::BuiltIn(BuiltInTheme::Dark), &mut config);
+        apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
         assert_eq!(config.theme, Theme::BuiltIn(BuiltInTheme::Dark));
         assert!(!config.enable_logo_customization);
         assert_eq!(config.logo_customization.text_color, "red");
         assert!(config.enable_background_customization);
         assert_eq!(config.background_customization.background_color, "#101010");
+    }
+
+    /// A config with its own colours, logo and background, all switched on.
+    fn my_config() -> AppConfig {
+        let mut config = AppConfig::default();
+        config.theme = Theme::BuiltIn(BuiltInTheme::Synthwave);
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "red".to_string();
+        config.enable_background_customization = true;
+        config.background_customization.background_color = "#202020".to_string();
+        config
+    }
+
+    #[test]
+    fn all_parts_ticked_matches_the_old_import() {
+        // What the import did before parts could be picked: every part of the
+        // file on, a part it leaves out switched off with its settings kept.
+        let mut config = AppConfig::default();
+        config.enable_logo_customization = true;
+        config.logo_customization.text_color = "red".to_string();
+        let theme = SharedTheme { logo: None, ..look() };
+        let mut expected = config.clone();
+        apply_to_config(&theme, Some(Theme::BuiltIn(BuiltInTheme::Dark)), ImportParts::ALL, &mut config);
+
+        expected.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        expected.enable_logo_customization = false;
+        expected.logo_customization.text_color = "red".to_string();
+        expected.enable_background_customization = true;
+        expected.background_customization = theme.background.clone().unwrap();
+        assert_eq!(config, expected);
+    }
+
+    #[test]
+    fn unticked_parts_leave_the_config_alone() {
+        let theme = look();
+        let mine = my_config();
+
+        let mut config = mine.clone();
+        let parts = ImportParts { logo: false, ..ImportParts::ALL };
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), parts, &mut config);
+        assert_eq!(config.enable_logo_customization, mine.enable_logo_customization);
+        assert_eq!(config.logo_customization, mine.logo_customization);
+        assert_eq!(config.theme, Theme::Custom("night".to_string()));
+        assert_eq!(config.background_customization, theme.background.clone().unwrap());
+
+        let mut config = mine.clone();
+        let parts = ImportParts { colors: false, ..ImportParts::ALL };
+        apply_to_config(&theme, None, parts, &mut config);
+        assert_eq!(config.theme, mine.theme);
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), parts, &mut config);
+        assert_eq!(config.theme, mine.theme, "unticked colours stay even when a choice is passed");
+
+        let mut config = mine.clone();
+        let none = ImportParts { colors: false, logo: false, background: false };
+        apply_to_config(&theme, Some(Theme::Custom("night".to_string())), none, &mut config);
+        assert_eq!(config, mine);
+    }
+
+    #[test]
+    fn a_ticked_absent_part_switches_yours_off_and_keeps_its_settings() {
+        let theme = SharedTheme { logo: None, background: None, ..look() };
+        let mine = my_config();
+        let mut config = mine.clone();
+        apply_to_config(&theme, None, ImportParts { colors: false, ..ImportParts::ALL }, &mut config);
+        assert!(!config.enable_logo_customization);
+        assert!(!config.enable_background_customization);
+        assert_eq!(config.logo_customization, mine.logo_customization);
+        assert_eq!(config.background_customization, mine.background_customization);
+        assert_eq!(config.theme, mine.theme);
+    }
+
+    #[test]
+    fn unticked_parts_bring_no_images() {
+        let mut theme = look();
+        theme.keep_parts(ImportParts { background: false, ..ImportParts::ALL });
+        assert_eq!(theme.background, None);
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["logo.png"]);
+
+        let mut theme = look();
+        theme.keep_parts(ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(theme.logo, None);
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["background.jpg"]);
+
+        // An image both parts use stays while one of them is kept.
+        let mut theme = look();
+        theme.background.as_mut().unwrap().background_image = Some("logo.png".to_string());
+        theme.images.remove("background.jpg");
+        theme.keep_parts(ImportParts { logo: false, ..ImportParts::ALL });
+        assert_eq!(theme.images.keys().collect::<Vec<_>>(), ["logo.png"]);
+
+        let mut theme = look();
+        theme.keep_parts(ImportParts::ALL);
+        assert_eq!(theme, look());
+    }
+
+    #[test]
+    fn the_look_on_screen_reads_custom_colors_from_the_list() {
+        let mut themes = ThemesConfig::default();
+        let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
+        let mut config = my_config();
+        config.theme = Theme::Custom(id);
+        config.enable_background_customization = false;
+
+        let look = Look::from_config(&config, &themes);
+        assert_eq!(look.colors, LookColors::Known(SharedColors::Custom { css: "--color-primary: red;".to_string() }));
+        assert_eq!(look.logo, Some(config.logo_customization.clone()));
+        assert_eq!(look.background, None, "a part that is off is not in the look");
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        let look = Look::from_config(&config, &themes);
+        assert_eq!(look.colors, LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::Dark)));
+    }
+
+    #[test]
+    fn missing_custom_colors_read_as_missing_not_system() {
+        let mut config = my_config();
+        config.theme = Theme::Custom("gone".to_string());
+        let look = Look::from_config(&config, &ThemesConfig::default());
+        assert_eq!(look.colors, LookColors::Missing("gone".to_string()));
+    }
+
+    #[tokio::test]
+    async fn sharing_missing_colors_is_refused() {
+        let mut config = my_config();
+        config.theme = Theme::Custom("gone".to_string());
+        let look = Look::from_config(&config, &ThemesConfig::default());
+        assert_eq!(
+            gather("Mine", &look).await.unwrap_err(),
+            "The selected theme is missing. Pick a theme and try again."
+        );
+
+        config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
+        let shared = gather("Mine", &Look::from_config(&config, &ThemesConfig::default())).await.unwrap();
+        assert_eq!(shared.colors, SharedColors::BuiltIn(BuiltInTheme::Dark));
+        assert_eq!(shared.logo, Some(config.logo_customization.clone()));
     }
 
     /// An empty folder of its own under the system temp folder.

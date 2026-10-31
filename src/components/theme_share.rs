@@ -9,7 +9,7 @@ use crate::state::config::AppConfig;
 use crate::state::themes::ThemesConfig;
 use crate::utils::config::use_config;
 use crate::utils::theme::use_themes;
-use crate::utils::theme_share::{ self, SharedColors, SharedTheme, FILE_EXTENSION };
+use crate::utils::theme_share::{ self, ImportParts, Look, SharedColors, SharedTheme, FILE_EXTENSION };
 use dioxus::prelude::*;
 use lucide_dioxus::{ Download, Share2 };
 use std::cell::RefCell;
@@ -36,21 +36,25 @@ impl Stage {
     }
 }
 
-/// Put an opened look on: its images saved, a custom theme added to the list,
-/// then the theme and the rest of the config switched over. Gives the look's
-/// name back. Images saved before a failure are removed again.
+/// Put the ticked `parts` of an opened look on: their images saved, custom
+/// colours added to the list, then the theme and the rest of the config
+/// switched over. An unticked part brings nothing and changes nothing. Gives
+/// the look's name back. Images saved before a failure are removed again.
 pub async fn put_on(
     mut look: SharedTheme,
+    parts: ImportParts,
     update_config: Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
     update_themes: Rc<dyn Fn(Box<dyn FnOnce(&mut ThemesConfig)>)>,
     mut theme_signal: Signal<Theme>
 ) -> Result<String, String> {
+    look.keep_parts(parts);
     let (look, written) = tokio::task
         ::spawn_blocking(move || theme_share::install_images(&mut look).map(|written| (look, written))).await
         .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()))?;
 
     let choice = match &look.colors {
-        SharedColors::BuiltIn(theme) => Theme::BuiltIn(theme.clone()),
+        _ if !parts.colors => None,
+        SharedColors::BuiltIn(theme) => Some(Theme::BuiltIn(theme.clone())),
         SharedColors::Custom { css } => {
             let added = Rc::new(RefCell::new(None));
             update_themes(
@@ -64,7 +68,7 @@ pub async fn put_on(
             );
             let added = added.borrow_mut().take();
             match added {
-                Some(Ok(id)) => Theme::Custom(id),
+                Some(Ok(id)) => Some(Theme::Custom(id)),
                 failed => {
                     theme_share::remove_images(&written);
                     return Err(failed.and_then(Result::err).unwrap_or_else(|| "Could not save the theme.".to_string()));
@@ -73,9 +77,11 @@ pub async fn put_on(
         }
     };
 
-    theme_signal.set(choice.clone());
+    if let Some(choice) = &choice {
+        theme_signal.set(choice.clone());
+    }
     let name = look.name.clone();
-    update_config(Box::new(move |cfg| theme_share::apply_to_config(&look, choice, cfg)));
+    update_config(Box::new(move |cfg| theme_share::apply_to_config(&look, choice, parts, cfg)));
     Ok(name)
 }
 
@@ -114,7 +120,8 @@ pub fn ThemeShareButtons() -> Element {
                 return;
             }
             stage.set(Stage::Sharing);
-            let result = match theme_share::gather(&chosen_name, &config(), &themes()).await {
+            let look = Look::from_config(&config(), &themes());
+            let result = match theme_share::gather(&chosen_name, &look).await {
                 Ok(look) => {
                     let path = path.clone();
                     tokio::task
@@ -168,7 +175,7 @@ pub fn ThemeShareButtons() -> Element {
         stage.set(Stage::Applying);
         let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
-            stage.set(match put_on(look, update_config, update_themes, theme_signal).await {
+            stage.set(match put_on(look, ImportParts::ALL, update_config, update_themes, theme_signal).await {
                 Ok(name) => Stage::Applied(name),
                 Err(e) => Stage::Failed(e),
             });
