@@ -50,6 +50,7 @@ mechvibes/
 │   │   ├── paths.rs            # Config/data directory paths
 │   │   ├── manifest.rs         # Soundpack manifest
 │   │   ├── themes.rs           # Theme state
+│   │   ├── saved_themes.rs     # Saved themes list (saved_themes.json): damaged entries kept, read-only when it cannot be read
 │   │   └── rodio_music.rs      # [DEAD CODE] Music player (removed)
 │   ├── components/             # Dioxus UI components
 │   │   ├── mod.rs
@@ -60,12 +61,15 @@ mechvibes/
 │   │   ├── soundpack_selector.rs # Pack selection dropdown
 │   │   ├── device_selector.rs  # Audio device selector + filtering UI
 │   │   ├── window_controller.rs # Min/max/close buttons
-│   │   ├── theme_share.rs      # Share to a .mvtheme file, pick one to import, put_on (ticked parts) and undo_look
+│   │   ├── theme_share.rs      # Share a card or the look to a .mvtheme file, pick one to import, put_on (installs a card) and undo_look
 │   │   ├── customize/          # The Customize page's pieces
-│   │   │   ├── current_theme_row.rs  # Swatch + name of the look on screen; Share / Import / Find more
+│   │   │   ├── current_theme_row.rs  # Swatch + name of the theme in use; Share / Import / Find more
 │   │   │   ├── customize_tabs.rs     # Themes / Colors / Logo / Background tabs (tab kept for the session)
-│   │   │   ├── themes_tab.rs         # Default card (with Undo toast), Find more
-│   │   │   ├── colors_tab.rs         # Ready-made colors, My colors, New colors, delete with confirm
+│   │   │   ├── themes_tab.rs         # Gallery: Ready-made, My themes, Installed, Find more; card menus
+│   │   │   ├── theme_card.rs         # One theme card: preview, name, color dots, menu
+│   │   │   ├── rename_modal.rs       # Name field for Rename
+│   │   │   ├── look_editor.rs        # use_look_editor: edits saved on their own (300 ms), apply_card
+│   │   │   ├── colors_tab.rs         # Ready-made colors, My colors, New colors, delete with confirm (not the colors in use)
 │   │   │   ├── colors_editor_modal.rs # New / edit colors; saves through safe_theme_css
 │   │   │   ├── part_panel.rs         # Shared Logo / Background shell: switch, first edit turns the part on, Start over
 │   │   │   ├── logo_tab.rs           # Logo fields and Sound on / Sound off preview
@@ -108,8 +112,10 @@ mechvibes/
 │       ├── theme_share/
 │       │   ├── wire_v1.rs      # Frozen format 1 layout of theme.json
 │       │   └── fixtures/v1/    # Files written by v3.3.0, pinned by tests
-│       ├── custom_images.rs    # Saves picked and imported images as img-<content hash>.<ext>
-│       ├── look_undo.rs        # One-step Undo after a theme or the Default look goes on (memory only)
+│       ├── custom_images.rs    # Saves picked and imported images as img-<content hash>.<ext>; owned-images.json; clears unused ones
+│       ├── theme_library.rs    # Saved themes logic: sync_action / run_sync, my copy names, installing cards
+│       ├── starter_themes.rs   # The ready-made themes built in from assets/starter-themes/
+│       ├── look_undo.rs        # One-step Undo after a theme or the Default look goes on (memory only, pointer included)
 │       ├── notice.rs           # Thread-safe messages for the user, shown as toasts
 │       ├── deep_link.rs        # mechvibes:// links and .mvtheme files from the command line or a second launch
 │       ├── time.rs             # Time formatting
@@ -141,7 +147,8 @@ mechvibes/
 │   └── README.md                # Installer docs
 ├── assets/
 │   ├── icon.ico             # Windows taskbar icon
-│   └── icon.png             # Linux/macOS app icon
+│   ├── icon.png             # Linux/macOS app icon
+│   └── starter-themes/      # Ready-made .mvtheme files built into the app, CREDITS.md
 ├── soundpacks/              # Bundled default soundpacks
 │   └── (pack directories)
 ├── docs/
@@ -269,6 +276,7 @@ pub struct AppConfig {
     pub theme: Theme,
     pub logo_customization: LogoCustomization,
     pub background_customization: BackgroundCustomization,
+    pub active_theme_id: Option<String>, // Saved theme id or "starter:<slug>"; None = Default or not saved yet
     
     // Ambiance
     pub ambiance_active_sounds: HashMap<String, f32>, // sound_id → volume
