@@ -53,6 +53,8 @@ DisableWelcomePage=no
 CloseApplications=yes
 CloseApplicationsFilter=*.exe
 RestartApplications=yes
+; Tells Explorer to pick up the .mvtheme file type after install and uninstall.
+ChangesAssociations=yes
 
 [InstallDelete]
 ; Leftovers from when the app was called MechvibesDX (0.8.x and earlier).
@@ -102,6 +104,17 @@ Root: HKCU; Subkey: "Software\Classes\mechvibes"; ValueType: string; ValueName: 
 Root: HKCU; Subkey: "Software\Classes\mechvibes"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
 Root: HKCU; Subkey: "Software\Classes\mechvibes\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
 Root: HKCU; Subkey: "Software\Classes\mechvibes\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+; .mvtheme theme files from the Share button: double-clicking one opens it in
+; the app, which asks before putting it on. HKA, so an install for everyone
+; registers it for everyone; no older app owns this extension. On uninstall
+; only this app's values go, and the .mvtheme key only if nothing else is in it.
+Root: HKA; Subkey: "Software\Classes\.mvtheme"; ValueType: string; ValueName: ""; ValueData: "Mechvibes.Theme"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.mvtheme"; ValueType: string; ValueName: "Content Type"; ValueData: "application/x-mechvibes-theme"; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\.mvtheme\OpenWithProgids"; ValueType: string; ValueName: "Mechvibes.Theme"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
+Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme"; ValueType: string; ValueName: ""; ValueData: "{#MyAppName} theme"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
+Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".mvtheme"; ValueData: ""; Flags: uninsdeletekey
 
 [Run]
 ; Interactive installs: the usual "run it now" checkbox on the last page.
