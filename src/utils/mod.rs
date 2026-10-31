@@ -21,6 +21,7 @@ pub mod soundpack_validator;
 pub mod spacing;
 pub mod telemetry;
 pub mod theme;
+pub mod theme_library;
 pub mod theme_share;
 pub mod time;
 pub mod update_installer;

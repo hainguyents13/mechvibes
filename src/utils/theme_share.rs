@@ -34,7 +34,7 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Three images at their limit plus the manifest.
 pub const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
-const MAX_NAME_CHARS: usize = 64;
+pub(crate) const MAX_NAME_CHARS: usize = 64;
 const MAX_CSS_VALUE_CHARS: usize = 200;
 
 /// The colour functions a colour may use. `url()`, `image()` and the like are
@@ -139,6 +139,17 @@ pub struct Look {
     /// `None` when the part is switched off.
     pub logo: Option<LogoCustomization>,
     pub background: Option<BackgroundCustomization>,
+}
+
+/// The Default theme: colors that follow the system, logo and background off.
+impl Default for Look {
+    fn default() -> Self {
+        Look {
+            colors: LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::System)),
+            logo: None,
+            background: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]

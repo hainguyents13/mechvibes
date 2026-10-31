@@ -319,12 +319,6 @@ pub fn checked(mut theme: SavedTheme) -> Option<SavedTheme> {
         return None;
     }
     theme.name = clean_name(&theme.name)?;
-    if let SharedColors::Custom { css } = &mut theme.colors {
-        *css = safe_theme_css(css);
-        if css.is_empty() {
-            return None;
-        }
-    }
     if !theme.library_id.as_deref().is_some_and(is_theme_id) {
         theme.library_id = None;
         if theme.kind == ThemeKind::Library {
@@ -332,8 +326,31 @@ pub fn checked(mut theme: SavedTheme) -> Option<SavedTheme> {
         }
     }
 
-    let app_images_only = theme.kind != ThemeKind::Mine;
-    if let Some(logo) = &mut theme.logo {
+    let look = checked_look(theme.look(), theme.kind != ThemeKind::Mine)?;
+    let LookColors::Known(colors) = look.colors else {
+        return None;
+    };
+    theme.colors = colors;
+    theme.logo = look.logo;
+    theme.background = look.background;
+    Some(theme)
+}
+
+/// `look` with its values checked the way a saved theme's are (see
+/// `checked`), or `None` when one could break out of its style or the colors
+/// are missing. `app_images_only` allows nothing but this app's own images.
+pub fn checked_look(mut look: Look, app_images_only: bool) -> Option<Look> {
+    let LookColors::Known(colors) = &mut look.colors else {
+        return None;
+    };
+    if let SharedColors::Custom { css } = colors {
+        *css = safe_theme_css(css);
+        if css.is_empty() {
+            return None;
+        }
+    }
+
+    if let Some(logo) = &mut look.logo {
         let defaults = LogoCustomization::default();
         for (color, default) in [
             (&mut logo.border_color, defaults.border_color),
@@ -350,7 +367,7 @@ pub fn checked(mut theme: SavedTheme) -> Option<SavedTheme> {
             }
         }
     }
-    if let Some(background) = &mut theme.background {
+    if let Some(background) = &mut look.background {
         background.background_color = safe_color(
             &background.background_color,
             BackgroundCustomization::default().background_color
@@ -359,7 +376,7 @@ pub fn checked(mut theme: SavedTheme) -> Option<SavedTheme> {
             return None;
         }
     }
-    Some(theme)
+    Some(look)
 }
 
 /// Whether an image setting can go into a `url()` as it is: no quote,
