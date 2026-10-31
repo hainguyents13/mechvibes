@@ -158,7 +158,8 @@ fn local_file_url_path(text: &str) -> Option<PathBuf> {
     url.to_file_path().ok()
 }
 
-fn is_theme_file_name(path: &Path) -> bool {
+/// Whether `path` ends in `.mvtheme`, in any case.
+pub(crate) fn is_theme_file_name(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
         .is_some_and(|ext| ext.eq_ignore_ascii_case(FILE_EXTENSION))
