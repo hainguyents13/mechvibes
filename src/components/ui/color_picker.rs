@@ -60,6 +60,22 @@ pub(crate) fn is_complete_color(value: &str) -> bool {
     COLOR_NAMES.contains(&lower.as_str())
 }
 
+/// Whether a whole colour is saved while the user is still typing. A short hex
+/// colour can be the start of a longer one: "#abc" on the way to "#abcdef",
+/// or "#ff00", which draws nothing, on the way to "#ff0080". Those wait until
+/// the user leaves the field or presses Enter.
+fn saves_while_typing(value: &str) -> bool {
+    let is_short_hex = value.trim().strip_prefix('#').is_some_and(|hex| hex.len() < 6);
+    is_complete_color(value) && !is_short_hex
+}
+
+/// What leaving the field saves: the typed colour when it is whole, or else
+/// the colour from before typing began, when something was saved on the way.
+/// `None` saves nothing.
+fn saved_on_finish(typed: &str, before_typing: Option<String>) -> Option<String> {
+    if is_complete_color(typed) { Some(typed.trim().to_string()) } else { before_typing }
+}
+
 /// The theme's colours a logo or background colour can follow, so it changes
 /// with the theme.
 pub const THEME_COLOR_OPTIONS: [(&str, &str); 14] = [
@@ -93,6 +109,9 @@ pub fn ColorPicker(
     // What is typed in the field while the user is still typing it. `None`
     // shows the saved colour, so a pick from the list or a reset shows up.
     let mut draft = use_signal(|| None::<String>);
+    // The colour from before this round of typing saved anything, so typing
+    // that is left half done puts it back.
+    let mut before_typing = use_signal(|| None::<String>);
 
     // The field shows a typed colour; a theme colour shows in the list button.
     let saved_text = if options.iter().any(|(_, c)| *c == selected_value) {
@@ -102,11 +121,12 @@ pub fn ColorPicker(
     };
 
     // Leaving the field, or Enter, saves a whole colour and puts anything
-    // else back to the saved one.
+    // else back to the colour from before typing began.
     let mut finish_typing = move || {
+        let before = before_typing.take();
         if let Some(typed) = draft.take() {
-            if is_complete_color(&typed) {
-                on_change.call(typed.trim().to_string());
+            if let Some(value) = saved_on_finish(&typed, before) {
+                on_change.call(value);
             }
         }
     };
@@ -182,14 +202,21 @@ pub fn ColorPicker(
                     class: "input",
                     placeholder: "Or type a color, like #ff0000",
                     value: draft().unwrap_or(saved_text),
-                    // Saved as soon as it is a whole colour, so the logo
-                    // follows along, but never half typed.
-                    oninput: move |evt| {
-                        let typed = evt.value();
-                        if is_complete_color(&typed) {
-                            on_change.call(typed.trim().to_string());
+                    // Saved as soon as it is a whole colour that is not the
+                    // start of a longer one, so the logo follows along, but
+                    // never half typed.
+                    oninput: {
+                        let selected_value = selected_value.clone();
+                        move |evt: FormEvent| {
+                            let typed = evt.value();
+                            if saves_while_typing(&typed) {
+                                if before_typing.peek().is_none() {
+                                    before_typing.set(Some(selected_value.clone()));
+                                }
+                                on_change.call(typed.trim().to_string());
+                            }
+                            draft.set(Some(typed));
                         }
-                        draft.set(Some(typed));
                     },
                     onblur: move |_| finish_typing(),
                     onkeydown: move |evt| {
@@ -229,6 +256,24 @@ mod tests {
         ] {
             assert!(is_complete_color(whole), "{:?} is a whole color", whole);
         }
+    }
+
+    #[test]
+    fn a_short_hex_color_waits_until_typing_ends() {
+        for start_of_longer in ["#abc", "#abcd", "#ff00", "#fff"] {
+            assert!(!saves_while_typing(start_of_longer), "{:?} may be the start of a longer color", start_of_longer);
+        }
+        for whole in ["#abcdef", "#ff008080", "rgb(255,0,0)", "var(--color-primary)", "red"] {
+            assert!(saves_while_typing(whole), "{:?}", whole);
+        }
+    }
+
+    #[test]
+    fn typing_left_half_done_puts_the_color_from_before_back() {
+        let before = Some("#336699".to_string());
+        assert_eq!(saved_on_finish("#abcde", before.clone()).as_deref(), Some("#336699"));
+        assert_eq!(saved_on_finish("#abc", before).as_deref(), Some("#abc"), "a whole short color is kept");
+        assert_eq!(saved_on_finish("#ab", None), None, "nothing was saved, so nothing changes");
     }
 
     #[test]
