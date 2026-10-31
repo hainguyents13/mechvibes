@@ -600,12 +600,16 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
 /// Read and check a `.mvtheme`. Nothing is installed yet; the user sees what
 /// the file holds first.
 ///
-/// The checks run on the opened file itself, so it cannot be swapped between
-/// the check and the read, and at most one byte past the limit is read. A
-/// folder, a pipe or a file that keeps growing is refused rather than read
-/// without end.
+/// A folder or a pipe is refused before it is opened, since opening a pipe
+/// waits until something writes to it. The checks run again on the opened
+/// file itself, so it cannot be swapped between the check and the read, and
+/// at most one byte past the limit is read, so a file that keeps growing is
+/// refused rather than read without end.
 pub fn open(path: &Path) -> Result<SharedTheme, String> {
     let failed = |e: std::io::Error| format!("Could not open the file: {}", e);
+    if !std::fs::metadata(path).map_err(failed)?.is_file() {
+        return Err("This is not a Mechvibes theme file.".to_string());
+    }
     let file = std::fs::File::open(path).map_err(failed)?;
     if !file.metadata().map_err(failed)?.is_file() {
         return Err("This is not a Mechvibes theme file.".to_string());
@@ -1989,12 +1993,18 @@ mod tests {
         let dir = temp_dir("folder");
         let folder = dir.join("looks-like-a.mvtheme");
         std::fs::create_dir_all(&folder).unwrap();
-        let error = open(&folder).unwrap_err();
-        // Windows will not open a folder as a file at all. Elsewhere it opens,
-        // and the check on the opened handle refuses it.
-        if !cfg!(windows) {
-            assert_eq!(error, "This is not a Mechvibes theme file.");
-        }
+        assert_eq!(open(&folder).unwrap_err(), "This is not a Mechvibes theme file.");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_pipe_is_refused_without_waiting_for_a_writer() {
+        let dir = temp_dir("pipe");
+        let pipe = dir.join("cool.mvtheme");
+        let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
+        assert!(made.success());
+        assert_eq!(open(&pipe).unwrap_err(), "This is not a Mechvibes theme file.");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
