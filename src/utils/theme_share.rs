@@ -17,7 +17,10 @@ use std::io::{ Cursor, Read, Write };
 use std::path::{ Path, PathBuf };
 use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
 
+mod preview;
 mod wire_v1;
+
+pub use preview::preview_stripes;
 
 pub const FILE_EXTENSION: &str = "mvtheme";
 
