@@ -62,7 +62,7 @@ impl CardPreview {
     }
 
     /// Tells two pictures apart, so a card whose look changed is drawn anew.
-    fn key(&self) -> u64 {
+    pub fn key(&self) -> u64 {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         format!("{:?}", self).hash(&mut hasher);
         hasher.finish()
@@ -145,7 +145,12 @@ pub fn ThemeCard(
                   li { key: "{action.label()}",
                     a {
                       class: if action == CardAction::Delete { "text-error" } else { "" },
-                      onclick: move |_| on_action.call(action),
+                      onclick: move |_| {
+                          // The menu stays open while it has focus, so it
+                          // would stay open behind a dialog this opens.
+                          dioxus::document::eval("document.activeElement?.blur()");
+                          on_action.call(action);
+                      },
                       match action {
                           CardAction::Share => rsx! {
                             Share2 { class: "w-4 h-4 mr-1" }
@@ -174,6 +179,24 @@ pub fn ThemeCard(
 
 #[component]
 fn CardFace(name: String, preview: CardPreview, active: bool) -> Element {
+    rsx! {
+      ThemePicture { preview: preview.clone(), class: "", style: PICTURE_STYLE }
+      div { class: "bg-base-200 flex items-center gap-2 px-2 py-2",
+        div { class: "min-w-0 flex-1 truncate text-sm font-medium text-base-content", "{name}" }
+        ColorDots { preview }
+        if active {
+          Check { class: "w-4 h-4 shrink-0 text-primary" }
+        }
+      }
+    }
+}
+
+/// The picture of a look: its colours, its background and its logo, as the
+/// app draws them. `class` and `style` give it its frame and shape. Mount it
+/// keyed by the look, or under a parent that is: Dioxus keeps any inline
+/// style property a changed `style` leaves out.
+#[component]
+pub fn ThemePicture(preview: CardPreview, class: &'static str, style: &'static str) -> Element {
     let (data_theme, colors_style) = preview.colors();
     let background = preview
         .background_color()
@@ -181,19 +204,23 @@ fn CardFace(name: String, preview: CardPreview, active: bool) -> Element {
         .unwrap_or_default();
     let logo = preview.logo.as_ref();
     let (logo_class, logo_style) = logo_style(logo, true, false);
+    // A wallpaper whose file is gone shows the colour behind it, as the app
+    // does, not the browser's broken image.
+    let mut lost = use_signal(|| false);
 
     rsx! {
       div {
-        class: "relative overflow-hidden flex items-center justify-center bg-base-100 text-base-content",
-        style: "{PICTURE_STYLE} {colors_style} {background}",
-        "data-theme": data_theme.clone(),
-        if let Some(src) = preview.wallpaper() {
+        class: "relative overflow-hidden flex items-center justify-center bg-base-100 text-base-content {class}",
+        style: "{style} {colors_style} {background}",
+        "data-theme": data_theme,
+        if let (Some(src), false) = (preview.wallpaper(), lost()) {
           img {
             class: "absolute inset-0 w-full h-full object-cover",
             src: "{src}",
             alt: "",
             loading: "lazy",
             decoding: "async",
+            onerror: move |_| lost.set(true),
           }
         }
         // The logo as the Customize preview draws it, at half its size, so
@@ -206,20 +233,24 @@ fn CardFace(name: String, preview: CardPreview, active: bool) -> Element {
           }
         }
       }
-      div { class: "bg-base-200 flex items-center gap-2 px-2 py-2",
-        div { class: "min-w-0 flex-1 truncate text-sm font-medium text-base-content", "{name}" }
-        div {
-          class: "flex shrink-0 items-center gap-1",
-          style: "{colors_style}",
-          "data-theme": data_theme,
-          span { class: "bg-primary size-2 rounded-full" }
-          span { class: "bg-secondary size-2 rounded-full" }
-          span { class: "bg-accent size-2 rounded-full" }
-          span { class: "bg-neutral size-2 rounded-full" }
-        }
-        if active {
-          Check { class: "w-4 h-4 shrink-0 text-primary" }
-        }
+    }
+}
+
+/// Four dots of a look's colours: primary, secondary, accent and neutral.
+#[component]
+pub fn ColorDots(preview: CardPreview) -> Element {
+    let (data_theme, colors_style) = preview.colors();
+
+    rsx! {
+      div {
+        class: "flex shrink-0 items-center gap-1",
+        // daisyUI paints the base colour behind anything with a `data-theme`.
+        style: "background-color: transparent; {colors_style}",
+        "data-theme": data_theme,
+        span { class: "bg-primary size-2 rounded-full" }
+        span { class: "bg-secondary size-2 rounded-full" }
+        span { class: "bg-accent size-2 rounded-full" }
+        span { class: "bg-neutral size-2 rounded-full" }
       }
     }
 }

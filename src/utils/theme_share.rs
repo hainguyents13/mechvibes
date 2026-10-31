@@ -21,8 +21,6 @@ use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
 mod preview;
 mod wire_v1;
 
-pub use preview::preview_stripes;
-
 pub const FILE_EXTENSION: &str = "mvtheme";
 
 /// The layout `theme.json` is written in. A file from a later layout is
@@ -1014,6 +1012,17 @@ pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: Import
     if let (true, Some(background)) = (parts.background, &theme.background) {
         config.enable_background_customization = true;
         config.background_customization = background.clone();
+    }
+}
+
+/// What the screen shows once `offered` is put on over `current` with the
+/// ticked `parts`, the way `apply_to_config` puts it on: a part the theme
+/// leaves out, or one left unticked, stays as `current` has it.
+pub fn after_import(current: &Look, offered: Look, parts: ImportParts) -> Look {
+    Look {
+        colors: if parts.colors { offered.colors } else { current.colors.clone() },
+        logo: offered.logo.filter(|_| parts.logo).or_else(|| current.logo.clone()),
+        background: offered.background.filter(|_| parts.background).or_else(|| current.background.clone()),
     }
 }
 
@@ -2158,6 +2167,30 @@ mod tests {
         assert!(!saved.enable_logo_customization && !saved.enable_background_customization);
         assert_eq!(saved.logo_customization, mine.logo_customization, "the logo settings wait for later");
         assert_eq!(saved.background_customization, mine.background_customization);
+    }
+
+    #[test]
+    fn the_import_preview_shows_what_importing_puts_on_screen() {
+        let mut themes = ThemesConfig::default();
+        let SharedColors::Custom { css } = &look().colors else {
+            panic!("the test look has custom colours");
+        };
+        // The colours are on screen through the palette they became.
+        let night = Theme::Custom(themes.import_theme("Night", css).unwrap());
+        let mine = my_config();
+        for theme in [look(), SharedTheme { logo: None, ..look() }, SharedTheme { background: None, ..look() }] {
+            for colors in [true, false] {
+                for logo in [true, false] {
+                    for background in [true, false] {
+                        let parts = ImportParts { colors, logo, background };
+                        let mut config = mine.clone();
+                        apply_to_config(&theme, Some(night.clone()), parts, &mut config);
+                        let shown = after_import(&Look::from_config(&mine, &themes), look_of(&theme), parts);
+                        assert_eq!(shown, Look::from_config(&config, &themes), "{:?}", parts);
+                    }
+                }
+            }
+        }
     }
 
     #[test]
