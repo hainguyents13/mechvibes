@@ -3601,6 +3601,7 @@ dependencies = [
  "symphonia",
  "tokio",
  "tray-icon 0.14.3",
+ "url",
  "uuid",
  "winapi",
  "winreg",
