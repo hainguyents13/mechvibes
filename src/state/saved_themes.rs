@@ -115,11 +115,12 @@ pub struct SavedThemes {
 
 #[derive(Debug, Clone, PartialEq)]
 enum Slot {
-    /// `raw` is the entry as the file has it, written back until the user
-    /// changes this theme.
+    /// `read` is the entry as the file has it, `None` for a theme added this
+    /// session. It is written back as it is until the theme is `edited`.
     Readable {
         theme: SavedTheme,
-        raw: Option<Value>,
+        read: Option<Value>,
+        edited: bool,
     },
     /// Always written back verbatim.
     Unreadable(Value),
@@ -136,17 +137,17 @@ impl SavedThemes {
 
     /// Add a theme at the end of the list.
     pub fn insert(&mut self, theme: SavedTheme) {
-        self.slots.push(Slot::Readable { theme, raw: None });
+        self.slots.push(Slot::Readable { theme, read: None, edited: true });
     }
 
     /// Change the theme with this id. Returns false when there is none.
     pub fn update(&mut self, id: &str, change: impl FnOnce(&mut SavedTheme)) -> bool {
         for slot in &mut self.slots {
-            if let Slot::Readable { theme, raw } = slot {
+            if let Slot::Readable { theme, edited, .. } = slot {
                 if theme.id == id {
                     change(theme);
                     // From now on the theme in memory is what gets written.
-                    *raw = None;
+                    *edited = true;
                     return true;
                 }
             }
@@ -229,7 +230,7 @@ impl SavedThemes {
                     .ok()
                     .and_then(checked);
                 match theme {
-                    Some(theme) => Slot::Readable { theme, raw: Some(raw) },
+                    Some(theme) => Slot::Readable { theme, read: Some(raw), edited: false },
                     None => {
                         had_unreadable = true;
                         Slot::Unreadable(raw)
@@ -271,7 +272,7 @@ impl SavedThemes {
     /// swapped for other colors either.
     fn check_changed(&mut self) -> Result<(), String> {
         for slot in &mut self.slots {
-            if let Slot::Readable { theme, raw: None } = slot {
+            if let Slot::Readable { theme, edited: true, .. } = slot {
                 let no_colors_left = matches!(
                     &theme.colors,
                     SharedColors::Custom { css } if safe_theme_css(css).is_empty()
@@ -296,15 +297,38 @@ impl SavedThemes {
         let mut themes = Vec::with_capacity(self.slots.len());
         for slot in &self.slots {
             themes.push(match slot {
-                Slot::Readable { raw: Some(raw), .. } | Slot::Unreadable(raw) => raw.clone(),
-                Slot::Readable { theme, raw: None } =>
-                    serde_json::to_value(theme).map_err(|e| format!("Could not write the theme: {}", e))?,
+                Slot::Readable { read: Some(raw), edited: false, .. } | Slot::Unreadable(raw) => raw.clone(),
+                Slot::Readable { theme, read, .. } => {
+                    let mut written = serde_json
+                        ::to_value(theme)
+                        .map_err(|e| format!("Could not write the theme: {}", e))?;
+                    if let Some(read) = read {
+                        keep_unknown_part_fields(&mut written, read);
+                    }
+                    written
+                }
             });
         }
         let mut document = self.extra.clone();
         document.insert("format".to_string(), Value::from(FORMAT));
         document.insert("themes".to_string(), Value::Array(themes));
         data::save_json_to_file_atomically(&Value::Object(document), path)
+    }
+}
+
+/// Put back into an edited entry the logo and background fields a newer
+/// Mechvibes added, which `SavedTheme` has no place for. Every field this
+/// app knows is always written, so a field `written` lacks is one it does
+/// not know. A part that is off now keeps nothing.
+fn keep_unknown_part_fields(written: &mut Value, read: &Value) {
+    for part in ["logo", "background"] {
+        if let (Some(Value::Object(written)), Some(Value::Object(read))) = (written.get_mut(part), read.get(part)) {
+            for (key, value) in read {
+                if !written.contains_key(key) {
+                    written.insert(key.clone(), value.clone());
+                }
+            }
+        }
     }
 }
 
@@ -677,6 +701,37 @@ mod tests {
         assert_eq!(file["themes"][0]["sparkle"], json!({ "speed": 3 }));
         assert_eq!(file["shelves"], json!(["top"]));
         assert_eq!(file["format"], 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn an_unknown_logo_or_background_field_survives_an_edit() {
+        let dir = temp_dir("unknown-part-field");
+        let path = dir.join("saved_themes.json");
+        let mut first = with_logo(entry("a", "First", "mine"), |logo| {
+            logo["blur"] = json!(4);
+        });
+        first = with_background_image(first, "/custom-images/img-3f2ae1.webp");
+        first["background"]["parallax"] = json!({ "depth": 2 });
+        write_list(&path, vec![first]);
+
+        let mut store = SavedThemes::load_from(&path);
+        store
+            .apply_at(&path, |store| {
+                store.update("a", |theme| {
+                    theme.name = "Renamed".to_string();
+                    theme.logo.as_mut().unwrap().border_color = "#ff0000".to_string();
+                    theme.background.as_mut().unwrap().background_color = "#101020".to_string();
+                });
+            })
+            .unwrap();
+
+        let file = read_file(&path);
+        assert_eq!(file["themes"][0]["name"], "Renamed");
+        assert_eq!(file["themes"][0]["logo"]["border_color"], "#ff0000", "the edit is saved");
+        assert_eq!(file["themes"][0]["logo"]["blur"], json!(4), "and the newer field is kept");
+        assert_eq!(file["themes"][0]["background"]["background_color"], "#101020");
+        assert_eq!(file["themes"][0]["background"]["parallax"], json!({ "depth": 2 }));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
