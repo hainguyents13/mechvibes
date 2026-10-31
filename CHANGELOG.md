@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **A new Customize page.** The look you have now sits at the top with **Share**, **Import** and **Find more**, and four tabs sit below it: **Themes**, **Colors**, **Logo** and **Background**. The **Default** card in Themes puts back the look Mechvibes starts with, and keeps your logo and background settings for later.
+- **Choose which parts of a theme to use.** Before a theme goes on, the dialog lists its colors, logo and background, each with a tick. Untick a part to keep yours. It also says when a theme will replace your logo or background, or turn yours off because the theme has none.
+- **Undo.** Right after you put on a theme or the Default look, **Undo** brings back the look you had before. It stays readable whatever the theme does to the colors.
+- **Open a theme file with a double-click (Windows and Linux),** or drop it on the Mechvibes window. The app comes to the front and asks before it changes anything.
+- **Share saves straight to a file.** The save dialog opens right away, and once the file is saved, **Show file** opens the folder it is in.
+
+### Changed
+
+- **A theme from the library is checked before the app asks.** The app downloads the theme and checks it first, so the dialog lists what is really in the file, and **Use this theme** puts on exactly that.
+- **Images are stored once.** Importing the same theme, or picking the same image, twice no longer makes a second copy of the image.
+
+### Fixed
+
+- **Colors you make are put on right away**, instead of only being added to the list.
+- **Deleting the colors you are using goes back to the default colors.** The app asks first. If your colors go missing in any other way, the app shows the default colors too.
+- **You now see an error when your changes cannot be saved**, or when a picked image cannot be used. Before, the error only went to the log.
+- **A damaged colors list is kept.** Mechvibes used to replace it with an empty one. It now keeps a copy next to it, `themes.json.corrupt`, and tells you where. If the list cannot be read at all, nothing in it is changed until you restart the app.
+- **The logo no longer changes color when you first edit it.** Editing a part that is off turns it on and changes only what you edited.
+- **A half-typed color is not saved.** A color you type is saved once it is complete, or when you leave the field or press Enter.
+
+### Security
+
+- **A theme can only change colors and a few known sizes.** Theme files and the Colors editor keep only the app's color variables, light or dark mode, and corner, field and border sizes within normal limits. A color that would make text invisible is left out. A theme file is read only up to its size limit, and a theme file link that points at another computer is ignored.
+
 ## [3.3.0] - 2026-10-31
 
 ### Added

@@ -33,7 +33,7 @@ All links point to the [latest release](https://github.com/hainguyents13/mechvib
 - **Mute in one keystroke**: `Ctrl+Alt+M` turns all sounds on or off. The tray icon shows when sounds are off.
 - **Pick your speakers**: switch the output device (headphones, speakers, virtual devices) in Settings without restarting.
 - **Mood**: 10 ambient sounds (rain, forest, ocean waves, coffee shop and more) to mix in, each with its own volume.
-- **Themes and customization**: 36 built-in themes, your own themes, and a custom logo and background. Share your whole look with a friend as one file.
+- **Themes and customization**: 36 built-in themes, your own themes, and a custom logo and background. Share your whole look with a friend as one file. On Windows and Linux they open it with a double-click.
 - **Verified updates**: on Windows, click **Update now** and Mechvibes downloads, checks and installs the new version. On macOS and Linux the app tells you when an update is out and links to the download page.
 - **Your settings stay put**: they are saved in `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux) or `~/Library/Application Support/Mechvibes` (macOS), so they survive restarts, updates and reinstalls. Uninstalling on Windows keeps them unless you choose to delete them.
 - **Logs for bug reports**: Settings > Debug shows a live log, with an **Export logs** button for attaching to an issue.
