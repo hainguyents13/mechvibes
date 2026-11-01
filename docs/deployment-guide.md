@@ -76,10 +76,10 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
 
    **Only a tagged commit creates a release**, and it refuses a tag that already has a release, draft or published, so it can never add to or replace an existing one. Stages (~15 minutes end to end):
 
-   - **`build`** — one matrix leg per OS (Windows, Linux, macOS), running in parallel, on every run. Every leg does the same thing: install what a script cannot (the cargo cache, the OS's system libraries, packaging tools), run `scripts/ci-check.sh --release`, then run that OS's packaging script, then upload `dist/` (except for pull requests).
+   - **`build`** — one matrix leg per platform (Windows, Linux, macOS on Apple Silicon, macOS on Intel), running in parallel, on every run. Every leg does the same thing: install what a script cannot (the cargo cache, the OS's system libraries, packaging tools), run `scripts/ci-check.sh --release`, then run that OS's packaging script, then upload `dist/` (except for pull requests).
      - **Windows** — `scripts/build-windows-installer.ps1` builds the installer with Inno Setup (installed by the leg).
      - **Linux** — `scripts/build-linux-appimage.sh` builds the `.deb` (via `cargo-deb`, driven by `[package.metadata.deb]` in `Cargo.toml`, installed by the leg) and the AppImage from one binary. `cargo deb --no-build` leaves `target/release/mechvibes` unstripped and byte-identical, so the same BuildID lands inside the AppImage.
-     - **macOS** — `scripts/build-macos-app.sh` hand-assembles `Mechvibes.app` and packages it as a DMG.
+     - **macOS** — `scripts/build-macos-app.sh` hand-assembles `Mechvibes.app` and packages it as a DMG named after `uname -m`. Two legs run it natively: `macOS DMG (Apple Silicon)` on `macos-latest` (`arm64`) and `macOS DMG (Intel)` on `macos-15-intel` (`x86_64`).
    - **`tag`** (`Find release tag`; not on pull requests) — after every leg passed, runs `resolve_release_tag` from `scripts/lib/common.sh` against the remote. It finds `v<Cargo.toml version>` pointing at the built commit (annotated and lightweight tags both work), finds no tag (an ordinary build, the job just says so), or fails if the commit has a `v*` tag that does not match `Cargo.toml`'s version. You can run the same function locally.
    - **`release`** (`Draft release`; only when `tag` found one) — extracts the CHANGELOG section as the release notes (`scripts/extract-changelog.ps1`, so a build that is not a release never needs one), downloads this run's packages, generates `SHA256SUMS.txt`, checks once more that no release exists for the tag, and creates one **draft** release with everything attached.
 
@@ -173,8 +173,8 @@ Note the same filter constrains the *other* platforms' asset names in reverse: n
 **The Linux leg fails on a missing `-dev` package**
 The system-dependency list lives in one place, `.github/actions/linux-system-deps/action.yml`, which the `build` job in `ci.yml` uses. Add a new dependency there, and to the Linux list in `README.md`.
 
-**The macOS leg is red**
-It blocks the release like every other leg. It is built on every pull request and push to `main` by the `macOS` entry in `ci.yml`'s matrix, so a break should show up there long before a tag.
+**A macOS leg is red**
+Each of the two (`macOS DMG (Apple Silicon)` and `macOS DMG (Intel)`) blocks the release on its own, like every other leg. Both are built on every pull request and push to `main` by their entries in `ci.yml`'s matrix, so a break should show up there long before a tag. If only the Intel leg fails, check that GitHub still offers the `macos-15-intel` runner.
 
 **I pushed a tag but no release appeared**
 The tag only matters when the run's `Find release tag` job looks at the remote, after the builds. Check that job's log:
