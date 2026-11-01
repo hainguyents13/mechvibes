@@ -1,11 +1,14 @@
 name: Publish to winget
 
 # Opens a pull request on microsoft/winget-pkgs for HaiNguyen.Mechvibes each
-# time a release is published (same trigger as announce-release.yml).
+# time a release is published.
 #
-# The action updates the latest manifest already in winget-pkgs and keeps its
-# installer switches, so `/REMOVEMECHVIBES2` set there carries over to every
-# new version. Needs:
+# `wingetcreate update` starts from the latest manifest already in winget-pkgs
+# and changes only the version, installer URL, hash and release date. Scope
+# `user` and the `/REMOVEMECHVIBES2` switch set there carry over to every new
+# version. komac (winget-releaser) does not do that: it reads the Inno
+# installer, splits it into user and machine installers and drops the switch.
+# Needs:
 # - a fork of microsoft/winget-pkgs under hainguyents13
 # - secret WINGET_TOKEN: a classic token with the public_repo and workflow scopes
 
@@ -20,10 +23,19 @@ jobs:
   winget:
     name: Update HaiNguyen.Mechvibes
     if: ${{ !github.event.release.prerelease }}
-    runs-on: ubuntu-latest
+    runs-on: windows-latest
     steps:
-      - uses: vedantmgoyal9/winget-releaser@v2
-        with:
-          identifier: HaiNguyen.Mechvibes
-          installers-regex: '-Setup-x64\.exe$'
-          token: ${{ secrets.WINGET_TOKEN }}
+      - name: Submit the new version
+        shell: pwsh
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+          REPO: ${{ github.repository }}
+          PUBLISHED_AT: ${{ github.event.release.published_at }}
+          WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+        run: |
+          $version = $env:TAG.TrimStart('v')
+          $url = "https://github.com/$env:REPO/releases/download/$env:TAG/Mechvibes-$version-Setup-x64.exe"
+          $date = $env:PUBLISHED_AT.Substring(0, 10)
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe update HaiNguyen.Mechvibes --version $version --urls $url --release-date $date --submit --token $env:WINGET_TOKEN
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
