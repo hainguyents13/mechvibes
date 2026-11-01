@@ -10,6 +10,8 @@
   <mime-type type="application/x-mechvibes-theme">
     <comment>Mechvibes theme</comment>
     <sub-class-of type="application/zip"/>
+    <!-- Installed to hicolor/256x256/mimetypes by the .deb and an AppImage. -->
+    <icon name="application-x-mechvibes-theme"/>
     <generic-icon name="application-x-generic"/>
     <glob pattern="*.mvtheme"/>
   </mime-type>

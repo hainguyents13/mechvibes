@@ -79,8 +79,16 @@ fn main() -> io::Result<()> {
     {
         let mut res = winresource::WindowsResource::new();
 
+        // Build the resources again when an icon changes. A build script
+        // that names any file only runs again for the files it names.
+        println!("cargo:rerun-if-changed=assets/icon.ico");
+        println!("cargo:rerun-if-changed=assets/theme-file.ico");
+
         // Set application icon
         res.set_icon("assets/icon.ico");
+        // The .mvtheme file icon. The installer points the file type at it
+        // by this id: `mechvibes.exe,-2`.
+        res.set_icon_with_id("assets/theme-file.ico", "2");
 
         // Set application metadata
         res.set("ProductName", "Mechvibes");
