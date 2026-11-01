@@ -38,7 +38,8 @@ APP_NAME="Mechvibes"
 BUNDLE="dist/${APP_NAME}.app"
 BINARY="target/release/mechvibes"
 IDENTIFIER="com.hainguyents13.mechvibesdx"
-# arm64 macOS starts at 11.0; nothing older can run an Apple Silicon build.
+# arm64 macOS starts at 11.0; nothing older can run an Apple Silicon build. The
+# Intel build keeps the same floor: nothing older has been tried.
 MIN_MACOS="11.0"
 
 # Fail first, and with a clear message, if the Rust in use is older than the

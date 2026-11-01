@@ -13,7 +13,7 @@ This is **Mechvibes 3**, the official Mechvibes app. It replaces Mechvibes 2 (th
 | **Windows** | [`Mechvibes-*-Setup-x64.exe`](https://github.com/hainguyents13/mechvibes/releases/latest) | When a new version is out, click **Update now** in the app. The download is checked (SHA-256) before it installs. |
 | **Linux (Debian/Ubuntu)** | [`mechvibes_*_amd64.deb`](https://github.com/hainguyents13/mechvibes/releases/latest) | `sudo dpkg -i`. Also see [Linux](#linux) for the `input` group. |
 | **Linux (any distro)** | [`mechvibes-*-x86_64.AppImage`](https://github.com/hainguyents13/mechvibes/releases/latest) | Portable, nothing to install: `chmod +x`, then run it. |
-| **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) | Experimental, Apple Silicon only. Not notarized, so the first launch needs one extra step (see [macOS](#macos)). |
+| **macOS** | [`mechvibes-*-macos-arm64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) (Apple Silicon) or [`mechvibes-*-macos-x86_64.dmg`](https://github.com/hainguyents13/mechvibes/releases/latest) (Intel) | Experimental. Not notarized, so the first launch needs one extra step (see [macOS](#macos)). |
 
 All links point to the [latest release](https://github.com/hainguyents13/mechvibes/releases/latest). Every release also ships a `SHA256SUMS.txt` covering all files.
 
@@ -114,7 +114,7 @@ Packs made for the original Mechvibes (V1) are converted automatically when they
 - **AppImage**: most distros run it directly. If it does not start, run it with `--appimage-extract-and-run`. Settings are saved to `~/.local/share/mechvibes`. Run it once so the library's **Install in Mechvibes** links open it.
 
 ### macOS
-- **Experimental**: Apple Silicon only, ad-hoc signed, not notarized, and not tested on real hardware by the maintainer.
+- **Experimental**: ad-hoc signed, not notarized, and not tested on real hardware by the maintainer. There is one `.dmg` for Apple Silicon (`arm64`) and one for Intel Macs (`x86_64`).
 - **First launch**: right-click the app and choose **Open**. On newer macOS versions, go to System Settings > Privacy & Security and click **Open Anyway**. If macOS says the app is damaged, run `xattr -cr /Applications/Mechvibes.app` in Terminal and open it again.
 - **Permissions**: global key capture needs **both** of these in System Settings > Privacy & Security, enabled for `Mechvibes` (or for your terminal, if you launch the binary from there):
   - **Accessibility**: used while the Mechvibes window is focused.
@@ -233,7 +233,7 @@ sudo dpkg -i dist/mechvibes_3.0.0_amd64.deb
 **Release (macOS):**
 ```bash
 ./scripts/build-macos-app.sh 3.0.0   # builds first; add --skip-build to reuse target/release
-# Output: dist/mechvibes-3.0.0-macos-arm64.dmg
+# Output: dist/mechvibes-3.0.0-macos-arm64.dmg (macos-x86_64.dmg on an Intel Mac)
 ```
 
 To run the same compile-and-test gate that CI runs (it also checks that Rust is at least the `rust-version` in `Cargo.toml`): `./scripts/ci-check.sh --release`. CI builds and packages every pull request and every push to `main` this way; when a `v*` tag points at a commit it built, the same run drafts the release from those packages.

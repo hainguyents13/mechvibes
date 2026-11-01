@@ -82,14 +82,16 @@ impl Error for UpdateError {}
 /// Every variant is constructed on the platform it describes, but only one
 /// platform is ever compiled at a time - so on any given build the other
 /// variants look dead to the lint. That is the whole point of the type: the
-/// rules for all four are compiled, and tested, everywhere.
+/// rules for all of them are compiled, and tested, everywhere.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum InstallKind {
     /// Windows, installed or portable: the `.exe` installer is the asset.
     Windows,
-    /// macOS: the `.dmg`.
-    MacOs,
+    /// macOS on Apple Silicon: the `arm64` `.dmg`.
+    MacOsAppleSilicon,
+    /// macOS on Intel: the `x86_64` `.dmg`.
+    MacOsIntel,
     /// Linux, running from a mounted AppImage.
     LinuxAppImage,
     /// Linux, anything else (a `.deb` install, or a build from source).
@@ -105,9 +107,13 @@ fn current_install_kind() -> InstallKind {
     {
         InstallKind::Windows
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
-        InstallKind::MacOs
+        InstallKind::MacOsIntel
+    }
+    #[cfg(all(target_os = "macos", not(target_arch = "x86_64")))]
+    {
+        InstallKind::MacOsAppleSilicon
     }
     #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
     {
@@ -132,10 +138,17 @@ fn asset_matches(kind: InstallKind, name: &str) -> bool {
         // Must contain "x64" and end in ".exe" - the same contract the release
         // pipeline asserts on (see release.yml).
         InstallKind::Windows => name.ends_with(".exe") && name.contains("x64"),
-        InstallKind::MacOs => name.ends_with(".dmg") || name.ends_with(".pkg"),
+        // Both DMGs ship in every release, so the architecture in the name
+        // decides, not which one the list happens to start with.
+        InstallKind::MacOsAppleSilicon => is_mac_package(name) && name.contains("arm64"),
+        InstallKind::MacOsIntel => is_mac_package(name) && name.contains("x86_64"),
         InstallKind::LinuxAppImage => name.ends_with(".appimage"),
         InstallKind::LinuxPackage => name.ends_with(".deb"),
     }
+}
+
+fn is_mac_package(name: &str) -> bool {
+    name.ends_with(".dmg") || name.ends_with(".pkg")
 }
 
 /// The download URL `kind` should be offered from `assets`, if any.
@@ -986,6 +999,7 @@ mod tests {
             asset("Mechvibes-0.7.0-Setup-x64.exe"),
             asset("SHA256SUMS.txt"),
             asset("mechvibes-0.7.0-macos-arm64.dmg"),
+            asset("mechvibes-0.7.0-macos-x86_64.dmg"),
             asset("mechvibes-0.7.0-x86_64.AppImage"),
             asset("mechvibes_0.7.0_amd64.deb")
         ]
@@ -1026,8 +1040,12 @@ mod tests {
             Some("https://example.com/Mechvibes-0.7.0-Setup-x64.exe")
         );
         assert_eq!(
-            pick(InstallKind::MacOs).as_deref(),
+            pick(InstallKind::MacOsAppleSilicon).as_deref(),
             Some("https://example.com/mechvibes-0.7.0-macos-arm64.dmg")
+        );
+        assert_eq!(
+            pick(InstallKind::MacOsIntel).as_deref(),
+            Some("https://example.com/mechvibes-0.7.0-macos-x86_64.dmg")
         );
         assert_eq!(
             pick(InstallKind::LinuxAppImage).as_deref(),
@@ -1075,7 +1093,8 @@ mod tests {
         let assets = release_assets();
         for (kind, expected_suffix) in [
             (InstallKind::Windows, ".exe"),
-            (InstallKind::MacOs, ".dmg"),
+            (InstallKind::MacOsAppleSilicon, ".dmg"),
+            (InstallKind::MacOsIntel, ".dmg"),
             (InstallKind::LinuxAppImage, ".appimage"),
             (InstallKind::LinuxPackage, ".deb"),
         ] {
@@ -1095,8 +1114,33 @@ mod tests {
     /// text file ahead of the DMG had it sorted first.
     #[test]
     fn the_macos_rule_does_not_match_the_readme_text_file() {
-        assert!(!asset_matches(InstallKind::MacOs, "readme-macos-0.7.0.txt"));
-        assert!(asset_matches(InstallKind::MacOs, "mechvibes-0.7.0-macos-arm64.dmg"));
+        assert!(!asset_matches(InstallKind::MacOsAppleSilicon, "readme-macos-0.7.0.txt"));
+        assert!(!asset_matches(InstallKind::MacOsIntel, "readme-macos-0.7.0.txt"));
+        assert!(asset_matches(InstallKind::MacOsAppleSilicon, "mechvibes-0.7.0-macos-arm64.dmg"));
+    }
+
+    /// Each Mac is offered its own DMG whichever comes first in the release,
+    /// and a release from before the Intel build (arm64 only) offers an Intel
+    /// Mac nothing, so it falls back to the Releases page.
+    #[test]
+    fn each_mac_gets_the_dmg_for_its_architecture() {
+        let mut reversed = release_assets();
+        reversed.reverse();
+        for assets in [release_assets(), reversed] {
+            assert!(
+                find_download_url_for(InstallKind::MacOsAppleSilicon, &assets)
+                    .unwrap()
+                    .ends_with("macos-arm64.dmg")
+            );
+            assert!(
+                find_download_url_for(InstallKind::MacOsIntel, &assets)
+                    .unwrap()
+                    .ends_with("macos-x86_64.dmg")
+            );
+        }
+
+        let arm_only = vec![asset("mechvibes-3.4.0-macos-arm64.dmg")];
+        assert_eq!(find_download_url_for(InstallKind::MacOsIntel, &arm_only), None);
     }
 
     /// A release missing this kind's asset yields None, so the UI falls back to
@@ -1106,7 +1150,8 @@ mod tests {
         let only_windows = vec![asset("Mechvibes-0.7.0-Setup-x64.exe")];
         assert_eq!(find_download_url_for(InstallKind::LinuxPackage, &only_windows), None);
         assert_eq!(find_download_url_for(InstallKind::LinuxAppImage, &only_windows), None);
-        assert_eq!(find_download_url_for(InstallKind::MacOs, &only_windows), None);
+        assert_eq!(find_download_url_for(InstallKind::MacOsAppleSilicon, &only_windows), None);
+        assert_eq!(find_download_url_for(InstallKind::MacOsIntel, &only_windows), None);
     }
 
     /// The regression that mattered: no platform may ever be handed a

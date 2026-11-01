@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **A build for Intel Macs.** Each release now has two macOS downloads: `macos-arm64.dmg` for Apple Silicon (M1 and later) and `macos-x86_64.dmg` for Intel Macs. Like the Apple Silicon build, it is experimental and not notarized.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
