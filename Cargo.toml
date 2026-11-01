@@ -161,6 +161,7 @@ assets = [
   # The .mvtheme file type. The package has no scripts to rebuild the MIME
   # cache; shared-mime-info's dpkg trigger on this folder is what does it.
   ["packaging/linux/mechvibes.xml", "usr/share/mime/packages/mechvibes.xml", "644"],
+  ["packaging/linux/application-x-mechvibes-theme.png", "usr/share/icons/hicolor/256x256/mimetypes/", "644"],
   ["README.md", "usr/share/doc/mechvibes/", "644"],
   ["soundpacks/**/*", "usr/share/mechvibes/soundpacks/", "644"],
 ]

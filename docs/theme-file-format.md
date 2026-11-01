@@ -104,8 +104,8 @@ Right before a theme goes on, the app saves the look on screen as a theme when i
 
 The same dialog opens for a file picked with **Import**, a file dropped on the window, and a file opened from the system:
 
-- **Windows:** the installer makes Mechvibes the handler for `.mvtheme` (ProgId `Mechvibes.Theme`), so a double-click opens the file in the app.
-- **Linux:** the `.deb` installs the type `application/x-mechvibes-theme` (`packaging/linux/mechvibes.xml`) and lists it in `mechvibes.desktop`. The AppImage registers the same type for the current user when it runs.
+- **Windows:** the installer makes Mechvibes the handler for `.mvtheme` (ProgId `Mechvibes.Theme`), so a double-click opens the file in the app. The file icon is `assets/theme-file.ico`, built into `mechvibes.exe` as icon resource 2 (`mechvibes.exe,-2`).
+- **Linux:** the `.deb` installs the type `application/x-mechvibes-theme` (`packaging/linux/mechvibes.xml`) and lists it in `mechvibes.desktop`, with its icon `application-x-mechvibes-theme.png` in `hicolor/256x256/mimetypes`. The AppImage registers the same type and icon for the current user when it runs.
 - **macOS:** the file type is not registered yet, so use **Import**.
 
 The file reaches the app as a launch argument: a path ending in `.mvtheme` (any case), or a `file://` URL with no host or `localhost`. A URL naming another computer and an argument starting with any other scheme are ignored, so a web page cannot make the app open a file. When the app is already running, the new launch hands the path to the running window and quits. Opening a file shows the window even with **Start minimized** on.

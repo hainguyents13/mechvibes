@@ -112,7 +112,8 @@ Root: HKA; Subkey: "Software\Classes\.mvtheme"; ValueType: string; ValueName: ""
 Root: HKA; Subkey: "Software\Classes\.mvtheme"; ValueType: string; ValueName: "Content Type"; ValueData: "application/x-mechvibes-theme"; Flags: uninsdeletevalue uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\.mvtheme\OpenWithProgids"; ValueType: string; ValueName: "Mechvibes.Theme"; ValueData: ""; Flags: uninsdeletevalue uninsdeletekeyifempty
 Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme"; ValueType: string; ValueName: ""; ValueData: "{#MyAppName} theme"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",0"
+; The theme file icon, by its resource id in the exe (see build.rs).
+Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"",-2"
 Root: HKA; Subkey: "Software\Classes\Mechvibes.Theme\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}\SupportedTypes"; ValueType: string; ValueName: ".mvtheme"; ValueData: ""; Flags: uninsdeletekey
 

@@ -119,6 +119,11 @@ const THEME_MIME_TYPE: &str = "application/x-mechvibes-theme";
 #[cfg(any(target_os = "linux", test))]
 const THEME_MIME_XML: &str = include_str!("../../packaging/linux/mechvibes.xml");
 
+/// The icon of a theme file, named after `THEME_MIME_TYPE` as the icon spec
+/// asks. The `.deb` ships the same file.
+#[cfg(target_os = "linux")]
+const THEME_ICON_PNG: &[u8] = include_bytes!("../../packaging/linux/application-x-mechvibes-theme.png");
+
 /// Make an AppImage the handler for `mechvibes://` links and `.mvtheme` theme
 /// files.
 ///
@@ -139,6 +144,8 @@ pub fn register_protocol() -> Result<(), Box<dyn std::error::Error>> {
     let mime_dir = format!("{}/.local/share/mime", home);
     let mime_packages_dir = format!("{}/packages", mime_dir);
     let mime_file_path = format!("{}/{}.xml", mime_packages_dir, APP_NAME_LOWERCASE);
+    let icon_dir = format!("{}/.local/share/icons/hicolor/256x256/mimetypes", home);
+    let icon_path = format!("{}/{}.png", icon_dir, THEME_MIME_TYPE.replace('/', "-"));
     let exe_path = appimage_file().ok_or("not an AppImage")?;
     let exec = desktop_exec_quote(&exe_path.to_string_lossy()).ok_or(
         "the AppImage path has a line break in it"
@@ -166,7 +173,8 @@ MimeType=x-scheme-handler/{};{};
     let unchanged = |path: &str, content: &str| fs::read_to_string(path).ok().as_deref() == Some(content);
     let entry_changed = !unchanged(desktop_file_path.as_str(), desktop_content.as_str());
     let mime_changed = !unchanged(mime_file_path.as_str(), THEME_MIME_XML);
-    if !entry_changed && !mime_changed {
+    let icon_changed = fs::read(&icon_path).ok().as_deref() != Some(THEME_ICON_PNG);
+    if !entry_changed && !mime_changed && !icon_changed {
         return Ok(());
     }
     crate::always_print!("🐧 Registering {}// protocol and theme files on Linux...", APP_PROTOCOL);
@@ -190,6 +198,10 @@ MimeType=x-scheme-handler/{};{};
     } else {
         Ok(())
     };
+    // Best effort too: without it a theme file just shows the generic icon.
+    if icon_changed {
+        let _ = fs::create_dir_all(&icon_dir).and_then(|()| fs::write(&icon_path, THEME_ICON_PNG));
+    }
     for mime_type in [format!("x-scheme-handler/{}", APP_PROTOCOL), THEME_MIME_TYPE.to_string()] {
         let _ = Command::new("xdg-mime").args(["default", &entry_name, &mime_type]).output();
     }
@@ -203,6 +215,16 @@ MimeType=x-scheme-handler/{};{};
 #[cfg(test)]
 mod tests {
     use super::{ desktop_exec_quote, THEME_MIME_TYPE, THEME_MIME_XML };
+
+    /// File managers look a type's icon up by the name the MIME file gives,
+    /// which the icon spec derives from the type itself.
+    #[test]
+    fn the_theme_file_icon_is_named_after_its_type() {
+        let name = THEME_MIME_TYPE.replace('/', "-");
+        assert!(THEME_MIME_XML.contains(&format!("<icon name=\"{}\"/>", name)));
+        let png = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(format!("packaging/linux/{}.png", name));
+        assert!(png.is_file(), "{}", png.display());
+    }
 
     /// The type the file manager matches must be the one each desktop entry
     /// says it opens, and it must cover the extension the app writes.

@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **See a theme before you use it.** The dialog shows the theme the way the theme library does: a picture of it, its name, and for a theme from the library who made it and its description. The picture is a small copy of the app as it will look with the theme on: its background, its logo and its colors. It follows what you tick, so an unticked part shows yours.
 - **Undo.** Right after you put on a theme or the Default look, **Undo** brings back the look you had before. It stays readable whatever the theme does to the colors.
 - **Open a theme file with a double-click (Windows and Linux),** or drop it on the Mechvibes window. The app comes to the front and asks before it changes anything.
+- **Theme files have their own icon** (Windows and Linux), so you can tell a `.mvtheme` file apart from the app.
 - **Share saves straight to a file.** The save dialog opens right away, and once the file is saved, **Show file** opens the folder it is in.
 - **A gallery of your themes.** **Customize > Themes** shows every theme as a card with a small preview: Default, the ready-made themes, your own themes, and the themes you installed. Click a card to put it on. The theme you had stays in the gallery, so you can always click it again.
 - **Four ready-made themes** come with the app: Retro Beige, Midnight Blue, RGB Night and Rainy Cafe.
