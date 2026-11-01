@@ -515,12 +515,17 @@ mod tests {
             let (own_class, own_style) = logo_style(Some(&look), sound_on, false);
             // The theme's logo takes its border and text from classes.
             assert!(theme_class.contains("border-primary text-primary"));
-            assert!(own_style.contains("border-color: var(--color-primary); color: var(--color-primary);"), "{}", own_style);
-            let from_classes = ["border-color: revert-layer", "color: revert-layer"];
+            assert!(
+                own_style.contains("border-left-color: var(--color-primary); color: var(--color-primary);"),
+                "{}",
+                own_style
+            );
+            // The border and text colours the theme's logo leaves to classes.
+            let from_classes = |d: &str| d.ends_with("-color: revert-layer") || d == "color: revert-layer";
             for declaration in theme_style
                 .split(';')
                 .map(str::trim)
-                .filter(|d| !d.is_empty() && !from_classes.contains(d))
+                .filter(|d| !d.is_empty() && !from_classes(d))
             {
                 assert!(own_style.contains(declaration), "{:?} missing from {:?}", declaration, own_style);
             }
