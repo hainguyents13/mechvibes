@@ -30,6 +30,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **"Reset to Defaults" in Settings keeps your look.** It first saves the look you have as a theme, then puts back the default colors and turns off your logo and background. Click the theme in the gallery to get it back.
 - **A theme from the library is checked before the app asks.** The app downloads the theme and checks it first, so the dialog lists what is really in the file, and **Use this theme** puts on exactly that.
 - **Images are stored once.** Importing the same theme, or picking the same image, twice no longer makes a second copy of the image.
+- **Packs without an icon get a cover.** Instead of a music note, the pack picker and the Sound packs list show the pack's initials on a color picked from its name, so a pack always has the same color. Pack icons are rounded squares again, where some themes turned them into circles.
 
 ### Fixed
 
