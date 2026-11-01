@@ -4,7 +4,7 @@ A `.mvtheme` file holds a whole look: the theme colors, the logo style and the b
 
 Share opens the system save dialog straight away, and the theme in the file takes the name the user gives the file. Once saved, a toast offers **Show file**. The current theme row shares the card in use. A theme that comes with the app is written exactly as it comes; the **Default** card writes the default look.
 
-Format 1 is frozen. Its exact layout lives in `src/utils/theme_share/wire_v1.rs`, apart from the app's own settings, so changing a setting can never change the file by accident: a new field in the app's logo or background settings does not compile until someone decides whether it goes into the file. Files written by Mechvibes 3.3.0 sit in `src/utils/theme_share/fixtures/v1/`, and tests check that every build reads, applies and writes them again as 3.3 did. A change of shape is a new format number.
+Format 1 is frozen. Its exact layout lives in `src/utils/theme_share/wire_v1.rs`, apart from the app's own settings, so changing a setting can never change the file by accident: a new field in the app's logo or background settings does not compile until someone decides whether it goes into the file. Files written by Mechvibes 3.3.0 sit in `src/utils/theme_share/fixtures/v1/`, and tests check that every build reads, applies and writes them again as 3.3 did. A change of shape is a new format number. The one exception is a key that may be left out and changes nothing on screen, such as `description`: 3.3 skips keys it does not know, so such a file still opens there and looks the same.
 
 ## Layout
 
@@ -26,6 +26,7 @@ Image names are whatever `theme.json` says; the app writes `logo`, `logo-muted` 
 {
   "format": 1,
   "name": "Night drive",
+  "description": "Neon pink on deep blue. Credit: Pinterest",
   "colors": { "custom": { "css": "--color-primary: oklch(55% 0.3 240);\n..." } },
   "logo": {
     "border_color": "#ff4fa3",
@@ -51,6 +52,7 @@ Image names are whatever `theme.json` says; the app writes `logo`, `logo-muted` 
 |---|---|
 | `format` | Layout version, currently `1`. The app refuses a higher number and asks the user to update. |
 | `name` | Shown in the import dialog and used as the custom theme's name. Trimmed, at most 64 characters. Share writes the file name the user picked. |
+| `description` | Optional text. A line about the theme, with any credit for its images, shown under the name in the import dialog: about 190 characters fit at the app's width, and a longer one is cut there and shown whole on hover. Line breaks become spaces, control characters are dropped, at most 500 characters. It changes nothing on screen, so Mechvibes 3.3, which skips keys it does not know, still opens such a file the same way. Share does not write it yet. |
 | `colors` | Either `{ "built_in": "<Name>" }` with a built-in theme name as the app lists it (`Dark`, `Synthwave`, ...), or `{ "custom": { "css": "..." } }` with the declarations of a custom theme. |
 | `logo` | Same fields as the app's logo settings. Image fields name a file in the ZIP. Left out when the sharer has logo customization switched off. |
 | `background` | Same fields as the app's background settings. Left out when switched off. |
@@ -145,6 +147,6 @@ The library links to `mechvibes://theme/<id>`, which the app handles from 3.3.0 
 1. Reads the id from the path and ignores the link unless it matches the pattern.
 2. Looks the theme up with `GET https://mechvibes.com/api/themes/<id>` (`{ "theme": { "id", "name", "description", "author", "colorsLabel", "hasLogo", "hasBackground", "size", "checksum", "previewUrl", ... } }`, `404` when the theme is not published).
 3. Downloads `GET https://mechvibes.com/api/themes/<id>/download`, compares its SHA-256 with `checksum`, and reads it with every check above, as a file picked with **Import**.
-4. Shows the confirm dialog with the name and author from the library and the checklist built from the downloaded file, not from `hasLogo` or `hasBackground`, so what the dialog lists is what goes on. **Use this theme** puts on that same file; nothing is downloaded again.
+4. Shows the confirm dialog with the name, author and description from the library (the file's own description when the library has none) and the checklist built from the downloaded file, not from `hasLogo` or `hasBackground`, so what the dialog lists is what goes on. **Use this theme** puts on that same file; nothing is downloaded again.
 
 The dialog shows each step (looking up, downloading) with a **Cancel** button, and a result that arrives after Cancel is dropped. Nothing is put on without the confirm dialog, and the link carries no other data.

@@ -2,6 +2,9 @@
 //!
 //! Never edit a field here: files made by 3.3 must keep reading the same, and
 //! files made now must keep opening in 3.3. A change of shape is a new format.
+//! The one exception is a field that may be left out and changes nothing on
+//! screen, such as `description`: 3.3 skips keys it does not know, so such a
+//! file still opens there and looks the same.
 //! The app's own types convert to and from these at the edge, so a setting
 //! added to the app later does not quietly change the file.
 
@@ -16,6 +19,9 @@ use serde::{ Deserialize, Serialize };
 pub(super) struct ManifestV1 {
     pub format: u32,
     pub name: String,
+    /// Added after 3.3, which skips it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub colors: ColorsV1,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub logo: Option<LogoV1>,

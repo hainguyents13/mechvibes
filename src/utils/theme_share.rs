@@ -33,6 +33,8 @@ const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Three images at their limit plus the manifest.
 pub const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
 pub(crate) const MAX_NAME_CHARS: usize = 64;
+/// The longest description a theme keeps, the same as the theme library takes.
+pub(crate) const MAX_DESCRIPTION_CHARS: usize = 500;
 const MAX_CSS_VALUE_CHARS: usize = 200;
 
 /// The colour functions a colour may use. `url()`, `image()` and the like are
@@ -59,6 +61,9 @@ pub enum SharedColors {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SharedTheme {
     pub name: String,
+    /// A line about the theme, with any credit for its images. Shown in the
+    /// import dialog; it changes nothing on screen.
+    pub description: Option<String>,
     pub colors: SharedColors,
     pub logo: Option<LogoCustomization>,
     pub background: Option<BackgroundCustomization>,
@@ -414,7 +419,7 @@ pub async fn gather(name: &str, look: &Look) -> Result<SharedTheme, String> {
         None
     };
 
-    Ok(SharedTheme { name, colors, logo, background, images })
+    Ok(SharedTheme { name, description: None, colors, logo, background, images })
 }
 
 /// Add the image at `value` to `images` as `<stem>.<ext>` and return that name.
@@ -535,6 +540,7 @@ fn shrink_images(theme: &SharedTheme) -> SharedTheme {
     }
     let mut shrunk = SharedTheme {
         name: theme.name.clone(),
+        description: theme.description.clone(),
         colors: theme.colors.clone(),
         logo: theme.logo.clone(),
         background: theme.background.clone(),
@@ -758,6 +764,7 @@ pub(crate) fn manifest_json(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
+        description: theme.description.clone(),
         colors: ColorsV1::from_shared(&theme.colors),
         logo: theme.logo.as_ref().map(LogoV1::from_config),
         background: theme.background.as_ref().map(BackgroundV1::from_config),
@@ -837,6 +844,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         .map_err(|_| "This theme file is damaged.".to_string())?;
 
     let name = clean_name(&manifest.name).ok_or_else(|| "This theme file is damaged.".to_string())?;
+    let description = manifest.description.as_deref().and_then(clean_description);
     let colors = match manifest.colors.into_shared().ok_or_else(|| "This theme file is damaged.".to_string())? {
         SharedColors::BuiltIn(theme) => SharedColors::BuiltIn(theme),
         SharedColors::Custom { css } => {
@@ -882,7 +890,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         None => None,
     };
 
-    Ok(SharedTheme { name, colors, logo, background, images })
+    Ok(SharedTheme { name, description, colors, logo, background, images })
 }
 
 /// The image a manifest field names, checked and kept in `images`.
@@ -1030,6 +1038,13 @@ pub fn after_import(current: &Look, offered: Look, parts: ImportParts) -> Look {
 
 pub(crate) fn clean_name(name: &str) -> Option<String> {
     clean_text(name, MAX_NAME_CHARS)
+}
+
+/// A description on one line, cut to `MAX_DESCRIPTION_CHARS`. Line breaks
+/// part sentences here, so they become spaces rather than being dropped with
+/// the other control characters.
+pub(crate) fn clean_description(description: &str) -> Option<String> {
+    clean_text(&description.replace(char::is_whitespace, " "), MAX_DESCRIPTION_CHARS)
 }
 
 /// `text` on one line, without control characters and cut to `max_chars`,
@@ -1346,6 +1361,7 @@ mod tests {
         };
         SharedTheme {
             name: "Night drive".to_string(),
+            description: None,
             colors: SharedColors::Custom { css: "--color-primary: oklch(55% 0.3 240);".to_string() },
             logo: Some(logo),
             background: Some(background),
@@ -1415,6 +1431,36 @@ mod tests {
         assert!(plain["logo"]["background_image"].is_null());
         assert_eq!(keys(&plain["logo"]).len(), 10);
         assert_eq!(plain["colors"], serde_json::json!({ "built_in": "Synthwave" }));
+    }
+
+    /// A description is the one key a file may have beyond format 1's. 3.3
+    /// skips keys it does not know (the `unknown-fields` fixture), so the
+    /// file still opens there and looks the same.
+    #[test]
+    fn a_description_travels_with_the_file_and_is_tidied() {
+        let mut theme = look();
+        theme.description = Some("Pink and blue. Credit: Pinterest".to_string());
+        let bytes = to_bytes(&theme).unwrap();
+        assert_eq!(manifest_json(&bytes)["description"], "Pink and blue. Credit: Pinterest");
+        let read = from_bytes(&bytes).unwrap();
+        assert_eq!(read.description.as_deref(), Some("Pink and blue. Credit: Pinterest"));
+        assert_eq!(read.fingerprint(), look().fingerprint(), "a description changes nothing on screen");
+
+        let with = |description: &str| {
+            let manifest = serde_json::json!({
+                "format": 1,
+                "name": "x",
+                "description": description,
+                "colors": { "built_in": "Dark" },
+            });
+            from_bytes(&zip_with(&[(MANIFEST_NAME, manifest.to_string().as_bytes())])).unwrap().description
+        };
+        assert_eq!(with("Pink\n\nand\tblue.\u{7}").as_deref(), Some("Pink and blue."));
+        assert_eq!(with(" \n ").as_deref(), None);
+        assert_eq!(with(&"x".repeat(600)).unwrap().chars().count(), MAX_DESCRIPTION_CHARS);
+
+        let without = br#"{"format": 1, "name": "x", "colors": {"built_in": "Dark"}}"#;
+        assert_eq!(from_bytes(&zip_with(&[(MANIFEST_NAME, without)])).unwrap().description, None);
     }
 
     /// A file from `theme_share/fixtures/v1/` and what Mechvibes 3.3 made of
@@ -1557,6 +1603,7 @@ mod tests {
     fn a_built_in_look_without_logo_or_background_reads_back() {
         let theme = SharedTheme {
             name: "Plain".to_string(),
+            description: None,
             colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave),
             logo: None,
             background: None,

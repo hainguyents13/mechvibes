@@ -16,8 +16,6 @@ const MAX_PACK_BYTES: u64 = 50 * 1024 * 1024;
 /// The details of one pack or theme are a few hundred bytes.
 const MAX_DETAILS_BYTES: usize = 64 * 1024;
 const DETAILS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-/// The longest description the theme library takes.
-const MAX_DESCRIPTION_CHARS: usize = 500;
 
 /// What the install dialog shows before anything is downloaded.
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -138,13 +136,7 @@ fn check_theme(id: &str, mut theme: LibraryTheme) -> Result<LibraryTheme, String
         ::clean_name(&theme.name)
         .ok_or_else(|| "The theme library sent a theme without a name.".to_string())?;
     theme.author = theme.author.as_deref().and_then(theme_share::clean_name);
-    theme.description = theme.description
-        .as_deref()
-        // Line breaks part sentences here, so they become spaces rather than
-        // being dropped with the other control characters.
-        .and_then(|description| {
-            theme_share::clean_text(&description.replace(char::is_whitespace, " "), MAX_DESCRIPTION_CHARS)
-        });
+    theme.description = theme.description.as_deref().and_then(theme_share::clean_description);
     theme.colors_label = theme_share::clean_name(&theme.colors_label).unwrap_or_else(|| "Custom colors".to_string());
     Ok(theme)
 }
@@ -332,7 +324,7 @@ mod tests {
         long.description = Some(format!("Dark\n\n and\tpink. {}", "x".repeat(600)));
         let description = check_theme(THEME_ID, long).unwrap().description.unwrap();
         assert!(description.starts_with("Dark and pink. x"));
-        assert_eq!(description.chars().count(), MAX_DESCRIPTION_CHARS);
+        assert_eq!(description.chars().count(), theme_share::MAX_DESCRIPTION_CHARS);
 
         let mut blank = theme();
         blank.description = Some(" \n ".to_string());
