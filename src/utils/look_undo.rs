@@ -11,7 +11,8 @@ use crate::libs::theme::Theme;
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use std::sync::Mutex;
 
-/// The config fields a theme can change.
+/// The config fields a theme can change, and the saved theme the look
+/// belongs to, so going back also points at the theme from before.
 #[derive(Debug, Clone, PartialEq)]
 pub struct LookFields {
     pub theme: Theme,
@@ -19,6 +20,7 @@ pub struct LookFields {
     pub enable_logo: bool,
     pub background: BackgroundCustomization,
     pub enable_background: bool,
+    pub active_theme_id: Option<String>,
 }
 
 impl LookFields {
@@ -29,6 +31,7 @@ impl LookFields {
             enable_logo: config.enable_logo_customization,
             background: config.background_customization.clone(),
             enable_background: config.enable_background_customization,
+            active_theme_id: config.active_theme_id.clone(),
         }
     }
 
@@ -38,6 +41,7 @@ impl LookFields {
         config.enable_logo_customization = self.enable_logo;
         config.background_customization = self.background.clone();
         config.enable_background_customization = self.enable_background;
+        config.active_theme_id = self.active_theme_id.clone();
     }
 }
 
@@ -137,6 +141,29 @@ mod tests {
         assert!(last.remember(before.clone(), after.clone()));
         assert!(!last.remember(after.clone(), after.clone()), "a second click on the same look");
         assert_eq!(last.take_undo(&after), Some(before));
+    }
+
+    #[test]
+    fn undo_after_switching_cards_points_back_at_the_previous_card() {
+        let mut config = AppConfig::default();
+        config.active_theme_id = Some("my-theme".to_string());
+        config.enable_logo_customization = true;
+        let before = LookFields::of(&config);
+        config.active_theme_id = Some("starter:retro-beige".to_string());
+        config.enable_logo_customization = false;
+        let after = LookFields::of(&config);
+
+        let mut last = UndoStep::default();
+        assert!(last.remember(before.clone(), after.clone()));
+        let back = last.take_undo(&after).unwrap();
+        assert_eq!(back.active_theme_id.as_deref(), Some("my-theme"));
+        back.write_to(&mut config);
+        assert_eq!(config.active_theme_id.as_deref(), Some("my-theme"));
+
+        // Only the pointer moving is still a step worth going back from.
+        let mut pointed = LookFields::of(&config);
+        pointed.active_theme_id = None;
+        assert!(last.remember(LookFields::of(&config), pointed));
     }
 
     #[test]

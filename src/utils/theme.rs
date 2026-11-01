@@ -70,6 +70,31 @@ pub fn get_themes_config() -> ThemesConfig {
     themes_config().clone()
 }
 
+/// Show the shared list again everywhere the window uses it, after
+/// `change_themes_config` changed it. Must run on the window's thread.
+pub fn refresh_themes() {
+    *REFRESH_TRIGGER.write() += 1;
+}
+
+/// Change the shared colors list outside a window and save it when `mutate`
+/// changed something. A failed save puts the list back and tells the user.
+/// Windows already showing the list are not refreshed, so this is for work
+/// done before the window is up.
+pub fn change_themes_config<R>(mutate: impl FnOnce(&mut ThemesConfig) -> R) -> Result<R, String> {
+    let mut themes = themes_config();
+    let before = themes.clone();
+    let result = mutate(&mut themes);
+    if *themes != before {
+        if let Err(e) = themes.save() {
+            *themes = before;
+            crate::always_eprint!("❌ Failed to save themes: {}", e);
+            notice::report(NoticeKind::Error, format!("Could not save your changes. {}", e), None);
+            return Err(e);
+        }
+    }
+    Ok(result)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

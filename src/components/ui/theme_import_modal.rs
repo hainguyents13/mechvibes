@@ -12,13 +12,15 @@
 //! Either way nothing is put on until the user clicks Use this theme, and
 //! what is put on then is exactly the file the dialog showed. The dialog
 //! lists the colours, the logo and the background with a tick each; an
-//! unticked part brings nothing and leaves the user's own as it is. Once a
-//! theme is on, Undo puts back the look from before it.
+//! unticked part leaves the user's own as it is. The installed theme keeps
+//! every part either way, so it can be put on whole later. Once a theme is
+//! on, Undo puts back the look from before it.
 //!
 //! Reading, looking up and downloading can be cancelled. Each request has its
 //! own number, and a result that comes back after its request was cancelled
 //! is dropped, so a read that never finishes cannot hold the dialog.
 
+use crate::components::customize::theme_card::{ CardPreview, ColorDots, ThemePicture };
 use crate::components::theme_share::{ put_on, undo_look };
 use crate::components::ui::library_install_modal::format_size;
 use crate::libs::theme::use_theme;
@@ -26,18 +28,21 @@ use crate::utils::config::use_config;
 use crate::utils::deep_link;
 use crate::utils::library_client;
 use crate::utils::theme::use_themes;
-use crate::utils::theme_share::{ self, checklist, preview_stripes, ImportParts, SharedColors, SharedTheme };
+use crate::utils::theme_library::ThemeSource;
+use crate::utils::theme_share::{ self, after_import, checklist, ImportParts, Look, SharedTheme };
 use dioxus::prelude::*;
-use lucide_dioxus::{ Download, Image as ImageIcon, Palette, Stamp, Undo2 };
+use lucide_dioxus::{ Download, Image as ImageIcon, Stamp, Undo2 };
 use std::rc::Rc;
 
 /// A theme read and checked, waiting for the user's answer.
 #[derive(Debug, PartialEq)]
 struct Offer {
     theme: SharedTheme,
-    /// The picture that stands for the theme, as a `data:` URI, or `None` to
-    /// show its colours.
-    preview: Option<String>,
+    /// Where the theme came from, so installing it again finds its card.
+    source: ThemeSource,
+    /// The theme's look with its images shrunk into `data:` URIs, for the
+    /// picture.
+    preview: Look,
     /// Known only for a theme from the library.
     author: Option<String>,
     description: Option<String>,
@@ -46,8 +51,8 @@ struct Offer {
 
 /// A theme with its picture, made off the window thread with the reading,
 /// since shrinking a large wallpaper takes a moment.
-fn with_preview(theme: SharedTheme) -> (SharedTheme, Option<String>) {
-    let preview = theme.preview_data_uri();
+fn with_preview(theme: SharedTheme) -> (SharedTheme, Look) {
+    let preview = theme.preview_look();
     (theme, preview)
 }
 
@@ -102,7 +107,7 @@ fn advance(mut stage: Signal<Stage>, request: Signal<u64>, number: u64, next: St
 #[component]
 pub fn ThemeImportModal() -> Element {
     let (config, update_config) = use_config();
-    let (_, update_themes) = use_themes();
+    let (themes, update_themes) = use_themes();
     let theme_signal = use_theme();
     let mut stage = use_signal(|| Stage::Hidden);
     let mut request = use_signal(|| 0u64);
@@ -122,13 +127,24 @@ pub fn ThemeImportModal() -> Element {
                 };
                 parts.set(ImportParts::ALL);
                 spawn(async move {
+                    // The fingerprint is read off the window thread too, as it
+                    // hashes every image.
                     let opened = tokio::task
-                        ::spawn_blocking(move || theme_share::open(&path).map(with_preview)).await
+                        ::spawn_blocking(move || {
+                            theme_share::open(&path).map(|theme| (theme.fingerprint(), with_preview(theme)))
+                        }).await
                         .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
                     advance(stage, request, number, match opened {
-                        Ok((theme, preview)) =>
+                        Ok((fingerprint, (theme, preview))) =>
                             Stage::Confirm(
-                                Rc::new(Offer { theme, preview, author: None, description: None, size: None })
+                                Rc::new(Offer {
+                                    theme,
+                                    source: ThemeSource::File { fingerprint },
+                                    preview,
+                                    author: None,
+                                    description: None,
+                                    size: None,
+                                })
                             ),
                         Err(e) => Stage::Failed(e),
                     });
@@ -171,9 +187,16 @@ pub fn ThemeImportModal() -> Element {
                         Ok((mut theme, preview)) => {
                             // The name the library page showed, not the one inside the file.
                             theme.rename(&listed.name);
+                            // The id is the one the link asked for, which the
+                            // library's answer had to match, never one a file names.
+                            let source = ThemeSource::Library {
+                                id: listed.id.clone(),
+                                checksum: listed.checksum.trim().to_lowercase(),
+                            };
                             Stage::Confirm(
                                 Rc::new(Offer {
                                     theme,
+                                    source,
                                     preview,
                                     author: listed.author,
                                     description: listed.description,
@@ -207,11 +230,11 @@ pub fn ThemeImportModal() -> Element {
             return;
         }
         // Exactly the theme the dialog showed; nothing is read again.
-        let theme = offer.theme.clone();
+        let (theme, source) = (offer.theme.clone(), offer.source.clone());
         stage.set(Stage::Working);
         let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
-            stage.set(match put_on(theme, ticked, update_config, update_themes, theme_signal).await {
+            stage.set(match put_on(theme, ticked, source, update_config, update_themes, theme_signal).await {
                 Ok(name) => Stage::Done(name),
                 Err(e) => Stage::Failed(e),
             });
@@ -267,7 +290,18 @@ pub fn ThemeImportModal() -> Element {
                 // style property a changed `style` leaves out, so a picture
                 // reused for the next theme could keep colours of the last one.
                 for number in [request()] {
-                  OfferCard { key: "{number}", offer: offer.clone() }
+                  OfferCard {
+                    key: "{number}",
+                    offer: offer.clone(),
+                    // The screen once this theme is on with the ticked parts.
+                    picture: CardPreview::of(
+                        &after_import(
+                            &Look::from_config(&config(), &themes()),
+                            offer.preview.clone(),
+                            parts().within(offer.theme.parts()),
+                        ),
+                    ),
+                  }
                 }
                 div { class: "space-y-3 mt-3",
                   for row in checklist(&offer.theme, &config()) {
@@ -294,7 +328,7 @@ pub fn ThemeImportModal() -> Element {
                     }
                   }
                 }
-                div { class: "text-xs text-base-content/60 mt-3", "Untick a part to keep yours." }
+                div { class: "text-xs text-base-content/60 mt-3", "Your current theme stays in the Themes tab." }
               },
               Stage::Done(name) => rsx! {
                 div { class: "alert alert-success alert-soft", "{name} is on." }
@@ -339,46 +373,23 @@ pub fn ThemeImportModal() -> Element {
 
 /// The picture's frame has the app window's shape at its default size
 /// (470 x 820 pt), as on the theme library's cards.
-const FRAME_STYLE: &str = "width: 6rem; aspect-ratio: 47 / 82; align-self: flex-start;";
-const FRAME_CLASS: &str = "shrink-0 overflow-hidden rounded-lg border border-base-300 bg-base-100";
+const FRAME_STYLE: &str = "width: 7rem; aspect-ratio: 47 / 82; align-self: flex-start;";
+const FRAME_CLASS: &str = "shrink-0 rounded-lg border border-base-300";
 
 /// The theme the way the theme library's card shows it: its picture, its
 /// name, who made it, its description and what it holds. The picture is the
-/// file's whole look, whatever the checklist below has ticked.
+/// screen as it will look once the theme is on, drawn as a card in the
+/// Themes tab draws a look: `picture` follows the ticks in the checklist.
 #[component]
-fn OfferCard(offer: Rc<Offer>) -> Element {
+fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
     let theme = &offer.theme;
-    let stripes = preview_stripes(&theme.colors);
-    // A built-in theme's colours come from its daisyUI theme. Custom colours
-    // are set on the frame itself, from CSS the file check already cut down
-    // to colour and size variables, so they reach only the stripes.
-    let (data_theme, colors_style) = match &theme.colors {
-        SharedColors::BuiltIn(built_in) => (Some(built_in.to_daisy_theme()), String::new()),
-        SharedColors::Custom { css } => (None, css.replace('\n', " ")),
-    };
 
     rsx! {
       div { class: "card border border-base-300 bg-base-200 p-4",
         div { class: "flex gap-4",
-          if let Some(src) = &offer.preview {
-            div { class: FRAME_CLASS, style: FRAME_STYLE,
-              img { class: "w-full h-full object-cover", src: "{src}", alt: "" }
-            }
-          } else if stripes.is_empty() {
-            div {
-              class: "{FRAME_CLASS} flex items-center justify-center",
-              style: FRAME_STYLE,
-              Palette { class: "w-6 h-6 text-base-content/50" }
-            }
-          } else {
-            div {
-              class: "{FRAME_CLASS} flex flex-col",
-              style: "{FRAME_STYLE} {colors_style}",
-              "data-theme": data_theme,
-              for stripe in stripes {
-                span { key: "{stripe}", class: "w-full flex-1 {stripe}" }
-              }
-            }
+          // Drawn anew whenever a tick changes what it shows.
+          for key in [picture.key()] {
+            ThemePicture { key: "{key}", preview: picture.clone(), class: FRAME_CLASS, style: FRAME_STYLE }
           }
 
           div { class: "flex min-w-0 flex-1 flex-col gap-2",
@@ -400,7 +411,10 @@ fn OfferCard(offer: Rc<Offer>) -> Element {
             div {
               class: "flex flex-wrap items-center text-xs text-base-content/60",
               style: "column-gap: 0.75rem; row-gap: 0.25rem;",
-              span { class: "badge badge-sm", "{theme.colors_label()}" }
+              span { class: "badge badge-sm gap-2",
+                ColorDots { preview: CardPreview::of(&offer.preview) }
+                "{theme.colors_label()}"
+              }
               if theme.logo.is_some() {
                 span { class: "flex items-center gap-1",
                   Stamp { class: "w-3 h-3" }
@@ -441,7 +455,9 @@ mod tests {
     fn asking() -> Stage {
         let bytes = include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme");
         let theme = theme_share::from_bytes(bytes).unwrap();
-        Stage::Confirm(Rc::new(Offer { theme, preview: None, author: None, description: None, size: None }))
+        let source = ThemeSource::File { fingerprint: theme.fingerprint() };
+        let preview = theme.preview_look();
+        Stage::Confirm(Rc::new(Offer { theme, source, preview, author: None, description: None, size: None }))
     }
 
     #[test]

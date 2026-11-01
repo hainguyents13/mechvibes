@@ -42,6 +42,15 @@ pub fn app() -> Element {
     });
     use_context_provider(|| global_config);
 
+    // The saved themes, mirrored the same way: the store owns the list and
+    // the poll loop below shows it again whenever it changes.
+    let saved_themes = use_signal(crate::state::saved_themes::current);
+    use_context_provider(|| saved_themes);
+
+    // A burst of edits to the look is saved as a theme once it is over,
+    // whatever page shows by then.
+    crate::components::customize::look_editor::use_save_after_edits();
+
     // Messages from `utils::notice` on their way to the screen; the poll loop
     // below fills it and `Toasts` shows it.
     let notices = use_signal(Vec::<crate::utils::notice::Notice>::new);
@@ -136,7 +145,9 @@ pub fn app() -> Element {
     {
         let mut keyboard_state = keyboard_state;
         let mut global_config = global_config;
+        let mut saved_themes = saved_themes;
         let mut seen_config_generation = crate::state::config_writer::generation();
+        let mut seen_saved_themes_generation = crate::state::saved_themes::generation();
 
         use_future(move || async move {
             let event_rx = crate::libs::audio::ui_event_receiver();
@@ -152,6 +163,12 @@ pub fn app() -> Element {
                     if !global_config.peek().data_equals(&latest) {
                         global_config.set(latest);
                     }
+                }
+
+                let generation = crate::state::saved_themes::generation();
+                if generation != seen_saved_themes_generation {
+                    seen_saved_themes_generation = generation;
+                    saved_themes.set(crate::state::saved_themes::current());
                 }
 
                 // Messages reported off this thread, such as a failed save,
@@ -441,6 +458,34 @@ pub fn app() -> Element {
                 .body(b"Not Found".to_vec())
         {
             response.respond(not_found_response);
+        }
+    });
+
+    // The images of the themes that come with the app, for their cards:
+    // /starter-themes/{slug}/{image name}. Served from the copy built into the
+    // app, and only a name a starter's own file holds, so no path is read.
+    use_asset_handler(crate::utils::starter_themes::IMAGE_ROUTE, |request, response| {
+        let path = request.uri().path().trim_start_matches('/');
+        let found = match path.split('/').collect::<Vec<_>>().as_slice() {
+            [route, slug, name] if *route == crate::utils::starter_themes::IMAGE_ROUTE => {
+                crate::utils::starter_themes::image(slug, name)
+            }
+            _ => None,
+        };
+        let built = match found {
+            Some((bytes, media_type)) =>
+                Response::builder()
+                    .header("Content-Type", media_type)
+                    .header("Cache-Control", "public, max-age=3600")
+                    .body(bytes.to_vec()),
+            None =>
+                Response::builder()
+                    .status(404)
+                    .header("Content-Type", "text/plain")
+                    .body(b"Not Found".to_vec()),
+        };
+        if let Ok(built) = built {
+            response.respond(built);
         }
     });
 

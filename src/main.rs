@@ -222,6 +222,19 @@ fn main() {
         !opened_by_link &&
         (cli.minimized || (startup_config.auto_start && startup_config.start_minimized));
 
+    // Before anything shows the look: save a look of the user's own that no
+    // theme holds yet as "My theme", point at the theme the look on screen
+    // belongs to, and put back colors the colors list lost.
+    // A failed save has queued a notice for the window.
+    let _ = utils::theme_library::run_sync(utils::theme_library::SyncCause::Check);
+
+    // A while after start, remove images this copy made that nothing has used
+    // for a week. Not while the saved themes cannot be read: an image only
+    // they name would look unused.
+    if state::saved_themes::current().read_only.is_none() {
+        utils::custom_images::clear_unused_images_later();
+    }
+
     // Before the app state loads the sound pack list, so the packs brought over
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();

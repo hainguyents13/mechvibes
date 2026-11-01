@@ -10,14 +10,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **A new Customize page.** The look you have now sits at the top with **Share**, **Import** and **Find more**, and four tabs sit below it: **Themes**, **Colors**, **Logo** and **Background**. The **Default** card in Themes puts back the look Mechvibes starts with, and keeps your logo and background settings for later.
 - **Choose which parts of a theme to use.** Before a theme goes on, the dialog lists its colors, logo and background, each with a tick. Untick a part to keep yours. It also says when a theme will replace your logo or background.
-- **See a theme before you use it.** The dialog shows the theme the way the theme library does: a picture of it, its name, and for a theme from the library who made it and its description. The picture is the theme's wallpaper or logo image, or its colors when it has neither.
+- **See a theme before you use it.** The dialog shows the theme the way the theme library does: a picture of it, its name, and for a theme from the library who made it and its description. The picture is a small copy of the app as it will look with the theme on: its background, its logo and its colors. It follows what you tick, so an unticked part shows yours.
 - **Undo.** Right after you put on a theme or the Default look, **Undo** brings back the look you had before. It stays readable whatever the theme does to the colors.
 - **Open a theme file with a double-click (Windows and Linux),** or drop it on the Mechvibes window. The app comes to the front and asks before it changes anything.
 - **Share saves straight to a file.** The save dialog opens right away, and once the file is saved, **Show file** opens the folder it is in.
+- **A gallery of your themes.** **Customize > Themes** shows every theme as a card with a small preview: Default, the ready-made themes, your own themes, and the themes you installed. Click a card to put it on. The theme you had stays in the gallery, so you can always click it again.
+- **Four ready-made themes** come with the app: Retro Beige, Midnight Blue, RGB Night and Rainy Cafe.
+- **Your changes save on their own.** There is no Save button. Editing your own theme updates it. Editing a ready-made or installed theme, or the Default look, saves your version as "<name> (my copy)" and leaves the original as it was. If you had your own logo or background before this version, it is saved as "My theme" the first time you open the app.
+- **Share, duplicate, rename and delete themes** from the "..." menu on a card. You can rename your own themes, and delete your own and the ones you installed.
+- **Unused images are cleared.** A week after no theme or setting uses an image Mechvibes saved, the app removes it. If you run more than one copy of Mechvibes (for example the installed app and a portable one), each copy only removes images it saved itself. If a theme in the other copy loses its image, import that theme again.
 
 ### Changed
 
 - **A theme only changes what it has.** If a theme has no logo or no background, yours stays as it is. Before, the app turned yours off.
+- **Clicking a theme card puts on that whole theme.** A part the theme does not have is turned off, and your settings for it are kept for later.
+- **Installing a library theme again updates it** instead of adding it a second time. Importing the same theme file again uses the card you already have. Your own copies of a theme are never changed.
+- **An installed theme keeps all its parts.** If you untick a part when you install a theme, only the look you see now leaves it out; clicking the theme's card later puts on all of it.
+- **"Reset to Defaults" in Settings keeps your look.** It first saves the look you have as a theme, then puts back the default colors and turns off your logo and background. Click the theme in the gallery to get it back.
 - **A theme from the library is checked before the app asks.** The app downloads the theme and checks it first, so the dialog lists what is really in the file, and **Use this theme** puts on exactly that.
 - **Images are stored once.** Importing the same theme, or picking the same image, twice no longer makes a second copy of the image.
 

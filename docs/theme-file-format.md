@@ -1,8 +1,8 @@
 # Theme file format (`.mvtheme`)
 
-A `.mvtheme` file holds a whole look: the theme colors, the logo style and the background, with their images. The app writes it with **Share** and reads it with **Import**, both in the current theme row at the top of **Customize**. Source: `src/utils/theme_share.rs`.
+A `.mvtheme` file holds a whole look: the theme colors, the logo style and the background, with their images. The app writes it with **Share**, in the current theme row at the top of **Customize** and in the menu of every card in **Customize > Themes**, and reads it with **Import**, in the current theme row. Source: `src/utils/theme_share.rs`.
 
-Share opens the system save dialog straight away, and the theme in the file takes the name the user gives the file. Once saved, a toast offers **Show file**.
+Share opens the system save dialog straight away, and the theme in the file takes the name the user gives the file. Once saved, a toast offers **Show file**. The current theme row shares the card in use. A theme that comes with the app is written exactly as it comes; the **Default** card writes the default look.
 
 Format 1 is frozen. Its exact layout lives in `src/utils/theme_share/wire_v1.rs`, apart from the app's own settings, so changing a setting can never change the file by accident: a new field in the app's logo or background settings does not compile until someone decides whether it goes into the file. Files written by Mechvibes 3.3.0 sit in `src/utils/theme_share/fixtures/v1/`, and tests check that every build reads, applies and writes them again as 3.3 did. A change of shape is a new format number.
 
@@ -65,7 +65,7 @@ Everything in a file is untrusted. On import the app:
 - Refuses a file over 30 MB or a `theme.json` over 256 KB. A folder or a pipe is refused before it is opened, and a file is opened once and read only up to that limit, so a file that keeps growing is refused rather than read without end.
 - Saves images in the app's images folder under a name taken from their content, `img-<first 32 hex characters of the SHA-256>.<extension of the image type>`, so no part of a name comes from the file, an import never replaces another image, and the same image imported twice is one file. If the import fails after that, only the images this import created are removed again, never one that was already there.
 - Reuses a custom theme with the same name and CSS instead of adding a copy; a different theme with a name in use gets a number, as "Night drive (2)".
-- Switches logo or background customization off when the file leaves that part out and the user keeps that part ticked (see below).
+- Leaves the user's own logo or background as it is, on or off, when the file leaves that part out (see below).
 
 | Variable in `colors.custom.css` | Accepted value |
 |---|---|
@@ -85,11 +85,20 @@ Whatever brings the file, one dialog at the root of the window asks first: **Use
 - **Colors**, as `Colors: Synthwave` or `Colors: Custom colors`. Unticked, the app keeps its current colors and adds nothing to the colors list.
 - **Logo** and **Background**. When the file has the part, the line says what it brings (`Logo with images`, `Logo style`, `Background image`, `Background color`), and adds `Replaces your logo` or `Replaces your background` when the user's own is switched on. When the file leaves the part out, the line is greyed out with an empty tick that cannot be ticked, and says `Not in this theme. Yours stays as it is.`: the user's own part stays on or off as it was.
 
-Every part the file has starts ticked. Only the images of ticked parts are saved, and **Use this theme** is disabled while no part is ticked.
+Every part the file has starts ticked, and **Use this theme** is disabled while no part is ticked. The images of every part the file has are saved, ticked or not, because the installed theme keeps all of it (see [Saved themes](#saved-themes)). An unticked part only stays off the look on screen.
 
 This differs from 3.3 on purpose. There, a file without a logo or background switched the user's own off, so the result looked as it did for the sharer.
 
-Right before a theme goes on, the app remembers the colors, logo and background settings it is about to change, in memory only. **Undo**, in the dialog once the theme is on, puts them back, as long as nothing else has changed the look since. The **Default** card in **Customize > Themes** offers the same Undo in a toast. Both sit outside the area a theme colors, so they stay readable whatever a theme does.
+Right before a theme goes on, the app saves the look on screen as a theme when it is not the default look and no card holds it yet, then remembers the colors, logo and background settings it is about to change and which saved theme is in use, in memory only. **Undo**, in the dialog once the theme is on, puts them back, as long as nothing else has changed the look since. The **Default** card in **Customize > Themes** offers the same Undo in a toast. Both sit outside the area a theme colors, so they stay readable whatever a theme does.
+
+## Saved themes
+
+**Customize > Themes** is a gallery of cards: **Default** and the themes that come with the app (**Ready-made**), the user's own (**My themes**), and the themes installed from files or the library (**Installed**). The list lives in `saved_themes.json` in the app's data folder. Its layout is the app's own, not a theme file format, and lives in `src/state/saved_themes.rs`. Every entry is read with the same checks as a theme file, and an entry the app cannot read is kept in the file as it was.
+
+- **Installing.** A theme put on through the dialog gets a card under **Installed** that holds the whole file, every part, ticked or not. The same file imported again (same content, `SharedTheme::fingerprint`) reuses its card. A library theme installed again updates its card in place, found by its library id, and takes the name the library gives it now. A copy the user made of an installed theme is never touched.
+- **Clicking a card** puts the whole card on: a part the card does not have is switched off, and its settings are kept for later. This differs from the dialog on purpose, where a part the file leaves out keeps the user's own as it is.
+- **Editing** saves on its own. A theme of the user's own is updated in place. Editing while a ready-made, installed or Default card is in use saves the look as "<name> (my copy)" under **My themes**, and that copy is the one in use; the card itself never changes. The same happens when the dialog leaves a look that differs from the installed card, for example with a part unticked, or with the user's own logo kept because the file has none.
+- **Deleting** a card never deletes its images or its colors from the colors list. Images no theme or setting uses any more are cleared later, see `system-architecture.md`.
 
 ## Opening a theme file
 

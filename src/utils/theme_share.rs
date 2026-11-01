@@ -12,6 +12,7 @@ use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use crate::state::themes::ThemesConfig;
 use crate::utils::soundpack_validator::is_portable_name;
+use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 use std::io::{ Cursor, Read, Write };
 use std::path::{ Path, PathBuf };
@@ -19,8 +20,6 @@ use wire_v1::{ BackgroundV1, ColorsV1, LogoV1, ManifestV1 };
 
 mod preview;
 mod wire_v1;
-
-pub use preview::preview_stripes;
 
 pub const FILE_EXTENSION: &str = "mvtheme";
 
@@ -33,7 +32,7 @@ const MAX_MANIFEST_BYTES: u64 = 256 * 1024;
 const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Three images at their limit plus the manifest.
 pub const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
-const MAX_NAME_CHARS: usize = 64;
+pub(crate) const MAX_NAME_CHARS: usize = 64;
 const MAX_CSS_VALUE_CHARS: usize = 200;
 
 /// The colour functions a colour may use. `url()`, `image()` and the like are
@@ -44,8 +43,10 @@ const CSS_FUNCTIONS: [&str; 16] = [
 ];
 
 /// The theme colours a look uses. In a file they are written as
-/// `wire_v1::ColorsV1`.
-#[derive(Debug, Clone, PartialEq)]
+/// `wire_v1::ColorsV1`; the saved themes list stores them with this serde
+/// shape, `{ "built_in": "Dark" }` or `{ "custom": { "css": "..." } }`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SharedColors {
     BuiltIn(BuiltInTheme),
     Custom {
@@ -122,9 +123,73 @@ impl SharedTheme {
         self.images.retain(|name, _| used.contains(name));
     }
 
+    /// The bytes of the image this look names `name`.
+    pub fn image(&self, name: &str) -> Option<&[u8]> {
+        self.images.get(name).map(Vec::as_slice)
+    }
+
+    /// Every image this look holds, by the name its fields use.
+    pub fn images(&self) -> impl Iterator<Item = (&str, &[u8])> {
+        self.images.iter().map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+    }
+
+    /// What this look puts on, with each image field that names an image it
+    /// holds pointing where `url` says that image is, or cleared when `url`
+    /// gives no place. Any other image field is kept as it is.
+    pub fn look_at(&self, url: impl Fn(&str, &[u8]) -> Option<String>) -> Look {
+        let place = |image: &mut Option<String>| {
+            if let Some(bytes) = image.as_deref().and_then(|name| self.images.get(name)) {
+                *image = url(image.as_deref().unwrap_or_default(), bytes);
+            }
+        };
+        let mut logo = self.logo.clone();
+        if let Some(logo) = &mut logo {
+            place(&mut logo.background_image);
+            place(&mut logo.muted_background_image);
+        }
+        let mut background = self.background.clone();
+        if let Some(background) = &mut background {
+            place(&mut background.background_image);
+        }
+        Look { colors: LookColors::Known(self.colors.clone()), logo, background }
+    }
+
     /// The parts this look brings. Every look has colours.
     pub fn parts(&self) -> ImportParts {
         ImportParts { colors: true, logo: self.logo.is_some(), background: self.background.is_some() }
+    }
+
+    /// Tells the same theme imported twice apart from another one: the
+    /// SHA-256 of its name, colours, logo and background, with each image
+    /// named by the SHA-256 of its bytes rather than the name in the file.
+    /// Read it before the images are installed. It only spots a theme seen
+    /// before and proves nothing about where a file came from.
+    pub fn fingerprint(&self) -> String {
+        use sha2::{ Digest, Sha256 };
+        let hash = |bytes: &[u8]| crate::utils::update_installer::hex_encode(&Sha256::digest(bytes));
+        let by_content = |image: &mut Option<String>| {
+            if let Some(name) = image {
+                if let Some(bytes) = self.images.get(name.as_str()) {
+                    *name = hash(bytes);
+                }
+            }
+        };
+        let mut logo = self.logo.clone();
+        if let Some(logo) = &mut logo {
+            by_content(&mut logo.background_image);
+            by_content(&mut logo.muted_background_image);
+        }
+        let mut background = self.background.clone();
+        if let Some(background) = &mut background {
+            by_content(&mut background.background_image);
+        }
+        let shown = serde_json::json!({
+            "name": self.name,
+            "colors": self.colors,
+            "logo": logo,
+            "background": background,
+        });
+        hash(shown.to_string().as_bytes())
     }
 }
 
@@ -136,6 +201,17 @@ pub struct Look {
     /// `None` when the part is switched off.
     pub logo: Option<LogoCustomization>,
     pub background: Option<BackgroundCustomization>,
+}
+
+/// The Default theme: colors that follow the system, logo and background off.
+impl Default for Look {
+    fn default() -> Self {
+        Look {
+            colors: LookColors::Known(SharedColors::BuiltIn(BuiltInTheme::System)),
+            logo: None,
+            background: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -161,6 +237,22 @@ impl Look {
             colors,
             logo: config.enable_logo_customization.then(|| config.logo_customization.clone()),
             background: config.enable_background_customization.then(|| config.background_customization.clone()),
+        }
+    }
+
+    /// Put this whole look on `config`, with `theme` as the theme its colors
+    /// became. A part the look does not have is switched off, and its
+    /// settings are kept for later. Unlike `apply_to_config`, which leaves
+    /// such a part as the user has it: a saved theme is put on as a whole.
+    pub fn write_to(&self, theme: Theme, config: &mut AppConfig) {
+        config.theme = theme;
+        config.enable_logo_customization = self.logo.is_some();
+        if let Some(logo) = &self.logo {
+            config.logo_customization = logo.clone();
+        }
+        config.enable_background_customization = self.background.is_some();
+        if let Some(background) = &self.background {
+            config.background_customization = background.clone();
         }
     }
 }
@@ -661,7 +753,8 @@ fn exif_orientation(app1: &[u8]) -> Option<u16> {
     None
 }
 
-fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
+/// The `theme.json` Share writes for `theme`, byte for byte.
+pub(crate) fn manifest_json(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
@@ -669,9 +762,11 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
         logo: theme.logo.as_ref().map(LogoV1::from_config),
         background: theme.background.as_ref().map(BackgroundV1::from_config),
     };
-    let json = serde_json
-        ::to_vec_pretty(&manifest)
-        .map_err(|e| format!("Could not write the theme: {}", e))?;
+    serde_json::to_vec_pretty(&manifest).map_err(|e| format!("Could not write the theme: {}", e))
+}
+
+fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
+    let json = manifest_json(theme)?;
 
     let failed = |e: zip::result::ZipError| format!("Could not write the theme: {}", e);
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -844,14 +939,24 @@ fn read_entry<R: Read + std::io::Seek>(
 /// created, so a caller that fails afterwards can take them back with
 /// `remove_images` without removing an image something else already uses.
 pub fn install_images(theme: &mut SharedTheme) -> Result<Vec<std::path::PathBuf>, String> {
-    install_images_in(theme, &crate::state::paths::data::custom_images_dir())
+    install_images_in(
+        theme,
+        &crate::state::paths::data::custom_images_dir(),
+        &crate::state::paths::data::owned_images_json()
+    )
 }
 
-fn install_images_in(theme: &mut SharedTheme, dir: &Path) -> Result<Vec<std::path::PathBuf>, String> {
+/// `install_images` into `dir`, noting the images it made in the list of
+/// owned images at `owned`.
+pub(crate) fn install_images_in(
+    theme: &mut SharedTheme,
+    dir: &Path,
+    owned: &Path
+) -> Result<Vec<std::path::PathBuf>, String> {
     let mut installed = HashMap::new();
     let mut created = Vec::new();
     for (name, bytes) in &theme.images {
-        match crate::utils::custom_images::save_in(dir, bytes, None) {
+        match crate::utils::custom_images::save_in(dir, owned, bytes, None) {
             Ok((file_name, is_new)) => {
                 if is_new {
                     created.push(dir.join(&file_name));
@@ -907,6 +1012,17 @@ pub fn apply_to_config(theme: &SharedTheme, colors: Option<Theme>, parts: Import
     if let (true, Some(background)) = (parts.background, &theme.background) {
         config.enable_background_customization = true;
         config.background_customization = background.clone();
+    }
+}
+
+/// What the screen shows once `offered` is put on over `current` with the
+/// ticked `parts`, the way `apply_to_config` puts it on: a part the theme
+/// leaves out, or one left unticked, stays as `current` has it.
+pub fn after_import(current: &Look, offered: Look, parts: ImportParts) -> Look {
+    Look {
+        colors: if parts.colors { offered.colors } else { current.colors.clone() },
+        logo: offered.logo.filter(|_| parts.logo).or_else(|| current.logo.clone()),
+        background: offered.background.filter(|_| parts.background).or_else(|| current.background.clone()),
     }
 }
 
@@ -995,7 +1111,7 @@ pub fn safe_css_value(value: &str) -> Option<String> {
 
 /// A colour from a shared file. Configs from before the defaults became theme
 /// variables can hold an empty colour, which means the default.
-fn safe_color(value: &str, default: String) -> Result<String, String> {
+pub(crate) fn safe_color(value: &str, default: String) -> Result<String, String> {
     if value.trim().is_empty() {
         return Ok(default);
     }
@@ -2020,6 +2136,63 @@ mod tests {
         assert_eq!(config, off, "yours off stays off");
     }
 
+    fn look_of(theme: &SharedTheme) -> Look {
+        Look {
+            colors: LookColors::Known(theme.colors.clone()),
+            logo: theme.logo.clone(),
+            background: theme.background.clone(),
+        }
+    }
+
+    #[test]
+    fn a_saved_theme_writes_the_same_config_as_importing_it() {
+        let night = Theme::Custom("night".to_string());
+        let theme = look();
+        let mine = my_config();
+        let mut imported = mine.clone();
+        apply_to_config(&theme, Some(night.clone()), ImportParts::ALL, &mut imported);
+        let mut saved = mine.clone();
+        look_of(&theme).write_to(night.clone(), &mut saved);
+        assert_eq!(saved, imported, "a theme with every part");
+
+        // A part the theme does not have: importing leaves yours on, while a
+        // saved theme is put on whole and switches it off, keeping its settings.
+        let theme = SharedTheme { logo: None, background: None, ..look() };
+        let mut imported = mine.clone();
+        apply_to_config(&theme, Some(night.clone()), ImportParts::ALL, &mut imported);
+        assert!(imported.enable_logo_customization && imported.enable_background_customization);
+        let mut saved = mine.clone();
+        look_of(&theme).write_to(night.clone(), &mut saved);
+        assert_eq!(saved.theme, night);
+        assert!(!saved.enable_logo_customization && !saved.enable_background_customization);
+        assert_eq!(saved.logo_customization, mine.logo_customization, "the logo settings wait for later");
+        assert_eq!(saved.background_customization, mine.background_customization);
+    }
+
+    #[test]
+    fn the_import_preview_shows_what_importing_puts_on_screen() {
+        let mut themes = ThemesConfig::default();
+        let SharedColors::Custom { css } = &look().colors else {
+            panic!("the test look has custom colours");
+        };
+        // The colours are on screen through the palette they became.
+        let night = Theme::Custom(themes.import_theme("Night", css).unwrap());
+        let mine = my_config();
+        for theme in [look(), SharedTheme { logo: None, ..look() }, SharedTheme { background: None, ..look() }] {
+            for colors in [true, false] {
+                for logo in [true, false] {
+                    for background in [true, false] {
+                        let parts = ImportParts { colors, logo, background };
+                        let mut config = mine.clone();
+                        apply_to_config(&theme, Some(night.clone()), parts, &mut config);
+                        let shown = after_import(&Look::from_config(&mine, &themes), look_of(&theme), parts);
+                        assert_eq!(shown, Look::from_config(&config, &themes), "{:?}", parts);
+                    }
+                }
+            }
+        }
+    }
+
     #[test]
     fn only_the_parts_a_look_has_can_be_ticked() {
         assert_eq!(look().parts(), ImportParts::ALL);
@@ -2106,7 +2279,7 @@ mod tests {
         assert_eq!(logo.note, Some("Not in this theme. Yours stays as it is."));
 
         theme.keep_parts(ImportParts::ALL);
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
         assert_eq!(created, [dir.join(background.trim_start_matches("/custom-images/"))], "no logo image is saved");
         let mut config = my_config();
@@ -2198,13 +2371,19 @@ mod tests {
         dir
     }
 
+    /// Where a test keeps the list of the images it made in `dir`: next to
+    /// the images, so removing `dir` removes it too.
+    fn owned_list(dir: &Path) -> std::path::PathBuf {
+        dir.join("owned-images.json")
+    }
+
     #[test]
     fn installing_reports_only_files_it_created() {
         let dir = temp_dir("install");
-        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
 
         let mut theme = look();
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         let logo = theme.logo.as_ref().unwrap().background_image.clone().unwrap();
         let background = theme.background.as_ref().unwrap().background_image.clone().unwrap();
         assert_eq!(logo, format!("/custom-images/{}", in_use), "the same image is not saved again");
@@ -2215,16 +2394,52 @@ mod tests {
     }
 
     #[test]
+    fn a_fingerprint_follows_what_a_theme_shows_not_its_image_names() {
+        let theme = look();
+        let bytes = include_bytes!("theme_share/fixtures/v1/custom-full.mvtheme");
+        assert_eq!(
+            from_bytes(bytes).unwrap().fingerprint(),
+            from_bytes(bytes).unwrap().fingerprint(),
+            "the same file read twice"
+        );
+        assert_ne!(from_bytes(bytes).unwrap().fingerprint(), theme.fingerprint());
+
+        // The same picture under another name inside the file.
+        let mut renamed = look();
+        let picture = renamed.images.remove("logo.png").unwrap();
+        renamed.images.insert("image-1.png".to_string(), picture);
+        renamed.logo.as_mut().unwrap().background_image = Some("image-1.png".to_string());
+        assert_eq!(renamed.fingerprint(), theme.fingerprint());
+
+        let mut other_picture = look();
+        other_picture.images.insert("logo.png".to_string(), [PNG, b"!"].concat());
+        assert_ne!(other_picture.fingerprint(), theme.fingerprint());
+
+        let mut other_name = look();
+        other_name.rename("Day drive");
+        assert_ne!(other_name.fingerprint(), theme.fingerprint());
+
+        let mut fewer_parts = look();
+        fewer_parts.keep_parts(ImportParts { background: false, ..ImportParts::ALL });
+        assert_ne!(fewer_parts.fingerprint(), theme.fingerprint());
+    }
+
+    #[test]
     fn undoing_an_import_keeps_an_image_already_in_use() {
         let dir = temp_dir("undo");
-        let (in_use, _) = crate::utils::custom_images::save_in(&dir, PNG, None).unwrap();
+        let (in_use, _) = crate::utils::custom_images::save_in(&dir, &owned_list(&dir), PNG, None).unwrap();
 
         let mut theme = look();
-        let created = install_images_in(&mut theme, &dir).unwrap();
+        let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
         remove_images(&created);
         assert_eq!(std::fs::read(dir.join(&in_use)).unwrap(), PNG);
-        let left: Vec<_> = std::fs::read_dir(&dir).unwrap().collect();
-        assert_eq!(left.len(), 1, "only the image that was there before");
+        let left: Vec<_> = std::fs
+            ::read_dir(&dir)
+            .unwrap()
+            .map(|entry| entry.unwrap().path())
+            .filter(|path| *path != owned_list(&dir))
+            .collect();
+        assert_eq!(left, [dir.join(&in_use)], "only the image that was there before");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

@@ -1,0 +1,2 @@
+# Theme files are ZIPs: kept byte for byte on every checkout.
+*.mvtheme binary

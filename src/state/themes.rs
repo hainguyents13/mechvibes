@@ -244,6 +244,18 @@ impl ThemesConfig {
         self.add_theme(unique, String::new(), css.to_string())
     }
 
+    /// The id of colors whose CSS is exactly `css`, the newest when there are
+    /// several. Compared as written, never cleaned: the header shows a list
+    /// entry's CSS as it is, so colors that only clean to `css` could still
+    /// bring rules a theme does not have.
+    pub fn find_by_css(&self, css: &str) -> Option<String> {
+        self.custom_themes
+            .values()
+            .filter(|theme| theme.css == css)
+            .max_by(|a, b| a.updated_at.cmp(&b.updated_at).then_with(|| b.id.cmp(&a.id)))
+            .map(|theme| theme.id.clone())
+    }
+
     pub fn get_theme_by_id(&self, id: &str) -> Option<&CustomThemeData> {
         self.custom_themes.get(id)
     }
@@ -270,6 +282,43 @@ mod tests {
         assert_eq!(themes.get_theme_by_id(&second).unwrap().name, "Night (2)");
         let third = themes.import_theme("Night", "--a: green;").unwrap();
         assert_eq!(themes.get_theme_by_id(&third).unwrap().name, "Night (3)");
+    }
+
+    #[test]
+    fn a_raw_palette_is_never_reused_for_a_clean_theme() {
+        use crate::libs::theme::Theme;
+        use crate::utils::theme_share::{ safe_theme_css, SharedColors };
+
+        let mut themes = ThemesConfig::default();
+        let raw = "--color-primary: red; } body { display: none; }";
+        let raw_id = themes.import_theme("Night", raw).unwrap();
+        let clean = safe_theme_css(raw);
+        assert_eq!(clean, "--color-primary: red;");
+        assert_eq!(themes.find_by_css(&clean), None, "colors that only clean to it are not it");
+
+        let colors = SharedColors::Custom { css: clean.clone() };
+        let choice = crate::utils::theme_library::colors_choice(&colors, "Night", &mut themes).unwrap();
+        let Theme::Custom(id) = choice else {
+            panic!("custom colors stay custom");
+        };
+        assert_ne!(id, raw_id);
+        assert_eq!(themes.get_theme_by_id(&id).unwrap().css, clean, "the new colors are the clean ones");
+    }
+
+    #[test]
+    fn applying_saved_colors_reuses_matching_colors() {
+        use crate::libs::theme::Theme;
+        use crate::utils::theme_share::SharedColors;
+
+        let mut themes = ThemesConfig::default();
+        let css = "--color-primary: red;\n--color-secondary: blue;";
+        let id = themes.import_theme("Night", css).unwrap();
+        assert_eq!(themes.find_by_css(css), Some(id.clone()));
+
+        let colors = SharedColors::Custom { css: css.to_string() };
+        let choice = crate::utils::theme_library::colors_choice(&colors, "Another name", &mut themes).unwrap();
+        assert_eq!(choice, Theme::Custom(id));
+        assert_eq!(themes.custom_themes.len(), 1, "nothing was added");
     }
 
     /// An empty folder of its own under the system temp folder.

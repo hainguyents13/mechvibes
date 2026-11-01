@@ -1,3 +1,4 @@
+use crate::components::customize::look_editor::{ use_look_editor, Card };
 use crate::components::ui::{ Collapse, PageHeader, Toggler };
 use crate::components::device_selector::AudioOutputSelector;
 use crate::libs::AudioContext;
@@ -16,6 +17,7 @@ use std::sync::Arc;
 pub fn SettingsPage() -> Element {
     // Use shared config hook
     let (config, update_config) = use_config();
+    let look_editor = use_look_editor();
 
     // Mute/volume changes must reach the audio engine thread, which caches
     // these flags in its own state - a config write alone does not move them.
@@ -424,8 +426,14 @@ pub fn SettingsPage() -> Element {
                   onclick: {
                       let update_config = update_config.clone();
                       let audio_ctx = audio_ctx.clone();
+                      let look_editor = look_editor.clone();
                       move |_| {
-                          theme.set(Theme::BuiltIn(BuiltInTheme::System));
+                          // The Default theme, as its card puts it on: the look
+                          // on screen is saved as a theme first, and the logo
+                          // and background settings wait for later.
+                          if look_editor.apply_card(&Card::Default).is_ok() {
+                              theme.set(Theme::BuiltIn(BuiltInTheme::System));
+                          }
                           // Push the audio-affecting defaults through the
                           // engine as well, otherwise a reset would restore
                           // the config but leave the running engine muted /
@@ -438,7 +446,6 @@ pub fn SettingsPage() -> Element {
                                   config.enable_sound = true;
                                   config.enable_volume_boost = false;
                                   config.auto_start = false;
-                                  config.theme = Theme::BuiltIn(BuiltInTheme::System);
                               }),
                           );
                           request_tray_update();

@@ -5,6 +5,7 @@ pub mod config_writer;
 pub mod keyboard;
 pub mod manifest;
 pub mod paths;
+pub mod saved_themes;
 pub mod soundpack;
 pub mod soundpack_library;
 pub mod themes;
