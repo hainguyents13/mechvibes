@@ -44,8 +44,6 @@ struct Offer {
     /// picture.
     preview: Look,
     /// Known only for a theme from the library.
-    author: Option<String>,
-    description: Option<String>,
     size: Option<u64>,
 }
 
@@ -141,8 +139,6 @@ pub fn ThemeImportModal() -> Element {
                                     theme,
                                     source: ThemeSource::File { fingerprint },
                                     preview,
-                                    author: None,
-                                    description: None,
                                     size: None,
                                 })
                             ),
@@ -187,6 +183,13 @@ pub fn ThemeImportModal() -> Element {
                         Ok((mut theme, preview)) => {
                             // The name the library page showed, not the one inside the file.
                             theme.rename(&listed.name);
+                            // Its author and description there too, when it has them.
+                            if listed.author.is_some() {
+                                theme.author = listed.author;
+                            }
+                            if listed.description.is_some() {
+                                theme.description = listed.description;
+                            }
                             // The id is the one the link asked for, which the
                             // library's answer had to match, never one a file names.
                             let source = ThemeSource::Library {
@@ -198,8 +201,6 @@ pub fn ThemeImportModal() -> Element {
                                     theme,
                                     source,
                                     preview,
-                                    author: listed.author,
-                                    description: listed.description,
                                     size: Some(listed.size),
                                 })
                             )
@@ -303,6 +304,10 @@ pub fn ThemeImportModal() -> Element {
                     ),
                   }
                 }
+                div { class: "mt-4",
+                  div { class: "text-sm font-medium text-base-content", "Choose what to use" }
+                  div { class: "text-xs text-base-content/60", "Anything you untick stays as you have it now." }
+                }
                 div { class: "space-y-3 mt-3",
                   for row in checklist(&offer.theme, &config()) {
                     label {
@@ -397,14 +402,17 @@ fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
               div { class: "truncate text-sm font-medium text-base-content", title: "{theme.name}",
                 "{theme.name}"
               }
-              if let Some(author) = &offer.author {
+              if let Some(author) = &theme.author {
                 div { class: "truncate text-xs text-base-content/60", "by {author}" }
               }
             }
-            if let Some(description) = &offer.description {
+            // Six lines hold a usual description with its credit at the
+            // app's width; a longer one is cut and shown whole on hover.
+            if let Some(description) = &theme.description {
               div {
                 class: "text-sm text-base-content/70",
-                style: "display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; overflow-wrap: anywhere;",
+                title: "{description}",
+                style: "display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 6; overflow: hidden; overflow-wrap: anywhere;",
                 "{description}"
               }
             }
@@ -457,7 +465,7 @@ mod tests {
         let theme = theme_share::from_bytes(bytes).unwrap();
         let source = ThemeSource::File { fingerprint: theme.fingerprint() };
         let preview = theme.preview_look();
-        Stage::Confirm(Rc::new(Offer { theme, source, preview, author: None, description: None, size: None }))
+        Stage::Confirm(Rc::new(Offer { theme, source, preview, size: None }))
     }
 
     #[test]

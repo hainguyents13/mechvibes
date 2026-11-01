@@ -33,6 +33,8 @@ const MAX_IMAGE_BYTES: u64 = 10 * 1024 * 1024;
 /// Three images at their limit plus the manifest.
 pub const MAX_FILE_BYTES: u64 = 3 * MAX_IMAGE_BYTES + MAX_MANIFEST_BYTES;
 pub(crate) const MAX_NAME_CHARS: usize = 64;
+/// The longest description a theme keeps, the same as the theme library takes.
+pub(crate) const MAX_DESCRIPTION_CHARS: usize = 500;
 const MAX_CSS_VALUE_CHARS: usize = 200;
 
 /// The colour functions a colour may use. `url()`, `image()` and the like are
@@ -59,6 +61,10 @@ pub enum SharedColors {
 #[derive(Debug, Clone, PartialEq)]
 pub struct SharedTheme {
     pub name: String,
+    /// Who made the theme, and a line about it with any credit for its
+    /// images. Shown in the import dialog; they change nothing on screen.
+    pub author: Option<String>,
+    pub description: Option<String>,
     pub colors: SharedColors,
     pub logo: Option<LogoCustomization>,
     pub background: Option<BackgroundCustomization>,
@@ -414,7 +420,7 @@ pub async fn gather(name: &str, look: &Look) -> Result<SharedTheme, String> {
         None
     };
 
-    Ok(SharedTheme { name, colors, logo, background, images })
+    Ok(SharedTheme { name, author: None, description: None, colors, logo, background, images })
 }
 
 /// Add the image at `value` to `images` as `<stem>.<ext>` and return that name.
@@ -535,6 +541,8 @@ fn shrink_images(theme: &SharedTheme) -> SharedTheme {
     }
     let mut shrunk = SharedTheme {
         name: theme.name.clone(),
+        author: theme.author.clone(),
+        description: theme.description.clone(),
         colors: theme.colors.clone(),
         logo: theme.logo.clone(),
         background: theme.background.clone(),
@@ -758,6 +766,8 @@ pub(crate) fn manifest_json(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let manifest = ManifestV1 {
         format: FORMAT,
         name: theme.name.clone(),
+        author: theme.author.clone(),
+        description: theme.description.clone(),
         colors: ColorsV1::from_shared(&theme.colors),
         logo: theme.logo.as_ref().map(LogoV1::from_config),
         background: theme.background.as_ref().map(BackgroundV1::from_config),
@@ -837,6 +847,8 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         .map_err(|_| "This theme file is damaged.".to_string())?;
 
     let name = clean_name(&manifest.name).ok_or_else(|| "This theme file is damaged.".to_string())?;
+    let author = manifest.author.as_deref().and_then(clean_name);
+    let description = manifest.description.as_deref().and_then(clean_description);
     let colors = match manifest.colors.into_shared().ok_or_else(|| "This theme file is damaged.".to_string())? {
         SharedColors::BuiltIn(theme) => SharedColors::BuiltIn(theme),
         SharedColors::Custom { css } => {
@@ -882,7 +894,7 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         None => None,
     };
 
-    Ok(SharedTheme { name, colors, logo, background, images })
+    Ok(SharedTheme { name, author, description, colors, logo, background, images })
 }
 
 /// The image a manifest field names, checked and kept in `images`.
@@ -1030,6 +1042,13 @@ pub fn after_import(current: &Look, offered: Look, parts: ImportParts) -> Look {
 
 pub(crate) fn clean_name(name: &str) -> Option<String> {
     clean_text(name, MAX_NAME_CHARS)
+}
+
+/// A description on one line, cut to `MAX_DESCRIPTION_CHARS`. Line breaks
+/// part sentences here, so they become spaces rather than being dropped with
+/// the other control characters.
+pub(crate) fn clean_description(description: &str) -> Option<String> {
+    clean_text(&description.replace(char::is_whitespace, " "), MAX_DESCRIPTION_CHARS)
 }
 
 /// `text` on one line, without control characters and cut to `max_chars`,
@@ -1346,6 +1365,8 @@ mod tests {
         };
         SharedTheme {
             name: "Night drive".to_string(),
+            author: None,
+            description: None,
             colors: SharedColors::Custom { css: "--color-primary: oklch(55% 0.3 240);".to_string() },
             logo: Some(logo),
             background: Some(background),
@@ -1417,6 +1438,46 @@ mod tests {
         assert_eq!(plain["colors"], serde_json::json!({ "built_in": "Synthwave" }));
     }
 
+    /// An author and a description are the keys a file may have beyond
+    /// format 1's. 3.3 skips keys it does not know (the `unknown-fields`
+    /// fixture), so the file still opens there and looks the same.
+    #[test]
+    fn an_author_and_a_description_travel_with_the_file_and_are_tidied() {
+        let mut theme = look();
+        theme.author = Some("Mechvibes".to_string());
+        theme.description = Some("Pink and blue. Credit: Pinterest".to_string());
+        let bytes = to_bytes(&theme).unwrap();
+        assert_eq!(manifest_json(&bytes)["author"], "Mechvibes");
+        assert_eq!(manifest_json(&bytes)["description"], "Pink and blue. Credit: Pinterest");
+        let read = from_bytes(&bytes).unwrap();
+        assert_eq!(read.author.as_deref(), Some("Mechvibes"));
+        assert_eq!(read.description.as_deref(), Some("Pink and blue. Credit: Pinterest"));
+        assert_eq!(read.fingerprint(), look().fingerprint(), "neither changes anything on screen");
+
+        let with = |author: &str, description: &str| {
+            let manifest = serde_json::json!({
+                "format": 1,
+                "name": "x",
+                "author": author,
+                "description": description,
+                "colors": { "built_in": "Dark" },
+            });
+            let read = from_bytes(&zip_with(&[(MANIFEST_NAME, manifest.to_string().as_bytes())])).unwrap();
+            (read.author, read.description)
+        };
+        assert_eq!(
+            with(" Mech\nvibes ", "Pink\n\nand\tblue.\u{7}"),
+            (Some("Mechvibes".to_string()), Some("Pink and blue.".to_string()))
+        );
+        assert_eq!(with(" \n ", " \n "), (None, None));
+        let (author, description) = with(&"x".repeat(600), &"x".repeat(600));
+        assert_eq!(author.unwrap().chars().count(), MAX_NAME_CHARS);
+        assert_eq!(description.unwrap().chars().count(), MAX_DESCRIPTION_CHARS);
+
+        let without = from_bytes(&zip_with(&[(MANIFEST_NAME, br#"{"format": 1, "name": "x", "colors": {"built_in": "Dark"}}"#)])).unwrap();
+        assert_eq!((without.author, without.description), (None, None));
+    }
+
     /// A file from `theme_share/fixtures/v1/` and what Mechvibes 3.3 made of
     /// it. The README there says how they were made.
     macro_rules! v3_3_file {
@@ -1444,9 +1505,10 @@ mod tests {
             .collect()
     }
 
-    /// The one place this build reads a 3.3 file differently on purpose:
-    /// theme CSS keeps only the variables this app knows, so the
-    /// `--sparkle-size` line of `unknown-fields` is left out.
+    /// Where this build reads `unknown-fields` differently from 3.3 on
+    /// purpose: theme CSS keeps only the variables this app knows, so the
+    /// `--sparkle-size` line is left out; and the file's `author`, a key 3.3
+    /// skipped, is now read and so written again.
     fn as_this_build_reads(name: &str, mut expected: serde_json::Value) -> serde_json::Value {
         if name == "unknown-fields" {
             for snapshot in ["read", "written_again"] {
@@ -1455,6 +1517,8 @@ mod tests {
                 assert_ne!(css.as_str().unwrap(), kept, "{}: the line 3.3 kept", snapshot);
                 *css = kept.into();
             }
+            assert!(expected["written_again"].get("author").is_none(), "3.3 dropped the author");
+            expected["written_again"]["author"] = "Someone".into();
         }
         expected
     }
@@ -1557,6 +1621,8 @@ mod tests {
     fn a_built_in_look_without_logo_or_background_reads_back() {
         let theme = SharedTheme {
             name: "Plain".to_string(),
+            author: None,
+            description: None,
             colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave),
             logo: None,
             background: None,
