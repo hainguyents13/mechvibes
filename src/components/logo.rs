@@ -40,8 +40,8 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
         }
 
         format!(
-            "border-color: {}; color: {}; {}; box-shadow: {}",
-            logo.border_color,
+            "{}; color: {}; {}; box-shadow: {}",
+            border_color(&logo.border_color),
             logo.text_color,
             background_style,
             if shadow {
@@ -57,12 +57,23 @@ pub fn logo_style(logo: Option<&LogoCustomization>, sound_on: bool, pressed: boo
             classes.push("logo-muted opacity-50");
         }
         format!(
-            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: {}",
+            "{}; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: {}",
+            border_color("revert-layer"),
             if shadow { "0 5px 0 var(--color-primary)" } else { "revert-layer" }
         )
     };
 
     (classes.join(" "), style)
+}
+
+/// The border colour, set side by side rather than through `border-color`.
+/// Dioxus puts back any side a new `style` seems to leave out, and a
+/// shorthand holding `var(...)` reads as empty on every side until it is
+/// drawn, so the old colour came back after switching to a theme colour.
+fn border_color(color: &str) -> String {
+    ["top", "right", "bottom", "left"]
+        .map(|side| format!("border-{}-color: {}", side, color))
+        .join("; ")
 }
 
 #[component]
@@ -114,7 +125,7 @@ mod tests {
         assert_eq!(class, "border-primary text-primary bg-transparent");
         assert_eq!(
             style,
-            "border-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: 0 5px 0 var(--color-primary)"
+            "border-top-color: revert-layer; border-right-color: revert-layer; border-bottom-color: revert-layer; border-left-color: revert-layer; color: revert-layer; background: revert-layer; background-color: oklch(from var(--color-primary) l c h / 0.05); box-shadow: 0 5px 0 var(--color-primary)"
         );
 
         let (class, style) = logo_style(None, false, false);
@@ -122,10 +133,11 @@ mod tests {
         assert!(style.ends_with("box-shadow: revert-layer"), "{}", style);
     }
 
-    /// Dioxus keeps an inline property that a new `style` leaves out, so
-    /// every state of the logo has to name the same properties, each
-    /// background through a shorthand with nothing deferred in it. Otherwise
-    /// an own logo's image, border or shadow stays after it is turned off.
+    /// Dioxus keeps an inline property that a new `style` leaves out, and
+    /// counts a side of a shorthand holding `var(...)` as left out, so every
+    /// state of the logo has to name the same properties, with no shorthand
+    /// that defers anything. Otherwise an own logo's image, border or shadow
+    /// stays after it is turned off, or a theme colour never shows.
     #[test]
     fn every_logo_style_names_the_same_properties() {
         fn properties(style: &str) -> Vec<String> {
@@ -141,7 +153,10 @@ mod tests {
             use_background_image: true,
             ..LogoCustomization::default()
         };
-        let colour = LogoCustomization::default();
+        let colour = LogoCustomization {
+            border_color: "var(--color-primary)".to_string(),
+            ..LogoCustomization::default()
+        };
         let mut styles = Vec::new();
         for (sound_on, pressed) in [(true, false), (true, true), (false, false)] {
             for logo in [None, Some(&image), Some(&colour)] {
@@ -154,6 +169,7 @@ mod tests {
             assert_eq!(properties(style), expected, "{}", style);
             let background = style.split(';').map(str::trim).find(|d| d.starts_with("background:")).unwrap();
             assert!(!background.contains("var("), "{}", style);
+            assert!(!style.contains("border-color"), "the border is set side by side: {}", style);
         }
     }
 
