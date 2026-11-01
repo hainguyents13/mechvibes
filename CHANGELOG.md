@@ -33,6 +33,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **The logo border takes the new theme's color when you switch themes.** A border that uses one of the theme's colors kept the color of the theme before it until you restarted the app.
 - **Colors you make are put on right away**, instead of only being added to the list.
 - **Deleting the colors you are using goes back to the default colors.** The app asks first. If your colors go missing in any other way, the app shows the default colors too.
 - **You now see an error when your changes cannot be saved**, or when a picked image cannot be used. Before, the error only went to the log.
