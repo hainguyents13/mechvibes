@@ -1,9 +1,10 @@
+use crate::components::ui::PackCover;
 use crate::libs::audio::AudioContext;
 use crate::state::config::AppConfig;
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
 use futures_timer::Delay;
-use lucide_dioxus::{ Check, ChevronDown, Keyboard, Mouse, Music, Search, Shuffle };
+use lucide_dioxus::{ Check, ChevronDown, Keyboard, Mouse, Search, Shuffle };
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -266,7 +267,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
               if !has_soundpacks() {
                 div { class: "text-base-content/50 text-sm", "{no_soundpack_text}" }
               } else if let Some(pack) = current_soundpack() {
-                div { class: "flex-shrink-0 overflow-hidden  w-11 h-11 bg-base-200 rounded-box flex items-center justify-center",
+                div { class: "flex-shrink-0 overflow-hidden  w-11 h-11 bg-base-200 rounded-lg flex items-center justify-center",
                   if is_loading() {
                     span { class: "loading loading-spinner loading-sm" }
                   } else {
@@ -277,10 +278,10 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                           src: "{icon}",
                         }
                       } else {
-                        Music { class: "w-5 h-5 text-base-content/50" }
+                        PackCover { name: pack.name.clone(), size: 44 }
                       }
                     } else {
-                      Music { class: "w-5 h-5 text-base-content/50" }
+                      PackCover { name: pack.name.clone(), size: 44 }
                     }
                   }
                 }
@@ -367,7 +368,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                           }
                       },
                       div { class: "flex items-center justify-between gap-3 ",
-                        div { class: "flex-shrink-0 w-8 h-8 rounded-box flex items-center justify-center bg-base-100 overflow-hidden relative",
+                        div { class: "flex-shrink-0 w-8 h-8 rounded-lg flex items-center justify-center bg-base-100 overflow-hidden relative",
                           if let Some(icon) = &pack.icon {
                             if !icon.is_empty() {
                               img {
@@ -375,10 +376,10 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                                 src: "{icon}",
                               }
                             } else {
-                              Music { class: "w-4 h-4 text-primary/50 bg-base-100" }
+                              PackCover { name: pack.name.clone(), size: 32 }
                             }
                           } else {
-                            Music { class: "w-4 h-4 text-primary/50 bg-base-100" }
+                            PackCover { name: pack.name.clone(), size: 32 }
                           }
                           if pack.folder_path == current() {
                             // Use folder_path for comparison

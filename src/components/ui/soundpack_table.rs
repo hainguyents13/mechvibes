@@ -6,10 +6,10 @@ use crate::utils::config::use_config;
 use crate::utils::path::{ open_path, directory_exists };
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use lucide_dioxus::{ ArrowDownAZ, Clock, FolderOpen, Music, Plus, RefreshCw, Trash };
+use lucide_dioxus::{ ArrowDownAZ, Clock, FolderOpen, Plus, RefreshCw, Trash };
 use std::sync::Arc;
 
-use super::ConfirmDeleteModal;
+use super::{ ConfirmDeleteModal, PackCover };
 
 /// Open a soundpack folder in the system file manager
 /// Opens the specific soundpack folder
@@ -292,7 +292,7 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool) -> Element 
           div { class: "flex items-center justify-center",
             if let Some(icon) = &soundpack.icon {
               if !icon.is_empty() {
-                div { class: "w-8 h-8 rounded-box overflow-hidden",
+                div { class: "w-8 h-8 rounded-lg overflow-hidden",
                   img {
                     class: "w-full h-full object-cover",
                     src: "{icon}",
@@ -300,14 +300,10 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool) -> Element 
                   }
                 }
               } else {
-                div { class: "w-8 h-8 rounded-box bg-base-300 flex items-center justify-center",
-                  Music { class: "w-4 h-4 text-base-content/40" }
-                }
+                PackCover { name: soundpack.name.clone(), size: 32 }
               }
             } else {
-              div { class: "w-8 h-8 rounded-box bg-base-300 flex items-center justify-center",
-                Music { class: "w-4 h-4 text-base-content/40" }
-              }
+              PackCover { name: soundpack.name.clone(), size: 32 }
             }
           }
           // Name
