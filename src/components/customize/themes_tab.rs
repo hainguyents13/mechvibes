@@ -32,6 +32,10 @@ const THEME_FILE_HINT: &str = if cfg!(target_os = "macos") {
     "Got a theme file? Double-click it, or drop it on this window."
 };
 
+/// What a theme is, since the Colors tab next to it could pass for one.
+const THEMES_INTRO: &str =
+    "A theme is a whole look: colors, logo and background. Put one on, then change any part in the Colors, Logo and Background tabs.";
+
 /// As many cards a row as fit, two in the default window.
 const GRID_STYLE: &str = "grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));";
 
@@ -158,6 +162,7 @@ pub fn ThemesTab() -> Element {
 
     rsx! {
       div { class: "space-y-4",
+        div { class: "text-sm text-base-content/70", "{THEMES_INTRO}" }
         for (index, (title, cards)) in groups.into_iter().enumerate() {
           div { key: "{title}", class: "space-y-2",
             div { class: "text-xs font-semibold text-base-content/60", "{title}" }
