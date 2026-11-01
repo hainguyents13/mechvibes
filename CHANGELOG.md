@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [3.4.0] - 2026-11-01
 
 ### Added
 
@@ -15,6 +15,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **Open a theme file with a double-click (Windows and Linux),** or drop it on the Mechvibes window. The app comes to the front and asks before it changes anything.
 - **Theme files have their own icon** (Windows and Linux), so you can tell a `.mvtheme` file apart from the app.
 - **Share saves straight to a file.** The save dialog opens right away, and once the file is saved, **Show file** opens the folder it is in.
+- **Share a theme as a link.** Publish a theme on mechvibes.com/themes and it gets a short link, like `mechvibes.com/t/f9try9c`. Posted on Discord, the link shows a card with the theme's picture, and anyone can install it from there in one click.
 - **A gallery of your themes.** **Customize > Themes** opens with one line on what a theme is (colors, logo and background together), then shows every theme as a card with a small preview: Default, the ready-made themes, your own themes, and the themes you installed. Click a card to put it on. The theme you had stays in the gallery, so you can always click it again.
 - **Four ready-made themes** come with the app: Retro Beige, Midnight Blue, RGB Night and Rainy Cafe.
 - **Your changes save on their own.** There is no Save button. Editing your own theme updates it. Editing a ready-made or installed theme, or the Default look, saves your version as "<name> (my copy)" and leaves the original as it was. If you had your own logo or background before this version, it is saved as "My theme" the first time you open the app.
@@ -339,6 +340,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ## [0.5.1] and earlier
 
 See git history for changes prior to this changelog's introduction.
+
 
 
 
