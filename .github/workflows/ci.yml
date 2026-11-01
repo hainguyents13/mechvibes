@@ -82,11 +82,19 @@ jobs:
             package: ./scripts/build-linux-appimage.sh "$VERSION"
             artifact: linux-release
             paths: dist/*
-          - name: macOS DMG
+          # One DMG per architecture, each built and tested natively on its own
+          # runner. The script names the DMG after `uname -m`.
+          - name: macOS DMG (Apple Silicon)
             os: macos-latest
             shell: bash
             package: ./scripts/build-macos-app.sh "$VERSION"
-            artifact: macos-release
+            artifact: macos-arm64-release
+            paths: dist/*
+          - name: macOS DMG (Intel)
+            os: macos-15-intel
+            shell: bash
+            package: ./scripts/build-macos-app.sh "$VERSION"
+            artifact: macos-x86_64-release
             paths: dist/*
     # A step's own `shell:` cannot read the matrix, but a job default can. Steps
     # that need a specific shell regardless of OS set it explicitly.
@@ -297,7 +305,7 @@ jobs:
             } >> notes.md
           fi
           if ls release/*macos*.dmg >/dev/null 2>&1; then
-            echo "- **macOS (Apple Silicon)**: \`.dmg\`. Open it and drag **Mechvibes** to Applications. Ad-hoc signed but **not notarized**, so Gatekeeper blocks a normal double-click: right-click the app → **Open** → confirm, once. See \`README-macos.txt\`." >> notes.md
+            echo "- **macOS**: \`macos-arm64.dmg\` for Apple Silicon (M1 and later), \`macos-x86_64.dmg\` for Intel Macs. Open it and drag **Mechvibes** to Applications. Ad-hoc signed but **not notarized**, so Gatekeeper blocks a normal double-click: right-click the app → **Open** → confirm, once. See \`README-macos.txt\`." >> notes.md
           fi
 
           echo "Assets to publish:"

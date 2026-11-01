@@ -57,7 +57,7 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
    Pushing the commit to `main` starts `.github/workflows/ci.yml`, the workflow that builds every pull request and push. **The tag does not start a run of its own.** When that run's builds finish, its `Find release tag` job asks the remote whether a `v*` tag points at the commit that was built. If one does, the same run drafts the release from the packages it just built.
 
    **This gives you one run per commit, not two.** A tag-triggered release workflow would start a second run on the same commit (one for the branch push, one for the tag), which means the commit is built twice and the results are split: the packages in the branch's CI run, the release notes and the draft in the tag's run. Here the branch run does all of it, so a release has a single place to look. That one run's Actions page holds:
-   - the three packages (`windows-release`, `linux-release`, `macos-release`) as its artifacts,
+   - the four packages (`windows-release`, `linux-release`, `macos-arm64-release`, `macos-x86_64-release`) as its artifacts,
    - the test and build results for every OS,
    - and the draft release, built from exactly those packages.
 
@@ -70,7 +70,7 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
    **One workflow, one run per commit.** `.github/workflows/ci.yml` runs on:
 
    - **a pull request into `main`** (from this repo or a fork): verification only, nothing is uploaded.
-   - **a push to `main`, or manual dispatch**: builds and keeps `windows-release`, `linux-release` and `macos-release` as artifacts of the run. If a release tag points at the commit, the run also drafts the release. A branch with no pull request is not built; run `gh workflow run ci.yml --ref <branch>` to build one.
+   - **a push to `main`, or manual dispatch**: builds and keeps `windows-release`, `linux-release`, `macos-arm64-release` and `macos-x86_64-release` as artifacts of the run. If a release tag points at the commit, the run also drafts the release. A branch with no pull request is not built; run `gh workflow run ci.yml --ref <branch>` to build one.
 
    A pull request cancels its own superseded runs; every other run has a group of its own and is never cancelled, so a later push cannot kill a release halfway through, and no commit is skipped because a newer one arrived while it was queued.
 
@@ -101,7 +101,7 @@ The `.githooks/` hooks enforce that nothing broken leaves your machine:
    | `Mechvibes-<version>-Setup-x64.exe` | Windows | The installer. **The only asset the auto-updater consumes** — its name must keep containing `x64` and ending in `.exe`. |
    | `mechvibes_<version>_amd64.deb` | Debian/Ubuntu | `sudo dpkg -i`. Does **not** add the user to the `input` group (see below). |
    | `mechvibes-<version>-x86_64.AppImage` | Any Linux distro | Portable, no install. Needs `chmod +x` first, and has the **same** `input` group requirement as the `.deb`. |
-   | `mechvibes-<version>-macos-<arch>.dmg` | macOS | **Ad-hoc signed, not notarized.** Contains `Mechvibes.app` and an `/Applications` symlink. |
+   | `mechvibes-<version>-macos-<arch>.dmg` | macOS | Two of them: `arm64` (Apple Silicon, built on `macos-latest`) and `x86_64` (Intel, built on `macos-15-intel`). **Ad-hoc signed, not notarized.** Contains `Mechvibes.app` and an `/Applications` symlink. |
    | `README-macos-<version>.txt` | macOS | DMG install, Gatekeeper and Accessibility instructions. |
    | `SHA256SUMS.txt` | all | Digests of every other asset. **The in-app auto-updater refuses to run an installer that is not listed here with a matching hash**, so a release missing this file silently degrades every Windows user to a manual download. |
 
