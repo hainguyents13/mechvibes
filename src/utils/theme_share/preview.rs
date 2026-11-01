@@ -117,6 +117,7 @@ mod tests {
         };
         SharedTheme {
             name: "Night drive".to_string(),
+            author: None,
             description: None,
             colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave),
             logo: Some(logo),
