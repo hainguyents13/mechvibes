@@ -13,6 +13,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
+- **Hiding to the menu bar also hides the Dock icon (macOS).** When you hide Mechvibes with the eye button, its Dock icon goes away too, and it comes back when you show the window again from the menu bar. When it starts minimized at login, it starts without a Dock icon as well. Closing the window with X still quits the app.
 
 ## [3.4.0] - 2026-11-01
 
