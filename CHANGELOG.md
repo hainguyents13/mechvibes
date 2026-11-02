@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
 
+### Fixed
+
+- **No more double sounds when one copy runs as administrator (Windows).** If Mechvibes is already running as administrator, opening it again without admin rights no longer starts a second copy next to it, so each key plays once.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
