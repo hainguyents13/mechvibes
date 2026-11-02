@@ -11,8 +11,9 @@ use crate::libs::device_manager::DeviceManager;
 
 /// Commands for the single background thread that owns the shared ambiance
 /// `OutputStream`. All sounds share one stream/handle (rather than each
-/// `play_ambiance_sound` call opening its own, as before Phase 3) so a
+/// played sound opening its own, as it once did) so a
 /// device switch has exactly one stream to rebuild.
+#[derive(Debug, PartialEq)]
 enum AmbianceEngineCommand {
     Play {
         sound_id: String,
@@ -28,8 +29,11 @@ enum AmbianceEngineCommand {
     /// sound keeps its own level relative to the others, so this carries one
     /// value per sink rather than a single value for all of them.
     SetVolumes(Vec<(String, f32)>),
+    /// Silences every sink without dropping it. Nothing resumes them in
+    /// place: when sound becomes audible again every active sound is started
+    /// with `Play`, which replaces its paused sink, so a sound switched on
+    /// while silent starts too.
     PauseAll,
-    ResumeAll,
     /// `resume` carries the sounds that were actually audible before the
     /// switch (empty if paused/muted) - see `switch_ambiance_player_device`,
     /// which reads `AmbiancePlayerState` to build this since the engine
@@ -63,7 +67,7 @@ fn send_engine_command(command: AmbianceEngineCommand) {
 pub fn switch_ambiance_player_device(device_id: Option<String>) {
     let resume = get_global_ambiance_player_state_copy()
         .map(|state| {
-            if !state.is_playing || state.is_muted {
+            if !state.is_audible() {
                 return Vec::new();
             }
             state
@@ -184,11 +188,6 @@ pub fn initialize_global_ambiance_player() {
                         sink.pause();
                     }
                 }
-                AmbianceEngineCommand::ResumeAll => {
-                    for sink in sinks.values() {
-                        sink.play();
-                    }
-                }
                 AmbianceEngineCommand::SwitchDevice { device_id, resume } => {
                     match open_stream(device_id.as_deref()) {
                         Ok((new_stream, new_handle)) => {
@@ -260,30 +259,11 @@ pub fn get_global_ambiance_player_state_copy() -> Option<AmbiancePlayerState> {
     })
 }
 
-// Play a sound
-pub fn play_ambiance_sound(sound_id: String, audio_url: String, volume: f32) -> Result<(), String> {
-    send_engine_command(AmbianceEngineCommand::Play { sound_id, audio_url, volume });
-    Ok(())
-}
-
-// Stop a sound
-pub fn stop_ambiance_sound(sound_id: &str) -> Result<(), String> {
-    send_engine_command(AmbianceEngineCommand::Stop(sound_id.to_string()));
-    Ok(())
-}
-
-// Pause all sounds
-pub fn pause_all_ambiance_sounds() -> Result<(), String> {
-    send_engine_command(AmbianceEngineCommand::PauseAll);
-    crate::always_print!("⏸️ Paused all ambiance sounds");
-    Ok(())
-}
-
-// Resume all sounds
-pub fn resume_all_ambiance_sounds() -> Result<(), String> {
-    send_engine_command(AmbianceEngineCommand::ResumeAll);
-    crate::always_print!("▶️ Resumed all ambiance sounds");
-    Ok(())
+// Send the commands one user action produced, in order
+fn send_engine_commands(commands: Vec<AmbianceEngineCommand>) {
+    for command in commands {
+        send_engine_command(command);
+    }
 }
 
 // Set sound volume
@@ -304,16 +284,6 @@ fn set_ambiance_sound_volumes(volumes: Vec<(String, f32)>) {
 /// slider, so the master changes the overall level without flattening the mix.
 fn effective_volume(sound_volume: f32, global_volume: f32) -> f32 {
     (sound_volume * global_volume).clamp(0.0, 1.0)
-}
-
-// Set global mute for all sounds
-pub fn set_global_ambiance_mute(muted: bool) -> Result<(), String> {
-    if muted {
-        send_engine_command(AmbianceEngineCommand::PauseAll);
-    } else {
-        send_engine_command(AmbianceEngineCommand::ResumeAll);
-    }
-    Ok(())
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -472,27 +442,40 @@ impl AmbiancePlayerState {
         self.active_sounds.get(sound_id).copied().unwrap_or(0.5)
     }
 
-    /// Toggle a sound on/off
+    /// Whether the active sounds should be heard right now.
+    fn is_audible(&self) -> bool {
+        self.is_playing && !self.is_muted
+    }
+
+    /// Toggle a sound on/off, tell the engine, and save the change.
     pub fn toggle_sound(&mut self, sound_id: String) {
-        if self.active_sounds.contains_key(&sound_id) {
-            // Stop the sound
-            self.active_sounds.remove(&sound_id);
-            let _ = stop_ambiance_sound(&sound_id);
-        } else {
-            // Start the sound
-            self.active_sounds.insert(sound_id.clone(), 0.5); // Default volume 50%
-            if self.is_playing && !self.is_muted {
-                if let Some(sound) = self.get_sound_by_id(&sound_id) {
-                    let effective_volume = 0.5 * self.global_volume;
-                    let _ = play_ambiance_sound(
-                        sound_id.clone(),
-                        sound.audio_url.clone(),
-                        effective_volume
-                    );
-                }
-            }
-        }
+        send_engine_commands(self.toggle_sound_commands(sound_id));
         self.save_config();
+    }
+
+    /// The state change behind `toggle_sound`, returning what the engine
+    /// has to do. A sound switched off is always stopped, so a paused sink
+    /// for it is dropped too. A sound switched on while nothing is audible
+    /// only joins the list; it starts with the rest once sound comes back.
+    fn toggle_sound_commands(&mut self, sound_id: String) -> Vec<AmbianceEngineCommand> {
+        if self.active_sounds.remove(&sound_id).is_some() {
+            return vec![AmbianceEngineCommand::Stop(sound_id)];
+        }
+
+        let volume = 0.5; // Default volume 50%
+        self.active_sounds.insert(sound_id.clone(), volume);
+        if !self.is_audible() {
+            return Vec::new();
+        }
+        match self.get_sound_by_id(&sound_id) {
+            Some(sound) =>
+                vec![AmbianceEngineCommand::Play {
+                    audio_url: sound.audio_url.clone(),
+                    volume: effective_volume(volume, self.global_volume),
+                    sound_id,
+                }],
+            None => Vec::new(),
+        }
     }
 
     /// The effective volume of every active sound, see `effective_volume`.
@@ -530,43 +513,55 @@ impl AmbiancePlayerState {
         set_ambiance_sound_volumes(self.effective_volumes());
     }
 
-    /// Toggle global mute
+    /// Toggle global mute, tell the engine, and save the change.
     pub fn toggle_mute(&mut self) {
-        self.is_muted = !self.is_muted;
-
-        // Update audio player mute state
-        let _ = set_global_ambiance_mute(self.is_muted);
-
+        send_engine_commands(self.toggle_mute_commands());
         self.save_config();
     }
 
-    /// Toggle global play/pause state
-    pub fn toggle_play_pause(&mut self) {
-        self.is_playing = !self.is_playing;
-
-        if self.is_playing {
-            // Start playing all active sounds
-            self.start_all_active_sounds();
-            let _ = resume_all_ambiance_sounds();
-        } else {
-            // Pause all sounds
-            let _ = pause_all_ambiance_sounds();
-        }
-
-        // Don't save to config - play state is not persistent
+    /// The state change behind `toggle_mute`. Mute and the play button both
+    /// silence the sounds, so the engine only changes when that adds up to a
+    /// different result: unmuting while paused stays silent.
+    fn toggle_mute_commands(&mut self) -> Vec<AmbianceEngineCommand> {
+        let was_audible = self.is_audible();
+        self.is_muted = !self.is_muted;
+        self.audibility_commands(was_audible)
     }
 
-    /// Start all active sounds when play is pressed
-    fn start_all_active_sounds(&self) {
-        if !self.is_playing || self.is_muted {
-            return;
-        }
+    /// Toggle global play/pause state and tell the engine.
+    ///
+    /// Not saved: the app always starts paused.
+    pub fn toggle_play_pause(&mut self) {
+        send_engine_commands(self.toggle_play_pause_commands());
+    }
 
-        for (sound_id, volume) in self.effective_volumes() {
-            if let Some(sound) = self.get_sound_by_id(&sound_id) {
-                let _ = play_ambiance_sound(sound_id.clone(), sound.audio_url.clone(), volume);
-            }
+    /// The state change behind `toggle_play_pause`, see `toggle_mute_commands`.
+    fn toggle_play_pause_commands(&mut self) -> Vec<AmbianceEngineCommand> {
+        let was_audible = self.is_audible();
+        self.is_playing = !self.is_playing;
+        self.audibility_commands(was_audible)
+    }
+
+    /// What the engine has to do after mute or play/pause changed. Becoming
+    /// audible starts every active sound afresh rather than resuming paused
+    /// sinks, since a sound switched on while silent has no sink yet.
+    fn audibility_commands(&self, was_audible: bool) -> Vec<AmbianceEngineCommand> {
+        match (was_audible, self.is_audible()) {
+            (false, true) => self.start_commands(),
+            (true, false) => vec![AmbianceEngineCommand::PauseAll],
+            _ => Vec::new(),
         }
+    }
+
+    /// A `Play` for every active sound at its effective volume.
+    fn start_commands(&self) -> Vec<AmbianceEngineCommand> {
+        self.effective_volumes()
+            .into_iter()
+            .filter_map(|(sound_id, volume)| {
+                let audio_url = self.get_sound_by_id(&sound_id)?.audio_url.clone();
+                Some(AmbianceEngineCommand::Play { sound_id, audio_url, volume })
+            })
+            .collect()
     }
 }
 
@@ -598,5 +593,89 @@ mod tests {
         volumes.sort_by(|a, b| a.0.cmp(&b.0));
 
         assert_eq!(volumes, vec![("fire".to_string(), 0.2), ("rain".to_string(), 0.4)]);
+    }
+
+    fn playing_state() -> AmbiancePlayerState {
+        let mut state = AmbiancePlayerState::new();
+        state.is_playing = true;
+        state.global_volume = 0.8;
+        state
+    }
+
+    fn play(sound_id: &str, volume: f32) -> AmbianceEngineCommand {
+        AmbianceEngineCommand::Play {
+            sound_id: sound_id.to_string(),
+            audio_url: format!("assets/sounds/{}.mp3", sound_id),
+            volume,
+        }
+    }
+
+    #[test]
+    fn switching_a_sound_on_plays_it_once_scaled_by_the_master() {
+        let mut state = playing_state();
+
+        let commands = state.toggle_sound_commands("rain".to_string());
+
+        assert_eq!(commands, vec![play("rain", 0.4)]);
+        assert_eq!(state.active_sounds.get("rain"), Some(&0.5));
+    }
+
+    #[test]
+    fn switching_a_sound_off_stops_it_once() {
+        let mut state = playing_state();
+        state.active_sounds.insert("rain".to_string(), 0.7);
+
+        let commands = state.toggle_sound_commands("rain".to_string());
+
+        assert_eq!(commands, vec![AmbianceEngineCommand::Stop("rain".to_string())]);
+        assert!(!state.is_sound_active("rain"));
+    }
+
+    #[test]
+    fn a_sound_switched_on_while_muted_starts_on_unmute() {
+        let mut state = playing_state();
+        state.is_muted = true;
+
+        assert_eq!(state.toggle_sound_commands("rain".to_string()), vec![]);
+        assert_eq!(state.toggle_mute_commands(), vec![play("rain", 0.4)]);
+        assert!(!state.is_muted);
+    }
+
+    #[test]
+    fn muting_while_playing_pauses_once() {
+        let mut state = playing_state();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+
+        assert_eq!(state.toggle_mute_commands(), vec![AmbianceEngineCommand::PauseAll]);
+        assert!(state.is_muted);
+    }
+
+    #[test]
+    fn unmuting_while_paused_stays_silent() {
+        let mut state = AmbiancePlayerState::new();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+        state.is_muted = true;
+
+        assert_eq!(state.toggle_mute_commands(), vec![]);
+    }
+
+    #[test]
+    fn pressing_play_starts_each_active_sound_once() {
+        let mut state = AmbiancePlayerState::new();
+        state.global_volume = 0.8;
+        state.active_sounds.insert("rain".to_string(), 0.5);
+
+        assert_eq!(state.toggle_play_pause_commands(), vec![play("rain", 0.4)]);
+        assert_eq!(state.toggle_play_pause_commands(), vec![AmbianceEngineCommand::PauseAll]);
+    }
+
+    #[test]
+    fn pressing_play_while_muted_stays_silent() {
+        let mut state = AmbiancePlayerState::new();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+        state.is_muted = true;
+
+        assert_eq!(state.toggle_play_pause_commands(), vec![]);
+        assert!(state.is_playing);
     }
 }

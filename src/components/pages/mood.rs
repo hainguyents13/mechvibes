@@ -22,11 +22,6 @@ use crate::state::ambiance::{
     initialize_global_ambiance_player_state,
     update_global_ambiance_player_state,
     get_global_ambiance_player_state_copy,
-    play_ambiance_sound,
-    stop_ambiance_sound,
-    pause_all_ambiance_sounds,
-    resume_all_ambiance_sounds,
-    set_global_ambiance_mute,
 };
 use dioxus::core::spawn_forever;
 use futures_timer::Delay;
@@ -43,7 +38,9 @@ use std::time::Duration;
 /// in-memory state and the engine right away; this only persists it.
 ///
 /// It saves the global state as it is when the timer fires, so the last
-/// position of whichever slider moved is what lands. `spawn_forever` keeps
+/// position of whichever slider moved is what lands, and a sound toggle or
+/// mute saved while the timer runs is written again as is rather than
+/// reverted. `spawn_forever` keeps
 /// the write alive if the page is left before the timer ends, since the
 /// in-memory state outlives the page.
 fn schedule_ambiance_save(save_counter: Arc<AtomicU64>) {
@@ -92,17 +89,13 @@ fn SoundSelectionPanel(
           // Play/Pause Button
           button {
             class: "btn btn-primary btn-square",
+            // Like the mute button and sound toggles, this only calls the
+            // state method: it already tells the engine, and saves when the
+            // change is one that is kept.
             onclick: move |_| {
                 update_global_ambiance_player_state(|player| {
                     player.toggle_play_pause();
                 });
-                if let Some(current_state) = get_global_ambiance_player_state_copy() {
-                    if current_state.is_playing {
-                        let _ = resume_all_ambiance_sounds();
-                    } else {
-                        let _ = pause_all_ambiance_sounds();
-                    }
-                }
                 refresh_trigger.set(refresh_trigger() + 1);
             },
             if ambiance_player().is_playing {
@@ -117,11 +110,7 @@ fn SoundSelectionPanel(
             onclick: move |_| {
                 update_global_ambiance_player_state(|player| {
                     player.toggle_mute();
-                    player.save_config();
                 });
-                if let Some(current_state) = get_global_ambiance_player_state_copy() {
-                    let _ = set_global_ambiance_mute(current_state.is_muted);
-                }
                 refresh_trigger.set(refresh_trigger() + 1);
             },
             if ambiance_player().is_muted {
@@ -225,38 +214,10 @@ fn SoundSelectionPanel(
                     checked: ambiance_player().is_sound_active(&sound.id),
                     onchange: {
                         let sound_id = sound.id.clone();
-                        let sound_url = sound.audio_url.clone();
                         move |_| {
-                            let is_currently_active = if let Some(current_state) = get_global_ambiance_player_state_copy() {
-                                current_state.is_sound_active(&sound_id)
-                            } else {
-                                false
-                            };
                             update_global_ambiance_player_state(|player| {
                                 player.toggle_sound(sound_id.clone());
-                                player.save_config();
                             });
-                            if let Some(current_state) = get_global_ambiance_player_state_copy() {
-                                if current_state.is_sound_active(&sound_id) && !is_currently_active {
-                                    if current_state.is_playing {
-                                        let volume = current_state.get_sound_volume(&sound_id);
-                                        let global_volume = if current_state.is_muted {
-                                            0.0
-                                        } else {
-                                            current_state.global_volume
-                                        };
-                                        let _ = play_ambiance_sound(
-                                            sound_id.clone(),
-                                            sound_url.clone(),
-                                            volume * global_volume,
-                                        );
-                                    }
-                                } else if !current_state.is_sound_active(&sound_id)
-                                    && is_currently_active
-                                {
-                                    let _ = stop_ambiance_sound(&sound_id);
-                                }
-                            }
                             refresh_trigger.set(refresh_trigger() + 1);
                         }
                     },
