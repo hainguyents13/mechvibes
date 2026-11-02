@@ -37,6 +37,10 @@ const WAKE_EVENT_PREFIX: &str = r"Local\Mechvibes-ShowWindow-";
 /// value is fixed by the Win32 ABI.
 const ERROR_ALREADY_EXISTS: u32 = 183;
 
+/// `ERROR_ACCESS_DENIED`. Same rationale as `ERROR_ALREADY_EXISTS`: fixed by
+/// the Win32 ABI.
+const ERROR_ACCESS_DENIED: u32 = 5;
+
 /// `WAIT_OBJECT_0` - the wait returned because the event was signalled.
 /// Same rationale as `ERROR_ALREADY_EXISTS`: fixed by the Win32 ABI.
 const WAIT_OBJECT_0: u32 = 0;
@@ -193,23 +197,95 @@ impl Drop for InstanceGuard {
 pub fn acquire() -> Option<InstanceGuard> {
     let name = wide(&mutex_name());
 
-    let handle = unsafe { CreateMutexW(null_mut(), 0, name.as_ptr()) };
+    // The error code is read straight after the call, before anything else
+    // can overwrite it.
+    let (handle, last_error) = unsafe {
+        let handle = CreateMutexW(null_mut(), 0, name.as_ptr());
+        (handle, GetLastError())
+    };
 
-    if handle.is_null() {
-        // Can't tell whether another instance exists, so let this one run:
-        // a spurious refusal to start is worse than a possible double.
-        return Some(InstanceGuard(null_mut()));
-    }
-
-    // The handle is returned even when the mutex already existed, so the
-    // error code is what distinguishes "we created it" from "someone else
-    // owns it" - and the handle still has to be closed either way.
-    if unsafe { GetLastError() } == ERROR_ALREADY_EXISTS {
-        unsafe {
-            CloseHandle(handle);
+    match mutex_outcome(handle.is_null(), last_error) {
+        MutexOutcome::Claimed => Some(InstanceGuard(handle)),
+        MutexOutcome::AlreadyRunning => {
+            // A handle comes back even when the mutex already existed, and it
+            // still has to be closed.
+            if !handle.is_null() {
+                unsafe {
+                    CloseHandle(handle);
+                }
+            }
+            None
         }
-        return None;
+        MutexOutcome::Unknown => Some(InstanceGuard(null_mut())),
+    }
+}
+
+/// What creating the instance mutex says about other copies of the app.
+#[derive(Debug, PartialEq, Eq)]
+enum MutexOutcome {
+    /// This copy created the mutex and is the only one running.
+    Claimed,
+    /// Another copy holds the mutex, so this one should exit.
+    AlreadyRunning,
+    /// No mutex and no way to tell whether another copy exists.
+    Unknown,
+}
+
+/// Reads the result of `CreateMutexW`: whether the handle was null, and the
+/// error code right after the call.
+///
+/// A handle comes back even when the mutex already existed, so the error
+/// code is what tells "we created it" from "someone else owns it".
+///
+/// A null handle with "access denied" also means another copy is running:
+/// the mutex exists, but it belongs to a copy running as administrator, and
+/// a copy without admin rights is not allowed to open it. Letting this copy
+/// run would play every key twice.
+///
+/// Any other null result says nothing about other copies, so this one is
+/// let through: a spurious refusal to start is worse than a possible double.
+fn mutex_outcome(handle_is_null: bool, last_error: u32) -> MutexOutcome {
+    match (handle_is_null, last_error) {
+        (true, ERROR_ACCESS_DENIED) => MutexOutcome::AlreadyRunning,
+        (true, _) => MutexOutcome::Unknown,
+        (false, ERROR_ALREADY_EXISTS) => MutexOutcome::AlreadyRunning,
+        (false, _) => MutexOutcome::Claimed,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_mutex_is_claimed() {
+        assert_eq!(mutex_outcome(false, 0), MutexOutcome::Claimed);
     }
 
-    Some(InstanceGuard(handle))
+    #[test]
+    fn an_existing_mutex_means_another_copy_is_running() {
+        assert_eq!(mutex_outcome(false, ERROR_ALREADY_EXISTS), MutexOutcome::AlreadyRunning);
+    }
+
+    /// A copy running as administrator owns a mutex that a copy without
+    /// admin rights cannot open; that copy must still be turned away.
+    #[test]
+    fn access_denied_means_another_copy_is_running() {
+        assert_eq!(mutex_outcome(true, ERROR_ACCESS_DENIED), MutexOutcome::AlreadyRunning);
+    }
+
+    /// Any other failure gives no answer, and this copy is let through.
+    #[test]
+    fn other_failures_let_this_copy_run() {
+        assert_eq!(mutex_outcome(true, 0), MutexOutcome::Unknown);
+        // ERROR_INVALID_HANDLE: the name is taken by another kind of object.
+        assert_eq!(mutex_outcome(true, 6), MutexOutcome::Unknown);
+    }
+
+    /// "Access denied" only counts when no handle came back; with a handle
+    /// the mutex was created and the stale error code means nothing.
+    #[test]
+    fn access_denied_with_a_handle_is_still_claimed() {
+        assert_eq!(mutex_outcome(false, ERROR_ACCESS_DENIED), MutexOutcome::Claimed);
+    }
 }
