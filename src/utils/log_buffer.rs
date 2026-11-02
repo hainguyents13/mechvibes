@@ -880,8 +880,23 @@ mod tests {
         set_verbose(false);
     }
 
+    /// Whether any line in the buffer carries `marker`.
+    fn buffer_mentions(marker: &str) -> bool {
+        snapshot()
+            .iter()
+            .any(|line| line.contains(marker))
+    }
+
     /// And the other direction: once off, further recorded points must not
     /// reach the buffer at all.
+    ///
+    /// Measured by this test's own pack name, never by `generation()`: the
+    /// counter is bumped by every push in the process, and while this test
+    /// waits for the writer, tests in other modules keep logging through
+    /// `always_print!` (theme saves, image sweeps and the like) without
+    /// holding `buffer_test_guard`. The buffer is cleared just before the
+    /// disabled phase and every push adds at least one line, so the trace
+    /// writer moving the generation would leave a line with the marker here.
     #[test]
     fn turning_verbose_off_stops_the_flow() {
         use crate::libs::trace::{ Point, record };
@@ -889,54 +904,63 @@ mod tests {
         let _guard = super::buffer_test_guard();
         reset();
 
-        set_verbose(true);
-        record(Point::PackLoad, "somepack", 12.0);
+        let marker = "verbose-off-flow-pack";
 
-        // Let the writer drain whatever the enabled phase produced.
-        std::thread::sleep(std::time::Duration::from_millis(300));
+        set_verbose(true);
+        record(Point::PackLoad, marker, 12.0);
+
+        // Wait for the enabled phase's line to actually land rather than for
+        // a fixed time. That proves the producer is live, so the silence
+        // checked below means something, and it guarantees the writer has
+        // finished that push before the buffer is cleared.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !buffer_mentions(marker) && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        assert!(
+            buffer_mentions(marker),
+            "with verbose on, a recorded point must reach the buffer: {:?}",
+            snapshot()
+        );
 
         set_verbose(false);
         // Clear everything the enabled phase left, including the toggle's own
         // "verbose OFF" line, so what follows is measured from empty.
         buffer().lock().unwrap().clear();
-        let generation_before = generation();
 
         for _ in 0..200 {
-            record(Point::PackLoad, "somepack", 12.0);
+            record(Point::PackLoad, marker, 12.0);
         }
+        // Give the writer time to deliver anything that did get through.
         std::thread::sleep(std::time::Duration::from_millis(300));
 
-        // This test's own trace lines, not the whole buffer: it is
-        // process-wide and another module's test can log into it here.
         assert!(
-            !snapshot().iter().any(|line| line.contains("somepack")),
-            "verbose off must capture nothing: {:?}",
+            !buffer_mentions(marker),
+            "verbose off must capture nothing, or an idle app would move the generation: {:?}",
             snapshot()
         );
-        assert_eq!(generation_before, generation(), "an idle app must not move the generation");
     }
 
     /// The same promise, checked behaviorally: pushing input-shaped verbose
     /// lines while verbose is off must leave the buffer untouched.
+    ///
+    /// Like the test above, this looks for its own lines rather than comparing
+    /// `generation()`, which other modules' tests move whenever they log. The
+    /// masking keeps the timing field, so any push through the verbose door
+    /// would leave a `total=2.0ms` line in the freshly cleared buffer.
     #[test]
     fn typing_with_verbose_off_produces_no_pushes() {
         let _guard = super::buffer_test_guard();
         reset();
 
-        let generation_before = generation();
         for _ in 0..500 {
             push_verbose("🔬 TRACE key=KeyA total=2.0ms");
         }
 
         assert!(
-            !snapshot().iter().any(|line| line.contains("total=2.0ms")),
-            "verbose off must capture nothing: {:?}",
+            !buffer_mentions("total=2.0ms"),
+            "verbose off must capture nothing, or the viewer would redraw for nothing: {:?}",
             snapshot()
-        );
-        assert_eq!(
-            generation(),
-            generation_before,
-            "an idle app must not move the generation, or the viewer would redraw for nothing"
         );
     }
 
