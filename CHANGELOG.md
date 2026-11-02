@@ -10,6 +10,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **A build for Intel Macs.** Each release now has two macOS downloads: `macos-arm64.dmg` for Apple Silicon (M1 and later) and `macos-x86_64.dmg` for Intel Macs. Like the Apple Silicon build, it is experimental and not notarized.
 
+### Changed
+
+- **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added

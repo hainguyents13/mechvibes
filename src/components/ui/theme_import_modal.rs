@@ -14,7 +14,8 @@
 //! lists the colours, the logo and the background with a tick each; an
 //! unticked part leaves the user's own as it is. The installed theme keeps
 //! every part either way, so it can be put on whole later. Once a theme is
-//! on, Undo puts back the look from before it.
+//! on, Done closes the dialog and Undo, kept apart from it, puts back the
+//! look from before.
 //!
 //! Reading, looking up and downloading can be cancelled. Each request has its
 //! own number, and a result that comes back after its request was cancelled
@@ -29,9 +30,9 @@ use crate::utils::deep_link;
 use crate::utils::library_client;
 use crate::utils::theme::use_themes;
 use crate::utils::theme_library::ThemeSource;
-use crate::utils::theme_share::{ self, after_import, checklist, ImportParts, Look, SharedTheme };
+use crate::utils::theme_share::{ self, after_import, checklist, ImportParts, Look, Part, SharedTheme };
 use dioxus::prelude::*;
-use lucide_dioxus::{ Download, Image as ImageIcon, Stamp, Undo2 };
+use lucide_dioxus::{ Check, Download, Image as ImageIcon, Minus, Stamp, Undo2 };
 use std::rc::Rc;
 
 /// A theme read and checked, waiting for the user's answer.
@@ -54,6 +55,36 @@ fn with_preview(theme: SharedTheme) -> (SharedTheme, Look) {
     (theme, preview)
 }
 
+/// A theme just put on, for the dialog to say what changed.
+#[derive(Debug, PartialEq)]
+struct Applied {
+    offer: Rc<Offer>,
+    /// The parts put on; the rest stayed the user's own.
+    parts: ImportParts,
+}
+
+/// A line of the list saying what a theme changed.
+#[derive(Debug, PartialEq)]
+struct ChangeRow {
+    label: String,
+    /// The theme's part went on. Otherwise the user's own stayed.
+    changed: bool,
+}
+
+/// One line per part: what the theme brought for each part put on, and the
+/// part's name for each one that stayed the user's own.
+fn changes(theme: &SharedTheme, parts: ImportParts) -> [ChangeRow; 3] {
+    let row = |part: Part, name: &str, label: Option<String>| match label.filter(|_| parts.has(part)) {
+        Some(label) => ChangeRow { label, changed: true },
+        None => ChangeRow { label: format!("Kept your {}", name), changed: false },
+    };
+    [
+        row(Part::Colors, "colors", Some(format!("Colors: {}", theme.colors_label()))),
+        row(Part::Logo, "logo", theme.logo_label().map(str::to_string)),
+        row(Part::Background, "background", theme.background_label().map(str::to_string)),
+    ]
+}
+
 #[derive(Debug, Clone, PartialEq)]
 enum Stage {
     Hidden,
@@ -62,7 +93,7 @@ enum Stage {
     Downloading,
     Confirm(Rc<Offer>),
     Working,
-    Done(String),
+    Done(Rc<Applied>),
     Failed(String),
 }
 
@@ -236,7 +267,7 @@ pub fn ThemeImportModal() -> Element {
         let (update_config, update_themes) = (update_config.clone(), update_themes.clone());
         spawn(async move {
             stage.set(match put_on(theme, ticked, source, update_config, update_themes, theme_signal).await {
-                Ok(name) => Stage::Done(name),
+                Ok(_) => Stage::Done(Rc::new(Applied { offer, parts: ticked })),
                 Err(e) => Stage::Failed(e),
             });
         });
@@ -335,8 +366,15 @@ pub fn ThemeImportModal() -> Element {
                 }
                 div { class: "text-xs text-base-content/60 mt-3", "Your current theme stays in the Themes tab." }
               },
-              Stage::Done(name) => rsx! {
-                div { class: "alert alert-success alert-soft", "{name} is on." }
+              Stage::Done(applied) => rsx! {
+                DoneCard {
+                  applied: applied.clone(),
+                  // The screen as it is now, the theme on.
+                  picture: CardPreview::of(&Look::from_config(&config(), &themes())),
+                }
+                div { class: "text-xs text-base-content/60 mt-3",
+                  "Find it any time in Customize > Themes. The look you had before is there too."
+                }
               },
               Stage::Failed(message) => rsx! {
                 div { class: "alert alert-error alert-soft", "{message}" }
@@ -344,30 +382,34 @@ pub fn ThemeImportModal() -> Element {
               Stage::Hidden => rsx! {},
           }
 
-          div { class: "modal-action mt-6",
-            button {
-              class: "btn btn-sm btn-ghost",
-              disabled: current == Stage::Working,
-              onclick: close,
-              if current.cancellable() || matches!(current, Stage::Confirm(_)) { "Cancel" } else { "Close" }
-            }
+          // Undo sits at the far left, away from Done, so a quick click on the
+          // main button never takes the theme off again.
+          div { class: if matches!(current, Stage::Done(_)) { "modal-action mt-6 justify-between" } else { "modal-action mt-6" },
             match &current {
                 Stage::Done(_) => rsx! {
-                  button { class: "btn btn-sm btn-neutral", onclick: undo,
+                  button { class: "btn btn-sm btn-ghost", onclick: undo,
                     Undo2 { class: "w-4 h-4 mr-2" }
                     "Undo"
                   }
+                  button { class: "btn btn-sm btn-neutral", onclick: close, "Done" }
                 },
-                Stage::Confirm(offer) => rsx! {
+                _ => rsx! {
                   button {
-                    class: "btn btn-sm btn-neutral",
-                    disabled: !parts().within(offer.theme.parts()).any(),
-                    onclick: apply,
-                    Download { class: "w-4 h-4 mr-2" }
-                    "Use this theme"
+                    class: "btn btn-sm btn-ghost",
+                    disabled: current == Stage::Working,
+                    onclick: close,
+                    if current.cancellable() || matches!(current, Stage::Confirm(_)) { "Cancel" } else { "Close" }
+                  }
+                  if let Stage::Confirm(offer) = &current {
+                    button {
+                      class: "btn btn-sm btn-neutral",
+                      disabled: !parts().within(offer.theme.parts()).any(),
+                      onclick: apply,
+                      Download { class: "w-4 h-4 mr-2" }
+                      "Use this theme"
+                    }
                   }
                 },
-                _ => rsx! {},
             }
           }
         }
@@ -445,6 +487,48 @@ fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
     }
 }
 
+/// The theme once it is on: the screen now, its name and who made it, and
+/// what it changed, part by part.
+#[component]
+fn DoneCard(applied: Rc<Applied>, picture: CardPreview) -> Element {
+    let theme = &applied.offer.theme;
+
+    rsx! {
+      div { class: "card border border-base-300 bg-base-200 p-4",
+        div { class: "flex gap-4",
+          for key in [picture.key()] {
+            ThemePicture { key: "{key}", preview: picture.clone(), class: FRAME_CLASS, style: FRAME_STYLE }
+          }
+
+          div { class: "flex min-w-0 flex-1 flex-col gap-3",
+            div {
+              div { class: "truncate text-sm font-medium text-base-content", title: "{theme.name}",
+                "{theme.name}"
+              }
+              if let Some(author) = &theme.author {
+                div { class: "truncate text-xs text-base-content/60", "by {author}" }
+              }
+            }
+            div { class: "space-y-1",
+              for row in changes(theme, applied.parts) {
+                div {
+                  key: "{row.label}",
+                  class: if row.changed { "flex items-center gap-2 text-sm text-base-content" } else { "flex items-center gap-2 text-sm text-base-content/50" },
+                  if row.changed {
+                    Check { class: "w-3.5 h-3.5 shrink-0 text-success" }
+                  } else {
+                    Minus { class: "w-3.5 h-3.5 shrink-0" }
+                  }
+                  span { class: "min-w-0", style: "overflow-wrap: anywhere;", "{row.label}" }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+}
+
 /// A spinner with a line saying what the dialog is waiting for.
 #[component]
 fn Waiting(text: &'static str) -> Element {
@@ -460,12 +544,20 @@ fn Waiting(text: &'static str) -> Element {
 mod tests {
     use super::*;
 
-    fn asking() -> Stage {
-        let bytes = include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme");
+    fn offer(bytes: &[u8]) -> Rc<Offer> {
         let theme = theme_share::from_bytes(bytes).unwrap();
         let source = ThemeSource::File { fingerprint: theme.fingerprint() };
         let preview = theme.preview_look();
-        Stage::Confirm(Rc::new(Offer { theme, source, preview, size: None }))
+        Rc::new(Offer { theme, source, preview, size: None })
+    }
+
+    fn asking() -> Stage {
+        Stage::Confirm(offer(include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme")))
+    }
+
+    fn done() -> Stage {
+        let offer = offer(include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme"));
+        Stage::Done(Rc::new(Applied { offer, parts: ImportParts::ALL }))
     }
 
     #[test]
@@ -473,9 +565,27 @@ mod tests {
         for stage in [Stage::Opening, Stage::LookingUp, Stage::Downloading, asking(), Stage::Working] {
             assert!(stage.busy(), "{:?}", stage);
         }
-        for stage in [Stage::Hidden, Stage::Done("Night".to_string()), Stage::Failed("No".to_string())] {
+        for stage in [Stage::Hidden, done(), Stage::Failed("No".to_string())] {
             assert!(!stage.busy(), "{:?}", stage);
         }
+    }
+
+    #[test]
+    fn the_done_list_says_which_parts_the_theme_changed() {
+        let theme = &offer(include_bytes!("../../utils/theme_share/fixtures/v1/custom-full.mvtheme")).theme;
+        let rows = changes(theme, ImportParts::ALL.with(Part::Background, false));
+        assert_eq!(rows[0], ChangeRow { label: format!("Colors: {}", theme.colors_label()), changed: true });
+        assert_eq!(rows[1], ChangeRow { label: theme.logo_label().unwrap().to_string(), changed: true });
+        assert_eq!(rows[2], ChangeRow { label: "Kept your background".to_string(), changed: false });
+    }
+
+    #[test]
+    fn a_part_the_theme_leaves_out_stays_yours_in_the_done_list() {
+        let theme = &offer(include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme")).theme;
+        let rows = changes(theme, ImportParts::ALL);
+        assert!(rows[0].changed, "a theme always brings its colors");
+        assert_eq!(rows[1], ChangeRow { label: "Kept your logo".to_string(), changed: false });
+        assert_eq!(rows[2], ChangeRow { label: "Kept your background".to_string(), changed: false });
     }
 
     #[test]
@@ -485,6 +595,6 @@ mod tests {
         assert!(Stage::Downloading.cancellable());
         assert!(!asking().cancellable(), "nothing runs while the dialog asks");
         assert!(!Stage::Working.cancellable(), "half a theme is never left on");
-        assert!(!Stage::Done("Night".to_string()).cancellable());
+        assert!(!done().cancellable());
     }
 }
