@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
 
+### Fixed
+
+- **The Linux AppImage now starts on Fedora.** It stopped with an error about a missing `libbz2.so.1.0` file. The app now carries that library inside itself, so it no longer depends on how each Linux system names it.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
