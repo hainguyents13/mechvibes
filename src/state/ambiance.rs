@@ -24,7 +24,10 @@ enum AmbianceEngineCommand {
         sound_id: String,
         volume: f32,
     },
-    SetAllVolume(f32),
+    /// Effective volume per sound, sent when the master slider moves. Each
+    /// sound keeps its own level relative to the others, so this carries one
+    /// value per sink rather than a single value for all of them.
+    SetVolumes(Vec<(String, f32)>),
     PauseAll,
     ResumeAll,
     /// `resume` carries the sounds that were actually audible before the
@@ -63,14 +66,12 @@ pub fn switch_ambiance_player_device(device_id: Option<String>) {
             if !state.is_playing || state.is_muted {
                 return Vec::new();
             }
-            state.active_sounds
-                .iter()
-                .filter_map(|(sound_id, &volume)| {
-                    state
-                        .get_sound_by_id(sound_id)
-                        .map(|sound| {
-                            (sound_id.clone(), sound.audio_url.clone(), volume * state.global_volume)
-                        })
+            state
+                .effective_volumes()
+                .into_iter()
+                .filter_map(|(sound_id, volume)| {
+                    let audio_url = state.get_sound_by_id(&sound_id)?.audio_url.clone();
+                    Some((sound_id, audio_url, volume))
                 })
                 .collect()
         })
@@ -171,10 +172,11 @@ pub fn initialize_global_ambiance_player() {
                         sink.set_volume(volume.clamp(0.0, 1.0));
                     }
                 }
-                AmbianceEngineCommand::SetAllVolume(volume) => {
-                    let clamped = volume.clamp(0.0, 1.0);
-                    for sink in sinks.values() {
-                        sink.set_volume(clamped);
+                AmbianceEngineCommand::SetVolumes(volumes) => {
+                    for (sound_id, volume) in volumes {
+                        if let Some(sink) = sinks.get(&sound_id) {
+                            sink.set_volume(volume.clamp(0.0, 1.0));
+                        }
                     }
                 }
                 AmbianceEngineCommand::PauseAll => {
@@ -293,10 +295,15 @@ pub fn set_ambiance_sound_volume(sound_id: &str, volume: f32) -> Result<(), Stri
     Ok(())
 }
 
-// Set global volume for all sounds
-pub fn set_global_ambiance_volume(volume: f32) -> Result<(), String> {
-    send_engine_command(AmbianceEngineCommand::SetAllVolume(volume));
-    Ok(())
+// Set the effective volume of several sounds at once
+fn set_ambiance_sound_volumes(volumes: Vec<(String, f32)>) {
+    send_engine_command(AmbianceEngineCommand::SetVolumes(volumes));
+}
+
+/// What a sound actually plays at: its own slider scaled by the master
+/// slider, so the master changes the overall level without flattening the mix.
+fn effective_volume(sound_volume: f32, global_volume: f32) -> f32 {
+    (sound_volume * global_volume).clamp(0.0, 1.0)
 }
 
 // Set global mute for all sounds
@@ -488,7 +495,18 @@ impl AmbiancePlayerState {
         self.save_config();
     }
 
-    /// Set volume for a specific sound
+    /// The effective volume of every active sound, see `effective_volume`.
+    pub fn effective_volumes(&self) -> Vec<(String, f32)> {
+        self.active_sounds
+            .iter()
+            .map(|(sound_id, &volume)| (sound_id.clone(), effective_volume(volume, self.global_volume)))
+            .collect()
+    }
+
+    /// Set volume for a specific sound.
+    ///
+    /// Does not write the config: a slider calls this on every input event
+    /// during a drag, so the caller saves once the drag settles.
     pub fn set_sound_volume(&mut self, sound_id: String, volume: f32) {
         let clamped_volume = volume.clamp(0.0, 1.0);
         if self.active_sounds.contains_key(&sound_id) {
@@ -496,21 +514,20 @@ impl AmbiancePlayerState {
 
             // Update audio player volume if sound is playing
             if self.is_playing && !self.is_muted {
-                let effective_volume = clamped_volume * self.global_volume;
-                let _ = set_ambiance_sound_volume(&sound_id, effective_volume);
+                let _ = set_ambiance_sound_volume(
+                    &sound_id,
+                    effective_volume(clamped_volume, self.global_volume)
+                );
             }
-
-            self.save_config();
         }
     }
-    /// Set global volume (0.0 to 1.0) - affects all active sounds
+
+    /// Set global volume (0.0 to 1.0), which scales every active sound.
+    ///
+    /// Does not write the config, for the same reason as `set_sound_volume`.
     pub fn set_global_volume(&mut self, volume: f32) {
         self.global_volume = volume.clamp(0.0, 1.0);
-
-        // Update audio player global volume
-        let _ = set_global_ambiance_volume(self.global_volume);
-
-        self.save_config();
+        set_ambiance_sound_volumes(self.effective_volumes());
     }
 
     /// Toggle global mute
@@ -545,15 +562,41 @@ impl AmbiancePlayerState {
             return;
         }
 
-        for (sound_id, &volume) in &self.active_sounds {
-            if let Some(sound) = self.get_sound_by_id(sound_id) {
-                let effective_volume = volume * self.global_volume;
-                let _ = play_ambiance_sound(
-                    sound_id.clone(),
-                    sound.audio_url.clone(),
-                    effective_volume
-                );
+        for (sound_id, volume) in self.effective_volumes() {
+            if let Some(sound) = self.get_sound_by_id(&sound_id) {
+                let _ = play_ambiance_sound(sound_id.clone(), sound.audio_url.clone(), volume);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn effective_volume_scales_the_sound_by_the_master() {
+        assert_eq!(effective_volume(0.8, 0.5), 0.4);
+        assert_eq!(effective_volume(0.4, 1.0), 0.4);
+        assert_eq!(effective_volume(0.6, 0.0), 0.0);
+    }
+
+    #[test]
+    fn effective_volume_stays_in_range() {
+        assert_eq!(effective_volume(1.5, 1.0), 1.0);
+        assert_eq!(effective_volume(-0.2, 1.0), 0.0);
+    }
+
+    #[test]
+    fn master_volume_keeps_the_mix_between_sounds() {
+        let mut state = AmbiancePlayerState::new();
+        state.active_sounds.insert("rain".to_string(), 0.8);
+        state.active_sounds.insert("fire".to_string(), 0.4);
+        state.global_volume = 0.5;
+
+        let mut volumes = state.effective_volumes();
+        volumes.sort_by(|a, b| a.0.cmp(&b.0));
+
+        assert_eq!(volumes, vec![("fire".to_string(), 0.2), ("rain".to_string(), 0.4)]);
     }
 }
