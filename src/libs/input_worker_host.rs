@@ -373,6 +373,11 @@ struct WorkerEvent<'a> {
 /// stay silent. Keying the decision off `held` rather than off the filter also
 /// stops a disabled device from leaking a lone keyup sound, which testing the
 /// filter on the down alone would not.
+///
+/// A wheel scroll is a down with no release, so it is forwarded without being
+/// recorded in `held`. Recording it would grow `held` by one entry per scroll
+/// and, when the worker restarts, send releases for scrolls that have no
+/// release.
 fn wire_for_event(
     event: &WorkerEvent<'_>,
     filter: &DeviceFilter,
@@ -382,7 +387,10 @@ fn wire_for_event(
         if !filter.allows(event.kind, event.device_id) {
             return None;
         }
-        held.push((event.kind, event.code.to_string()));
+        let is_wheel = event.kind == 'M' && crate::libs::audio::engine::is_wheel_code(event.code);
+        if !is_wheel {
+            held.push((event.kind, event.code.to_string()));
+        }
         return Some(event.code.to_string());
     }
 
@@ -589,6 +597,32 @@ mod tests {
         let mouse_up = WorkerEvent { kind: 'M', device_id: "m1", code: "KeyX", is_down: false };
         assert_eq!(wire_for_event(&mouse_up, &filter, &mut held).as_deref(), Some("UP:KeyX"));
         assert_eq!(held, vec![('K', "KeyX".to_string())]);
+    }
+
+    #[test]
+    fn wheel_scrolls_are_forwarded_but_never_held() {
+        let filter = filter_for(vec![]);
+        let mut held = Vec::new();
+
+        for code in ["MouseWheelUp", "MouseWheelDown", "MouseWheelUp"] {
+            let scroll = WorkerEvent { kind: 'M', device_id: "m1", code, is_down: true };
+            assert_eq!(wire_for_event(&scroll, &filter, &mut held).as_deref(), Some(code));
+        }
+        // Nothing held means no release is synthesized for a scroll when the
+        // worker restarts, and the list does not grow with every scroll.
+        assert!(held.is_empty());
+    }
+
+    #[test]
+    fn wheel_scrolls_still_respect_the_mouse_filter() {
+        let filter = DeviceFilter {
+            generation: 0,
+            enabled_keyboards: Vec::new(),
+            enabled_mice: vec!["m1".to_string()],
+        };
+        let mut held = Vec::new();
+        let scroll = WorkerEvent { kind: 'M', device_id: "m2", code: "MouseWheelUp", is_down: true };
+        assert!(wire_for_event(&scroll, &filter, &mut held).is_none());
     }
 
     #[test]

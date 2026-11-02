@@ -426,28 +426,79 @@ fn handle_mouse(raw: &RAWINPUT) {
             return;
         };
 
-        for (code, down_flag, up_flag) in mouse_button_flag_pairs() {
-            let is_down = if flags & down_flag != 0 {
-                if !state.pressed_buttons.insert(code.to_string()) {
-                    continue;
-                }
-                true
-            } else if flags & up_flag != 0 {
-                state.pressed_buttons.remove(code);
-                false
-            } else {
-                continue;
-            };
+        let transitions = classify_mouse_packet(&mut state.pressed_buttons, flags, mouse.usButtonData);
+        if transitions.is_empty() {
+            return;
+        }
 
-            let device_id = state.device_id(raw.header.hDevice);
+        let device_id = state.device_id(raw.header.hDevice);
+        for (code, is_down) in transitions {
             (state.sink)(RawInputEvent {
                 kind: EventKind::Mouse,
-                device_id,
+                device_id: device_id.clone(),
                 code,
                 is_down,
             });
         }
     });
+}
+
+/// Applies one mouse packet's button flags to `pressed_buttons` and returns
+/// what to emit, as `(code, is_down)` pairs in order.
+///
+/// Button flags come first, in `mouse_button_flag_pairs` order, with a repeated
+/// down for a button already held dropped. A vertical wheel step follows as a
+/// down-only `MouseWheelUp`/`MouseWheelDown`: the wheel has no release, so it is
+/// never recorded in `pressed_buttons`, where it would make every later scroll
+/// look like a repeat. One packet can carry both, for example a click made
+/// while the wheel turns, and neither may hide the other.
+fn classify_mouse_packet(
+    pressed_buttons: &mut HashSet<String>,
+    flags: u16,
+    button_data: u16
+) -> Vec<(&'static str, bool)> {
+    let mut out = Vec::new();
+
+    for (code, down_flag, up_flag) in mouse_button_flag_pairs() {
+        if flags & down_flag != 0 {
+            if pressed_buttons.insert(code.to_string()) {
+                out.push((code, true));
+            }
+        } else if flags & up_flag != 0 {
+            pressed_buttons.remove(code);
+            out.push((code, false));
+        }
+    }
+
+    if flags & RI_MOUSE_WHEEL != 0 {
+        if let Some(code) = map_wheel_delta(button_data as i16) {
+            out.push((code, true));
+        }
+    }
+
+    out
+}
+
+/// Translates a vertical wheel delta into a wheel button code.
+///
+/// Windows reports the delta in `usButtonData` as a signed value stored in an
+/// unsigned field: positive is a turn away from the user (up), negative is
+/// toward the user (down), in multiples of `WHEEL_DELTA` for a notched wheel
+/// and smaller steps for a smooth one. Only the sign matters here, since the
+/// engine plays one rate-limited impulse per scroll whatever its size. Zero
+/// carries no direction and is ignored. The strings match what the Linux
+/// listener emits and what soundpacks key their wheel sounds on.
+///
+/// Horizontal tilt (`RI_MOUSE_HWHEEL`, which reuses `usButtonData`) is not
+/// read at all, so a tilt never plays as a vertical scroll.
+fn map_wheel_delta(delta: i16) -> Option<&'static str> {
+    if delta > 0 {
+        Some("MouseWheelUp")
+    } else if delta < 0 {
+        Some("MouseWheelDown")
+    } else {
+        None
+    }
 }
 
 /// `RAWMOUSE.usButtonFlags` only carries 5 button pairs (Left/Right/Middle/
@@ -782,6 +833,110 @@ mod tests {
             );
             assert_eq!(out.iter().filter(|(_, is_down)| !*is_down).count(), 1);
         }
+    }
+
+    /// `usButtonData` as Windows delivers it: a signed delta in an unsigned field.
+    fn wheel_data(delta: i16) -> u16 {
+        delta as u16
+    }
+
+    #[test]
+    fn wheel_turned_away_from_the_user_plays_wheel_up() {
+        let mut pressed = HashSet::new();
+        assert_eq!(
+            classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, wheel_data(120)),
+            vec![("MouseWheelUp", true)]
+        );
+    }
+
+    #[test]
+    fn wheel_turned_toward_the_user_plays_wheel_down() {
+        // A negative delta arrives as a large unsigned value, so reading the
+        // field without the signed cast would report every scroll as up.
+        let mut pressed = HashSet::new();
+        assert_eq!(
+            classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, wheel_data(-120)),
+            vec![("MouseWheelDown", true)]
+        );
+    }
+
+    #[test]
+    fn smooth_wheel_steps_smaller_than_a_notch_still_count() {
+        let mut pressed = HashSet::new();
+        assert_eq!(classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, wheel_data(8)), vec![("MouseWheelUp", true)]);
+        assert_eq!(
+            classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, wheel_data(-8)),
+            vec![("MouseWheelDown", true)]
+        );
+    }
+
+    #[test]
+    fn zero_wheel_delta_emits_nothing() {
+        let mut pressed = HashSet::new();
+        assert!(classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, 0).is_empty());
+    }
+
+    #[test]
+    fn button_data_is_ignored_without_the_wheel_flag() {
+        // Horizontal tilt reuses usButtonData under its own flag, which is
+        // never read, so a tilt must not play as a vertical scroll.
+        let hwheel_flag = 0x0800;
+        let mut pressed = HashSet::new();
+        assert!(classify_mouse_packet(&mut pressed, hwheel_flag, wheel_data(120)).is_empty());
+    }
+
+    #[test]
+    fn repeated_scrolls_are_never_treated_as_a_held_button() {
+        // The wheel has no release. If a scroll were recorded as pressed, the
+        // second one would be dropped as a repeat and stay silent for good.
+        let mut pressed = HashSet::new();
+        for _ in 0..3 {
+            assert_eq!(
+                classify_mouse_packet(&mut pressed, RI_MOUSE_WHEEL, wheel_data(120)),
+                vec![("MouseWheelUp", true)]
+            );
+        }
+        assert!(pressed.is_empty(), "a wheel step must not be recorded as a held button");
+    }
+
+    #[test]
+    fn wheel_and_button_in_the_same_packet_both_emit() {
+        let mut pressed = HashSet::new();
+        assert_eq!(
+            classify_mouse_packet(
+                &mut pressed,
+                RI_MOUSE_LEFT_BUTTON_DOWN | RI_MOUSE_WHEEL,
+                wheel_data(-120)
+            ),
+            vec![("MouseLeft", true), ("MouseWheelDown", true)]
+        );
+        assert!(pressed.contains("MouseLeft"));
+        assert_eq!(pressed.len(), 1, "only the real button is held");
+
+        assert_eq!(
+            classify_mouse_packet(
+                &mut pressed,
+                RI_MOUSE_LEFT_BUTTON_UP | RI_MOUSE_WHEEL,
+                wheel_data(120)
+            ),
+            vec![("MouseLeft", false), ("MouseWheelUp", true)]
+        );
+        assert!(pressed.is_empty());
+    }
+
+    #[test]
+    fn buttons_without_the_wheel_behave_as_before() {
+        let mut pressed = HashSet::new();
+        assert_eq!(
+            classify_mouse_packet(&mut pressed, RI_MOUSE_RIGHT_BUTTON_DOWN, 0),
+            vec![("MouseRight", true)]
+        );
+        // A repeated down for a held button is dropped.
+        assert!(classify_mouse_packet(&mut pressed, RI_MOUSE_RIGHT_BUTTON_DOWN, 0).is_empty());
+        assert_eq!(
+            classify_mouse_packet(&mut pressed, RI_MOUSE_RIGHT_BUTTON_UP, 0),
+            vec![("MouseRight", false)]
+        );
     }
 }
 
