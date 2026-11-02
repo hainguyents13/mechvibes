@@ -17,7 +17,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **The Linux AppImage now starts on Fedora.** It stopped with an error about a missing `libbz2.so.1.0` file. The app now carries that library inside itself, so it no longer depends on how each Linux system names it.
-- **No more double sounds when one copy runs as administrator (Windows).** If Mechvibes is already running as administrator, opening it again without admin rights no longer starts a second copy next to it, so each key plays once.
 
 ## [3.4.0] - 2026-11-01
 
