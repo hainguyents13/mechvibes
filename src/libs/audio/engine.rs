@@ -14,8 +14,8 @@ const MAX_VOICES: usize = 32;
 
 /// Wheel scrolls have no release event and can repeat much faster than a human
 /// clicks, so the engine rate-limits them as impulses. This is the only place
-/// that window is applied: the Wayland listener forwards every wheel delta and
-/// lets the engine decide, because a second limit in the listener would use its
+/// that window is applied: the Wayland and Windows Raw Input listeners forward
+/// every wheel step and let the engine decide, because a second limit in the listener would use its
 /// own timestamp and drop a scroll the engine would have played. Nothing else
 /// uses it today - the X11 listener reports no wheel events, because the rdev
 /// branch that would do it is commented out.
@@ -324,7 +324,7 @@ fn should_play(sound_enabled: bool, type_enabled: bool) -> bool {
 /// release event and so must not go through `debounce_press`: with nothing to
 /// clear it, the first scroll would latch `pressed["MouseWheelUp"] = true` and
 /// every later scroll would be dropped for the rest of the session.
-fn is_wheel_code(code: &str) -> bool {
+pub(crate) fn is_wheel_code(code: &str) -> bool {
     code.starts_with("MouseWheel")
 }
 
