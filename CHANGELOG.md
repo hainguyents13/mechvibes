@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
 
+### Fixed
+
+- **Mood sounds no longer lag while you drag a volume slider.** The volume is saved once you stop moving the slider, not on every step. The main slider now turns all sounds up or down together and keeps each sound's own level, instead of setting them all to the same volume.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
