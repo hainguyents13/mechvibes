@@ -16,10 +16,29 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{ Hash, Hasher };
 use std::ptr::null_mut;
 
+use winapi::shared::minwindef::DWORD;
 use winapi::um::errhandlingapi::GetLastError;
 use winapi::um::handleapi::CloseHandle;
+use winapi::um::minwinbase::SECURITY_ATTRIBUTES;
+use winapi::um::processthreadsapi::{ GetCurrentProcess, OpenProcessToken };
+use winapi::shared::sddl::{
+    ConvertSidToStringSidW,
+    ConvertStringSecurityDescriptorToSecurityDescriptorW,
+    SDDL_REVISION_1,
+};
+use winapi::um::securitybaseapi::GetTokenInformation;
 use winapi::um::synchapi::{ CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject };
-use winapi::um::winnt::{ EVENT_MODIFY_STATE, HANDLE };
+use winapi::um::winbase::LocalFree;
+use winapi::um::winnt::{
+    TokenUser,
+    EVENT_MODIFY_STATE,
+    HANDLE,
+    LPWSTR,
+    PSECURITY_DESCRIPTOR,
+    SYNCHRONIZE,
+    TOKEN_QUERY,
+    TOKEN_USER,
+};
 
 /// Session-local (`Local\`) so two different users logged into the same
 /// machine each get their own instance, which is the behavior people expect
@@ -134,11 +153,9 @@ pub fn signal_running_instance() {
 pub fn listen_for_wake_requests(on_wake: impl Fn() + Send + 'static) {
     let name = wide(&wake_event_name());
 
-    // SAFETY: `name` outlives the call. `CreateEventW` with a null security
-    // descriptor and manual_reset = 0 yields an auto-reset event owned by this
-    // process; a null return means the event could not be created, in which
-    // case the thread is simply not started.
-    let handle = unsafe { CreateEventW(null_mut(), 0, 0, name.as_ptr()) };
+    // A null return means the event could not be created, in which case the
+    // thread is simply not started.
+    let handle = create_wake_event(&name);
     if handle.is_null() {
         crate::always_eprint!("⚠️ Could not create the wake-up event; a second launch will not raise the window");
         return;
@@ -170,6 +187,123 @@ struct WakeEvent(HANDLE);
 // SAFETY: the handle is only touched by the listener thread that takes
 // ownership of it; Windows handles are process-wide, so the move is sound.
 unsafe impl Send for WakeEvent {}
+
+/// Create the auto-reset wake-up event, open to every copy of the app the
+/// same person starts.
+///
+/// With the default security, an event made by a copy running as
+/// administrator only lets administrators and the system in. A second copy
+/// started normally is turned away by the instance lock, then cannot set the
+/// event either: double-clicking the app shows nothing, and a library link or
+/// theme file opened just then is never picked up. So the event gets its own
+/// security, built by [`wake_event_sddl`].
+///
+/// Falls back to the default security if that cannot be built or used: a
+/// window that only a copy with the same rights can raise is better than one
+/// nothing can raise.
+fn create_wake_event(name: &[u16]) -> HANDLE {
+    if let Some(security) = current_user_sid().and_then(|sid| SecurityDescriptor::from_sddl(&wake_event_sddl(&sid))) {
+        let mut attributes = SECURITY_ATTRIBUTES {
+            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as DWORD,
+            lpSecurityDescriptor: security.0,
+            bInheritHandle: 0,
+        };
+        // SAFETY: `name` and `attributes` outlive the call, and `security`
+        // stays alive until after it; Windows copies the descriptor into the
+        // event, so freeing it afterwards is fine.
+        let handle = unsafe { CreateEventW(&mut attributes, 0, 0, name.as_ptr()) };
+        if !handle.is_null() {
+            return handle;
+        }
+    }
+    // SAFETY: `name` outlives the call; a null security descriptor means the
+    // default security of this process.
+    unsafe { CreateEventW(null_mut(), 0, 0, name.as_ptr()) }
+}
+
+/// Security for the wake-up event, in SDDL, for the user with SID `user_sid`.
+///
+/// - The system and administrators get full access, as they would by default.
+/// - The user who started the app may set the event and wait on it, and
+///   nothing more. Being granted by SID, this holds whether that user's copy
+///   runs as administrator or not, and lets no other user in.
+/// - The medium integrity label keeps the default "no write up" rule, so a
+///   low-integrity process (a sandboxed browser tab, say) still cannot set it.
+fn wake_event_sddl(user_sid: &str) -> String {
+    format!(
+        "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x{:x};;;{})S:(ML;;NW;;;ME)",
+        EVENT_MODIFY_STATE | SYNCHRONIZE,
+        user_sid
+    )
+}
+
+/// The SID of the user running this process, as a string (`S-1-5-21-...`).
+/// `None` if the process token cannot be read.
+fn current_user_sid() -> Option<String> {
+    // SAFETY: every out-pointer points at a live local; the token handle is
+    // closed on every path once it was opened, and the SID string Windows
+    // allocates is freed with `LocalFree` once copied.
+    unsafe {
+        let mut token: HANDLE = null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return None;
+        }
+
+        // The first call only reports the size needed. The buffer is made of
+        // u64s so it is aligned for the pointer inside `TOKEN_USER`.
+        let mut needed: DWORD = 0;
+        GetTokenInformation(token, TokenUser, null_mut(), 0, &mut needed);
+        let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+        let read = GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), needed, &mut needed);
+        CloseHandle(token);
+        if read == 0 || needed == 0 {
+            return None;
+        }
+
+        let user = &*buffer.as_ptr().cast::<TOKEN_USER>();
+        let mut sid_string: LPWSTR = null_mut();
+        if ConvertSidToStringSidW(user.User.Sid, &mut sid_string) == 0 {
+            return None;
+        }
+        let length = (0..).take_while(|&i| *sid_string.add(i) != 0).count();
+        let sid = String::from_utf16_lossy(std::slice::from_raw_parts(sid_string, length));
+        LocalFree(sid_string.cast());
+        Some(sid)
+    }
+}
+
+/// A security descriptor Windows allocated, freed with `LocalFree` on drop.
+struct SecurityDescriptor(PSECURITY_DESCRIPTOR);
+
+impl SecurityDescriptor {
+    /// Build one from an SDDL string. `None` if Windows rejects the string.
+    fn from_sddl(sddl: &str) -> Option<Self> {
+        let sddl = wide(sddl);
+        let mut descriptor: PSECURITY_DESCRIPTOR = null_mut();
+        // SAFETY: `sddl` is NUL-terminated and outlives the call; on success
+        // `descriptor` is a buffer this value now owns and frees.
+        let built = unsafe {
+            ConvertStringSecurityDescriptorToSecurityDescriptorW(
+                sddl.as_ptr(),
+                SDDL_REVISION_1 as DWORD,
+                &mut descriptor,
+                null_mut()
+            )
+        };
+        (built != 0 && !descriptor.is_null()).then_some(SecurityDescriptor(descriptor))
+    }
+}
+
+impl Drop for SecurityDescriptor {
+    fn drop(&mut self) {
+        // SAFETY: the pointer came from
+        // `ConvertStringSecurityDescriptorToSecurityDescriptorW` and is freed
+        // only here.
+        unsafe {
+            LocalFree(self.0.cast());
+        }
+    }
+}
 
 /// Holds the instance lock for as long as it is alive. Windows frees the
 /// underlying mutex on process exit even if this is never dropped (a crash,
@@ -287,5 +421,106 @@ mod tests {
     #[test]
     fn access_denied_with_a_handle_is_still_claimed() {
         assert_eq!(mutex_outcome(false, ERROR_ACCESS_DENIED), MutexOutcome::Claimed);
+    }
+
+    /// The user gets exactly "set" and "wait" (0x2 | 0x100000), the system
+    /// and administrators keep full access, and the medium label blocks
+    /// low-integrity writers.
+    #[test]
+    fn the_wake_event_lets_the_same_user_set_it_and_nothing_more() {
+        assert_eq!(
+            wake_event_sddl("S-1-5-21-1-2-3-1001"),
+            "D:(A;;GA;;;SY)(A;;GA;;;BA)(A;;0x100002;;;S-1-5-21-1-2-3-1001)S:(ML;;NW;;;ME)"
+        );
+    }
+
+    #[test]
+    fn the_wake_event_security_is_accepted_by_windows() {
+        let sid = current_user_sid().expect("the process token names a user");
+        assert!(sid.starts_with("S-1-"), "unexpected SID string: {sid}");
+        assert!(SecurityDescriptor::from_sddl(&wake_event_sddl(&sid)).is_some());
+    }
+
+    /// A string Windows rejects gives no descriptor, which is what sends
+    /// `create_wake_event` back to the default security.
+    #[test]
+    fn a_rejected_security_string_gives_no_descriptor() {
+        assert!(SecurityDescriptor::from_sddl("D:(not an ace)").is_none());
+    }
+
+    /// Name for an event only this test run uses.
+    fn test_event_name(tag: &str) -> Vec<u16> {
+        wide(&format!(r"Local\Mechvibes-Test-{}-{}", std::process::id(), tag))
+    }
+
+    /// Read the event's DACL and integrity label back from Windows, as SDDL.
+    fn event_security(handle: HANDLE) -> String {
+        use winapi::shared::sddl::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+        use winapi::um::securitybaseapi::GetKernelObjectSecurity;
+        use winapi::um::winnt::{ DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION };
+
+        let which = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+        unsafe {
+            let mut needed: DWORD = 0;
+            GetKernelObjectSecurity(handle, which, null_mut(), 0, &mut needed);
+            let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+            assert_ne!(
+                GetKernelObjectSecurity(handle, which, buffer.as_mut_ptr().cast(), needed, &mut needed),
+                0,
+                "reading the event's security failed"
+            );
+            let mut text: LPWSTR = null_mut();
+            assert_ne!(
+                ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                    buffer.as_mut_ptr().cast(),
+                    SDDL_REVISION_1 as DWORD,
+                    which,
+                    &mut text,
+                    null_mut()
+                ),
+                0
+            );
+            let length = (0..).take_while(|&i| *text.add(i) != 0).count();
+            let sddl = String::from_utf16_lossy(std::slice::from_raw_parts(text, length));
+            LocalFree(text.cast());
+            sddl
+        }
+    }
+
+    /// The event really carries the user grant and the medium label; the
+    /// default security of an elevated copy has neither, which is what kept
+    /// a normal second copy from raising its window.
+    #[test]
+    fn the_created_wake_event_carries_the_user_grant_and_medium_label() {
+        let name = test_event_name("security");
+        let handle = create_wake_event(&name);
+        assert!(!handle.is_null(), "the event could not be created");
+
+        let sddl = event_security(handle);
+        let sid = current_user_sid().unwrap();
+        unsafe {
+            CloseHandle(handle);
+        }
+        assert!(sddl.contains(&format!("(A;;0x100002;;;{sid})")), "no grant for the user in {sddl}");
+        assert!(sddl.contains("(ML;;NW;;;ME)"), "no medium label in {sddl}");
+    }
+
+    /// Opening the event the way a second copy does, with only the right to
+    /// set it, works, and setting it wakes the listener's handle.
+    #[test]
+    fn a_second_copy_can_open_and_set_the_wake_event() {
+        let name = test_event_name("open");
+        let handle = create_wake_event(&name);
+        assert!(!handle.is_null(), "the event could not be created");
+
+        unsafe {
+            let opened = OpenEventW(EVENT_MODIFY_STATE, 0, name.as_ptr());
+            assert!(!opened.is_null(), "OpenEventW failed with {}", GetLastError());
+            assert_ne!(SetEvent(opened), 0);
+            CloseHandle(opened);
+
+            assert_eq!(WaitForSingleObject(handle, 0), WAIT_OBJECT_0);
+            CloseHandle(handle);
+        }
     }
 }
