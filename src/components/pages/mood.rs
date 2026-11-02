@@ -26,10 +26,37 @@ use crate::state::ambiance::{
     stop_ambiance_sound,
     pause_all_ambiance_sounds,
     resume_all_ambiance_sounds,
-    set_ambiance_sound_volume,
-    set_global_ambiance_volume,
     set_global_ambiance_mute,
 };
+use dioxus::core::spawn_forever;
+use futures_timer::Delay;
+use std::sync::atomic::{ AtomicU64, Ordering };
+use std::sync::Arc;
+use std::time::Duration;
+
+/// Writes the ambiance settings once a slider drag settles.
+///
+/// Only the trailing call writes. `save_config` goes through
+/// `config_writer::apply`, which serialises and writes the whole config and
+/// makes the window re-render from the root, so saving on every slider step
+/// made the ambiance sound lag during a drag. The sliders change the
+/// in-memory state and the engine right away; this only persists it.
+///
+/// It saves the global state as it is when the timer fires, so the last
+/// position of whichever slider moved is what lands. `spawn_forever` keeps
+/// the write alive if the page is left before the timer ends, since the
+/// in-memory state outlives the page.
+fn schedule_ambiance_save(save_counter: Arc<AtomicU64>) {
+    let task_id = save_counter.fetch_add(1, Ordering::SeqCst) + 1;
+    spawn_forever(async move {
+        // Long enough that a drag, whose input events arrive milliseconds
+        // apart, collapses into one write.
+        Delay::new(Duration::from_millis(150)).await;
+        if save_counter.load(Ordering::SeqCst) == task_id {
+            update_global_ambiance_player_state(|player| player.save_config());
+        }
+    });
+}
 
 // Sound Selection Panel Component
 #[component]
@@ -37,6 +64,10 @@ fn SoundSelectionPanel(
     ambiance_player: Signal<AmbiancePlayerState>,
     refresh_trigger: Signal<i32>
 ) -> Element {
+    // Shared by both kinds of slider: each one saves the whole ambiance
+    // state, so a newer move on any slider supersedes an older pending save.
+    let save_counter = use_hook(|| Arc::new(AtomicU64::new(0)));
+
     rsx! {
       div { class: "bg-base-200 border border-base-300 rounded-box p-6 space-y-4",
         // Header
@@ -106,14 +137,16 @@ fn SoundSelectionPanel(
             max: "100",
             value: "{(ambiance_player().global_volume * 100.0) as i32}",
             disabled: ambiance_player().is_muted || !ambiance_player().is_playing,
-            oninput: move |evt| {
-                if let Ok(val) = evt.value().parse::<f32>() {
-                    update_global_ambiance_player_state(|player| {
-                        player.set_global_volume(val / 100.0);
-                        player.save_config();
-                    });
-                    let _ = set_global_ambiance_volume(val / 100.0);
-                    refresh_trigger.set(refresh_trigger() + 1);
+            oninput: {
+                let save_counter = save_counter.clone();
+                move |evt: dioxus::prelude::Event<dioxus::html::FormData>| {
+                    if let Ok(val) = evt.value().parse::<f32>() {
+                        update_global_ambiance_player_state(|player| {
+                            player.set_global_volume(val / 100.0);
+                        });
+                        schedule_ambiance_save(save_counter.clone());
+                        refresh_trigger.set(refresh_trigger() + 1);
+                    }
                 }
             },
           }
@@ -241,14 +274,14 @@ fn SoundSelectionPanel(
                     value: "{(ambiance_player().get_sound_volume(&sound.id) * 100.0) as i32}",
                     oninput: {
                         let sound_id = sound.id.clone();
+                        let save_counter = save_counter.clone();
                         move |evt: dioxus::prelude::Event<dioxus::html::FormData>| {
                             if let Ok(val) = evt.value().parse::<f32>() {
                                 let volume = val / 100.0;
                                 update_global_ambiance_player_state(|player| {
                                     player.set_sound_volume(sound_id.clone(), volume);
-                                    player.save_config();
                                 });
-                                let _ = set_ambiance_sound_volume(&sound_id, volume);
+                                schedule_ambiance_save(save_counter.clone());
                                 refresh_trigger.set(refresh_trigger() + 1);
                             }
                         }
