@@ -64,9 +64,59 @@ pub fn show_main_window() -> bool {
     };
 
     if found {
+        set_dock_icon_visible(true);
         activate_app();
     }
     found
+}
+
+/// `NSApplicationActivationPolicyRegular`: an ordinary app, with a Dock icon
+/// and a menu bar.
+const ACTIVATION_POLICY_REGULAR: isize = 0;
+/// `NSApplicationActivationPolicyAccessory`: no Dock icon and no menu bar, like
+/// a menu bar app. Its windows and its status item keep working.
+const ACTIVATION_POLICY_ACCESSORY: isize = 1;
+
+/// The activation policy that gives the app a Dock icon or takes it away.
+fn activation_policy(dock_icon_visible: bool) -> isize {
+    if dock_icon_visible { ACTIVATION_POLICY_REGULAR } else { ACTIVATION_POLICY_ACCESSORY }
+}
+
+/// Shows or hides the app's Dock icon.
+///
+/// Hiding the window to the menu bar hides the Dock icon too, and showing the
+/// window brings it back. The app is still launched as a regular app (the
+/// bundle does not set `LSUIElement`), so Accessibility can be granted to it
+/// the normal way; only the running app switches policy.
+///
+/// Switching back to a regular app does not bring it to the front, so a show
+/// path calls `activate_app()` after this. Does nothing when the app already
+/// has the asked-for policy, so calling it from every show path is cheap.
+///
+/// Must run on the main thread, like the rest of this module.
+pub fn set_dock_icon_visible(visible: bool) {
+    let policy = activation_policy(visible);
+
+    // SAFETY: plain Objective-C messages on the main thread. The receiver is
+    // checked for null before use, and the policy is one of the two values
+    // AppKit defines for `NSApplicationActivationPolicy`.
+    unsafe {
+        let Some(class) = AnyClass::get(c"NSApplication") else {
+            return;
+        };
+        let app: *mut AnyObject = msg_send![class, sharedApplication];
+        if app.is_null() {
+            return;
+        }
+        let current: isize = msg_send![app, activationPolicy];
+        if current == policy {
+            return;
+        }
+        let changed: Bool = msg_send![app, setActivationPolicy: policy];
+        if !changed.as_bool() {
+            crate::always_eprint!("⚠️ Could not {} the Dock icon", if visible { "show" } else { "hide" });
+        }
+    }
 }
 
 /// macOS: make this app the active one so the restored window comes to the
@@ -118,5 +168,18 @@ pub fn activate_app() {
         if has_activate.as_bool() {
             let _: () = msg_send![app, activate];
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// AppKit reads the policy as a plain number, so a swapped value would
+    /// hide the Dock icon when the window comes back instead of when it goes.
+    #[test]
+    fn the_dock_icon_follows_the_regular_and_accessory_policies() {
+        assert_eq!(activation_policy(true), 0, "a visible Dock icon is the Regular policy");
+        assert_eq!(activation_policy(false), 1, "a hidden Dock icon is the Accessory policy");
     }
 }

@@ -37,6 +37,12 @@ fn show_window(window: &dioxus::desktop::DesktopContext) {
         window.is_visible()
     );
 
+    // Hiding the window to the menu bar took the Dock icon away; a shown
+    // window gets it back. The activation at the end then brings the app to
+    // the front, which switching back to a regular app does not do by itself.
+    #[cfg(target_os = "macos")]
+    crate::libs::native_window::set_dock_icon_visible(true);
+
     // Restore from the Dock before showing. tao's `set_visible(true)` only
     // orders a miniaturized window front without un-minimizing it, so on macOS
     // the restore has to come first.
@@ -159,6 +165,10 @@ pub fn WindowController() -> Element {
                     WindowAction::Hide => {
                         window_clone.set_visible(false);
                         WINDOW_MANAGER.set_visible(false);
+                        // macOS: a window hidden to the menu bar takes its
+                        // Dock icon with it. Every show path puts it back.
+                        #[cfg(target_os = "macos")]
+                        crate::libs::native_window::set_dock_icon_visible(false);
                         // A show that has not been applied yet must not survive
                         // the hide: the focus block below runs on a later tick
                         // and would raise the window again after it was hidden.
@@ -355,6 +365,51 @@ mod tests {
         assert!(
             release_at < close_at,
             "the Exit item must take the icon out before it closes the window, not after"
+        );
+    }
+
+    /// The macOS Dock icon, checked against the source that ships.
+    ///
+    /// Hiding the window to the menu bar takes the Dock icon away. If a show
+    /// path forgot to put it back, the window would return with no Dock icon
+    /// and no menu bar, and only a real Mac would show it. Checked here so the
+    /// Windows and Linux runs catch it too.
+    #[test]
+    fn hiding_to_the_menu_bar_hides_the_dock_icon_and_showing_brings_it_back() {
+        const SOURCE: &str = include_str!("window_controller.rs");
+        let runtime = SOURCE.split("#[cfg(test)]").next().expect("runtime code precedes the tests");
+
+        let show = runtime
+            .split("fn show_window(")
+            .nth(1)
+            .expect("the show path must exist")
+            // The component follows the show path, so the region stops there.
+            .split("#[component]")
+            .next()
+            .expect("the show path must end before the component");
+        let shown_at = show
+            .find("set_dock_icon_visible(true)")
+            .expect("showing the window must bring the Dock icon back");
+        let activated_at = show
+            .find("activate_app()")
+            .expect("showing the window must activate the app");
+        assert!(
+            shown_at < activated_at,
+            "the Dock icon must come back before the app is activated, or the window can stay behind other apps"
+        );
+
+        let hide = runtime
+            .split("WindowAction::Hide =>")
+            .nth(1)
+            .expect("the hide branch must exist")
+            // The tray requests are handled right after the window actions,
+            // so the region stops there and cannot match a later call.
+            .split("// Handle tray update requests")
+            .next()
+            .expect("the hide branch must end before the tray requests");
+        assert!(
+            hide.contains("set_dock_icon_visible(false)"),
+            "hiding the window to the menu bar must hide the Dock icon"
         );
     }
 
