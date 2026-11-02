@@ -364,6 +364,18 @@ fn main() {
         .with_window(window_builder)
         .with_menu(None);
 
+    // macOS: an app that starts hidden in the menu bar starts without its Dock
+    // icon, the same as one hidden there later. The bundle still launches it as
+    // a regular app, and the window builder callback runs once the app has
+    // finished launching, so the change is not undone by the launch itself.
+    // Showing the window brings the icon back.
+    #[cfg(target_os = "macos")]
+    let config = if should_start_minimized {
+        config.with_on_window(|_, _| libs::native_window::set_dock_icon_visible(false))
+    } else {
+        config
+    };
+
     // Launch the app with our config
     dioxus::LaunchBuilder::desktop().with_cfg(config).launch(app_with_stylesheets)
 }
