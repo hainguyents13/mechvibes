@@ -15,8 +15,9 @@ const MAX_VOICES: usize = 32;
 /// Wheel scrolls have no release event and can repeat much faster than a human
 /// clicks, so the engine rate-limits them as impulses. This is the only place
 /// that window is applied: the Wayland and Windows Raw Input listeners forward
-/// every wheel step and let the engine decide, because a second limit in the listener would use its
-/// own timestamp and drop a scroll the engine would have played. Nothing else
+/// every wheel step and let the engine decide, because a second limit in the
+/// listener would use its own timestamp and drop a scroll the engine would have
+/// played. Nothing else
 /// uses it today - the X11 listener reports no wheel events, because the rdev
 /// branch that would do it is commented out.
 pub(crate) const WHEEL_DEBOUNCE_MS: u64 = 120;

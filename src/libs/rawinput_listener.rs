@@ -470,10 +470,10 @@ fn classify_mouse_packet(
         }
     }
 
-    if flags & RI_MOUSE_WHEEL != 0 {
-        if let Some(code) = map_wheel_delta(button_data as i16) {
-            out.push((code, true));
-        }
+    if flags & RI_MOUSE_WHEEL != 0
+        && let Some(code) = map_wheel_delta(button_data as i16)
+    {
+        out.push((code, true));
     }
 
     out
