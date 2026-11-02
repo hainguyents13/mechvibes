@@ -69,6 +69,12 @@ evdev = "0.13"
 # the same version rather than adding a second one.
 glib = "0.18"
 libc = "0.2"
+# zip pulls in bzip2, whose C library is otherwise linked against the system
+# libbz2. A binary built on Ubuntu then needs `libbz2.so.1.0`, a name only
+# Debian-based systems ship (Fedora has `libbz2.so.1`), and the AppImage does
+# not bundle system libraries. The "static" feature compiles libbz2 into the
+# binary instead. Same version zip already uses, so nothing new is added.
+bzip2 = { version = "0.5", features = ["static"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"

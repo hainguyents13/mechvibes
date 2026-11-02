@@ -96,6 +96,23 @@ if [ "$SKIP_BUILD" -eq 1 ]; then
   fi
 fi
 
+# --- guard: no libbz2 from the host -----------------------------------------
+# Neither package bundles system libraries, so every shared library the binary
+# names must exist under that name on each distro. libbz2 does not: Debian and
+# Ubuntu call it libbz2.so.1.0, Fedora calls it libbz2.so.1, and the app would
+# not start there. bzip2 is compiled in (the "static" feature in Cargo.toml);
+# this fails the build if a dependency change brings the dynamic link back.
+# Both the .deb and the AppImage are made from this one binary, so one check
+# covers both.
+echo "--- Shared libraries the binary needs (readelf -d) ---"
+NEEDED=$(readelf -d "$BINARY" | grep '(NEEDED)' || true)
+echo "$NEEDED"
+if echo "$NEEDED" | grep -q 'libbz2'; then
+  echo "::error::$BINARY links libbz2 dynamically, which breaks on distros that name it differently (Fedora). Keep bzip2's \"static\" feature on in Cargo.toml."
+  exit 1
+fi
+echo "libbz2 check OK: compiled in, not needed from the host"
+
 # --- .deb -------------------------------------------------------------------
 # Built from the same binary as the AppImage (--no-build: cargo-deb's own build
 # would not reuse it, and the file list lives in [package.metadata.deb] in

@@ -3568,6 +3568,7 @@ dependencies = [
  "base64",
  "bincode",
  "block2",
+ "bzip2",
  "chrono",
  "cpal",
  "crossbeam-channel",
