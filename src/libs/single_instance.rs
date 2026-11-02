@@ -453,26 +453,19 @@ mod tests {
         wide(&format!(r"Local\Mechvibes-Test-{}-{}", std::process::id(), tag))
     }
 
-    /// Read the event's DACL and integrity label back from Windows, as SDDL.
-    fn event_security(handle: HANDLE) -> String {
-        use winapi::shared::sddl::ConvertSecurityDescriptorToStringSecurityDescriptorW;
-        use winapi::um::securitybaseapi::GetKernelObjectSecurity;
-        use winapi::um::winnt::{ DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION };
+    use winapi::um::winnt::{ DACL_SECURITY_INFORMATION, LABEL_SECURITY_INFORMATION };
 
-        let which = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+    /// A security descriptor as SDDL, the way Windows writes it back. Windows
+    /// shortens well-known accounts there: the built-in administrator a CI
+    /// runner signs in as comes back as `LA`, not as its SID.
+    fn sddl_text(descriptor: PSECURITY_DESCRIPTOR, which: DWORD) -> String {
+        use winapi::shared::sddl::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+
         unsafe {
-            let mut needed: DWORD = 0;
-            GetKernelObjectSecurity(handle, which, null_mut(), 0, &mut needed);
-            let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
-            assert_ne!(
-                GetKernelObjectSecurity(handle, which, buffer.as_mut_ptr().cast(), needed, &mut needed),
-                0,
-                "reading the event's security failed"
-            );
             let mut text: LPWSTR = null_mut();
             assert_ne!(
                 ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                    buffer.as_mut_ptr().cast(),
+                    descriptor,
                     SDDL_REVISION_1 as DWORD,
                     which,
                     &mut text,
@@ -487,6 +480,24 @@ mod tests {
         }
     }
 
+    /// Read the event's DACL and integrity label back from Windows, as SDDL.
+    fn event_security(handle: HANDLE) -> String {
+        use winapi::um::securitybaseapi::GetKernelObjectSecurity;
+
+        let which = DACL_SECURITY_INFORMATION | LABEL_SECURITY_INFORMATION;
+        unsafe {
+            let mut needed: DWORD = 0;
+            GetKernelObjectSecurity(handle, which, null_mut(), 0, &mut needed);
+            let mut buffer = vec![0u64; (needed as usize).div_ceil(8)];
+            assert_ne!(
+                GetKernelObjectSecurity(handle, which, buffer.as_mut_ptr().cast(), needed, &mut needed),
+                0,
+                "reading the event's security failed"
+            );
+            sddl_text(buffer.as_mut_ptr().cast(), which)
+        }
+    }
+
     /// The event really carries the user grant and the medium label; the
     /// default security of an elevated copy has neither, which is what kept
     /// a normal second copy from raising its window.
@@ -497,11 +508,16 @@ mod tests {
         assert!(!handle.is_null(), "the event could not be created");
 
         let sddl = event_security(handle);
-        let sid = current_user_sid().unwrap();
         unsafe {
             CloseHandle(handle);
         }
-        assert!(sddl.contains(&format!("(A;;0x100002;;;{sid})")), "no grant for the user in {sddl}");
+
+        // The user's grant as Windows writes it, short name or SID.
+        let grant = SecurityDescriptor::from_sddl(&format!("D:(A;;0x100002;;;{})", current_user_sid().unwrap())).unwrap();
+        let grant = sddl_text(grant.0, DACL_SECURITY_INFORMATION);
+        let grant = grant.trim_start_matches("D:");
+        assert!(grant.starts_with("(A;;0x100002;;;"), "unexpected grant {grant}");
+        assert!(sddl.contains(grant), "no grant {grant} for the user in {sddl}");
         assert!(sddl.contains("(ML;;NW;;;ME)"), "no medium label in {sddl}");
     }
 
