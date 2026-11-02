@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
 
+### Fixed
+
+- **The mouse wheel makes sound on Windows.** Scrolling up or down now plays when the sound pack has sounds for `MouseWheelUp` and `MouseWheelDown`. The mouse packs that come with the app only have left and right clicks, so they stay quiet on scroll.
+
 ## [3.4.0] - 2026-11-01
 
 ### Added
