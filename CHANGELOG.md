@@ -13,10 +13,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Changed
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
+- **Hiding to the menu bar also hides the Dock icon (macOS).** When you hide Mechvibes with the eye button, its Dock icon goes away too, and it comes back when you show the window again from the menu bar. When it starts minimized at login, it starts without a Dock icon as well. Closing the window with X still quits the app.
 
 ### Fixed
 
 - **The Linux AppImage now starts on Fedora.** It stopped with an error about a missing `libbz2.so.1.0` file. The app now carries that library inside itself, so it no longer depends on how each Linux system names it.
+- **Mood sounds no longer lag while you drag a volume slider.** The volume is saved once you stop moving the slider, not on every step. The main slider now turns all sounds up or down together and keeps each sound's own level, instead of setting them all to the same volume.
+- **The mouse wheel makes sound on Windows.** Scrolling up or down now plays when the sound pack has sounds for `MouseWheelUp` and `MouseWheelDown`. The mouse packs that come with the app only have left and right clicks, so they stay quiet on scroll.
+- **No more double sounds when one copy runs as administrator (Windows).** If Mechvibes is already running as administrator, opening it again without admin rights no longer starts a second copy next to it, so each key plays once.
 
 ## [3.4.0] - 2026-11-01
 
