@@ -103,6 +103,10 @@ winapi = { version = "0.3", features = [
   "winnls",
   "processenv",
   "winbase",
+  "minwinbase",
+  "processthreadsapi",
+  "securitybaseapi",
+  "sddl",
 ] }
 
 
