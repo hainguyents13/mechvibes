@@ -25,6 +25,10 @@ pub struct LibraryPack {
     pub name: String,
     #[serde(default)]
     pub author: Option<String>,
+    /// What the pack plays on: keyboard or mouse. Answers from before the
+    /// library had it only carry `category`, which then said the same.
+    #[serde(default, rename = "type")]
+    pub pack_type: Option<String>,
     pub category: String,
     pub revision: u64,
     pub checksum: String,
@@ -32,13 +36,17 @@ pub struct LibraryPack {
 }
 
 impl LibraryPack {
-    /// Where the pack installs. The library only has these two categories.
+    /// Where the pack installs: its type, or its category on an older answer.
     pub fn soundpack_type(&self) -> Option<SoundpackType> {
-        match self.category.as_str() {
+        match self.kind() {
             "keyboard" => Some(SoundpackType::Keyboard),
             "mouse" => Some(SoundpackType::Mouse),
             _ => None,
         }
+    }
+
+    fn kind(&self) -> &str {
+        self.pack_type.as_deref().unwrap_or(&self.category)
     }
 }
 
@@ -179,7 +187,7 @@ fn check_pack(id: &str, pack: LibraryPack) -> Result<LibraryPack, String> {
         return Err("The sound pack library sent a different pack than the one asked for.".to_string());
     }
     if pack.soundpack_type().is_none() {
-        return Err(format!("This app cannot install a '{}' sound pack.", pack.category));
+        return Err(format!("This app cannot install a '{}' sound pack.", pack.kind()));
     }
     if pack.zip_size > MAX_PACK_BYTES {
         return Err("This sound pack is too large to install.".to_string());
@@ -269,9 +277,32 @@ mod tests {
         odd.category = "ambient".to_string();
         assert!(check_pack(ID, odd).is_err());
 
+        let mut odd_type = pack();
+        odd_type.pack_type = Some("drum".to_string());
+        assert!(check_pack(ID, odd_type).is_err());
+
         let mut huge = pack();
         huge.zip_size = MAX_PACK_BYTES + 1;
         assert!(check_pack(ID, huge).is_err());
+    }
+
+    const FUN_ID: &str = "mv-26b41124ebcb499788f2ccbc32974e3c";
+
+    /// A fun pack as the library answers now: its type, `category` kept as the
+    /// type for older apps, and the kind of sound in `soundCategory`.
+    const FUN_RESPONSE: &str =
+        r#"{"pack":{"id":"mv-26b41124ebcb499788f2ccbc32974e3c","slug":"pepsi-can-asmr","name":"Pepsi Can ASMR","type":"keyboard","category":"keyboard","soundCategory":"fun","author":"evlick","revision":1,"checksum":"bae8f2cd0c5137e717f30116766bc59060cecf2e14caa92e14e2ff410591377a","zipSize":234274,"downloads":19}}"#;
+
+    #[test]
+    fn a_pack_installs_where_its_type_says() {
+        let fun = serde_json::from_str::<PackResponse>(FUN_RESPONSE).expect("real response").pack;
+        let fun = check_pack(FUN_ID, fun).expect("a fun pack installs");
+        assert_eq!(fun.soundpack_type(), Some(SoundpackType::Keyboard));
+
+        // The type wins over the category it replaced
+        let mut mouse = pack();
+        mouse.pack_type = Some("mouse".to_string());
+        assert_eq!(mouse.soundpack_type(), Some(SoundpackType::Mouse));
     }
 
     const THEME_ID: &str = "th-0123456789abcdef0123456789abcdef";
