@@ -131,7 +131,6 @@ Mechvibes sends one anonymous ping per launch to track rough usage.
 - OS name and version
 - App version
 - Your system language (locale)
-- A random session ID (generated fresh each launch, never stored)
 
 **What is never sent:**
 - Keystrokes, mouse clicks, or any input data
@@ -139,7 +138,7 @@ Mechvibes sends one anonymous ping per launch to track rough usage.
 - File paths or personal data
 - IP-derived identity or persistent identifiers
 
-Telemetry is handled by [Aptabase](https://aptabase.com), an open-source, privacy-first service. **Opt out** anytime in Settings > Privacy > "Share anonymous usage stats".
+The ping goes to [mechvibes.com](https://mechvibes.com), which only adds it to a daily count by OS, app version, language and country (worked out from your connection and not stored). Your IP address is not kept. **Opt out** anytime in Settings > Privacy > "Share anonymous usage stats".
 
 Mechvibes also checks GitHub for a new version once a day. That check sends nothing about you.
 
