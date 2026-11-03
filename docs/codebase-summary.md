@@ -434,11 +434,10 @@ Keyboard events with NULL source device (`hDevice`) are dropped before transmiss
 
 ## Telemetry (v0.7.1)
 
-`src/utils/telemetry.rs` sends a single anonymous `app_started` event per launch to Aptabase (`POST {region-host}/api/v0/events`, region derived from the app-key prefix). Payload: OS name/version, app version, locale. No keystrokes, no personal data, no persistent identifiers (session id is generated per launch, never stored).
+`src/utils/telemetry.rs` sends a single anonymous launch ping per app start to the website (`POST {LIBRARY_BASE_URL}/api/app/launch`, one JSON object: `os`, `osVersion`, `appVersion`, `locale`, `debug`). The site adds it to a per-day counter (country from Cloudflare's `CF-IPCountry`), keeps no IP or single launches, and skips `debug: true` pings. No keystrokes, no personal data, no identifiers of any kind.
 
 - Gated by `AppConfig::enable_telemetry` (default `true`; toggle in Settings, Privacy section). Off means zero outbound requests.
 - Fire-and-forget on a background thread with a short timeout; network errors are swallowed. Never touches the engine loop, input worker, or UI poll loop.
-- A placeholder app key makes the module inert, so forks without their own Aptabase app send nothing.
 - Config-race warning: the sender must never hold a loaded `AppConfig` across an await and save it back (see Common Pitfalls).
 
 ## Dependency Overview

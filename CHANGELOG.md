@@ -14,6 +14,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 - **Clearer screen after putting a theme on.** It shows the theme's picture and who made it, and which parts it changed or left as yours. Done is the main button now, and Undo sits apart on the left so it is not clicked by mistake.
 - **Hiding to the menu bar also hides the Dock icon (macOS).** When you hide Mechvibes with the eye button, its Dock icon goes away too, and it comes back when you show the window again from the menu bar. When it starts minimized at login, it starts without a Dock icon as well. Closing the window with X still quits the app.
+- **Usage stats now go to mechvibes.com.** The one anonymous ping per launch (OS, app version and language) is counted by the Mechvibes website instead of Aptabase. The site keeps only a daily count and no IP address. You can still turn it off in Settings > Privacy.
 
 ### Fixed
 

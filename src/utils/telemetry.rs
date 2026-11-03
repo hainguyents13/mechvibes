@@ -1,101 +1,48 @@
-//! Anonymous usage telemetry (Aptabase).
+//! Anonymous usage telemetry, counted by the Mechvibes website.
 //!
-//! Scope is deliberately tiny: one `app_started` event per launch, carrying
-//! only the OS and the app version. That is enough to answer "how many people
-//! use this, on what" and nothing else. No keystrokes, no soundpack names, no
-//! file paths, no persistent identifier of any kind.
+//! Scope is deliberately tiny: one launch ping per app start, carrying only
+//! the OS, the app version and the locale. That is enough to answer "how many
+//! people use this, on what" and nothing else. No keystrokes, no soundpack
+//! names, no file paths, no identifier of any kind.
 //!
-//! Wire contract follows Aptabase's own SDK-authoring guide:
-//! <https://github.com/aptabase/aptabase/wiki/How-to-build-your-own-SDK>
-//! - `POST {host}/api/v0/events` with a JSON *array* of events (max 25).
-//! - Headers: `App-Key: <app key>` and `Content-Type: application/json`.
-//! - Host comes from the app key region: `A-EU-*` -> eu.aptabase.com,
-//!   otherwise us.aptabase.com.
-//! - `sessionId` is `epochSeconds` followed by 8 random digits. It is
-//!   generated fresh on every launch and never stored, which is exactly
-//!   Aptabase's anonymous model: we invent no user id of our own.
+//! Wire contract, agreed with the website's `POST /api/app/launch`:
+//! - Body is one JSON object: `os`, `osVersion`, `appVersion`, `locale`,
+//!   `debug`. `os` is one of "Windows", "macOS", "Linux" or "Unknown".
+//! - The site answers 204 and adds the ping to a per-day counter. It keeps no
+//!   IP address and no single launches; a dev build (`debug: true`) is
+//!   answered but not counted.
+//! - Any other answer, or no answer at all, is ignored. There is no retry.
 //!
 //! Threading: `report_app_started` returns immediately. All work, including
-//! the config read and the blocking HTTP call, happens on a detached
-//! `std::thread`. Nothing here may ever be called from the audio engine loop,
-//! the input worker, or the UI poll loop.
+//! the blocking HTTP call, happens on a detached `std::thread`. Nothing here
+//! may ever be called from the audio engine loop, the input worker, or the UI
+//! poll loop.
 
+use crate::utils::constants::{ APP_NAME, APP_VERSION, LIBRARY_BASE_URL };
 use serde::Serialize;
 use std::time::Duration;
 
-/// Aptabase app key for Mechvibes, from the app's dashboard at
-/// aptabase.com. Aptabase app keys are public by design: they identify the
-/// app to the ingest endpoint and grant no read access to the data, so
-/// shipping one inside the binary is the intended usage.
-const APP_KEY: &str = "A-US-6022972570";
-
-/// A key that has not been configured yet. When `APP_KEY` still equals this,
-/// telemetry is inert and no request is ever built or sent, so a fork of this
-/// repo that has not created its own Aptabase app reports nothing anywhere.
-const PLACEHOLDER_APP_KEY: &str = "A-XX-0000000000";
-
-/// Identifies this hand-rolled client to Aptabase, per the `sdkVersion`
-/// convention in their guide (`<sdk-name>@<version>`).
-const SDK_VERSION: &str = concat!("aptabase-mechvibes@", env!("CARGO_PKG_VERSION"));
+/// Where a launch is reported.
+fn launch_url() -> String {
+    format!("{}/api/app/launch", LIBRARY_BASE_URL)
+}
 
 /// Total budget for the request. A hanging or blackholed connection must
 /// never outlive this, so a detached telemetry thread can never be what keeps
 /// the process alive at shutdown.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
-/// The single event name this app ever sends.
-const EVENT_NAME: &str = "app_started";
-
 #[derive(Debug, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
-struct SystemProps {
-    os_name: String,
+struct Launch {
+    os: String,
     os_version: String,
     app_version: String,
     locale: String,
-    is_debug: bool,
-    sdk_version: String,
+    debug: bool,
 }
 
-#[derive(Debug, Serialize, PartialEq)]
-#[serde(rename_all = "camelCase")]
-struct Event {
-    timestamp: String,
-    session_id: String,
-    event_name: String,
-    system_props: SystemProps,
-    /// Always empty: this app attaches no custom properties to the event.
-    props: serde_json::Value,
-}
-
-/// Whether the embedded key is a real one. Split out from the send path so
-/// the "unconfigured build stays silent" rule is directly testable.
-fn is_configured(app_key: &str) -> bool {
-    !app_key.is_empty() && app_key != PLACEHOLDER_APP_KEY
-}
-
-/// Ingest host for an app key. Aptabase routes by the region segment of the
-/// key; anything that is not explicitly EU goes to the US host, matching the
-/// reference implementation in their SDK guide.
-fn host_for_key(app_key: &str) -> &'static str {
-    if app_key.contains("-EU-") { "https://eu.aptabase.com" } else { "https://us.aptabase.com" }
-}
-
-/// Full ingest URL for an app key.
-fn events_url(app_key: &str) -> String {
-    format!("{}/api/v0/events", host_for_key(app_key))
-}
-
-/// Aptabase's required session id shape: epoch seconds followed by exactly 8
-/// random digits. Generated per launch and never persisted, so it cannot be
-/// correlated across runs.
-fn new_session_id() -> String {
-    let epoch_seconds = chrono::Utc::now().timestamp().max(0);
-    let random_suffix: u32 = rand::random_range(0..100_000_000);
-    format!("{epoch_seconds}{random_suffix:08}")
-}
-
-/// Human-readable OS name in the casing Aptabase's dashboards expect.
+/// OS name in the exact spelling the website accepts.
 fn os_name() -> String {
     if cfg!(target_os = "windows") {
         "Windows".to_string()
@@ -109,7 +56,7 @@ fn os_name() -> String {
 }
 
 /// Best-effort OS version. Every failure path yields an empty string rather
-/// than an error: a missing version must never stop the event from being
+/// than an error: a missing version must never stop the ping from being
 /// sent, and must never surface to the user.
 #[cfg(target_os = "windows")]
 fn os_version() -> String {
@@ -197,60 +144,46 @@ fn locale() -> String {
     String::new()
 }
 
-/// Builds the one event this app sends. Pure and side-effect free so the
+/// Builds the one ping this app sends. Pure and side-effect free so the
 /// payload shape can be asserted in tests without touching the network.
-fn build_event() -> Event {
-    Event {
-        timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
-        session_id: new_session_id(),
-        event_name: EVENT_NAME.to_string(),
-        system_props: SystemProps {
-            os_name: os_name(),
-            os_version: os_version(),
-            app_version: crate::utils::constants::APP_VERSION.to_string(),
-            locale: locale(),
-            is_debug: cfg!(debug_assertions),
-            sdk_version: SDK_VERSION.to_string(),
-        },
-        props: serde_json::json!({}),
+fn build_launch() -> Launch {
+    Launch {
+        os: os_name(),
+        os_version: os_version(),
+        app_version: APP_VERSION.to_string(),
+        locale: locale(),
+        debug: cfg!(debug_assertions),
     }
-}
-
-/// Decides whether a launch should be reported at all. Both gates are
-/// checked before any network machinery is created, so "off" costs nothing.
-fn should_send(app_key: &str, telemetry_enabled: bool) -> bool {
-    telemetry_enabled && is_configured(app_key)
 }
 
 /// Performs the blocking POST. Returns the HTTP status so callers and
 /// integration tests can assert on it; every error is mapped to a string and
 /// nothing is ever propagated to the user.
-fn send_blocking(app_key: &str, event: &Event) -> Result<u16, String> {
+fn send_blocking(url: &str, launch: &Launch) -> Result<u16, String> {
     let client = reqwest::blocking::Client
         ::builder()
         .timeout(REQUEST_TIMEOUT)
+        .user_agent(format!("{}/{}", APP_NAME, APP_VERSION))
         .build()
         .map_err(|e| e.to_string())?;
 
     let response = client
-        .post(events_url(app_key))
-        .header("App-Key", app_key)
-        .json(&[event])
+        .post(url)
+        .json(launch)
         .send()
         .map_err(|e| e.to_string())?;
 
     Ok(response.status().as_u16())
 }
 
-/// Reports a single app launch, if telemetry is enabled and a real app key is
-/// embedded. Returns immediately: the caller's thread does no config read, no
-/// DNS, and no I/O.
+/// Reports a single app launch, if telemetry is enabled. Returns
+/// immediately: the caller's thread does no config read, no DNS, and no I/O.
 ///
 /// `telemetry_enabled` is passed in rather than read here so that the gate is
 /// decided by the caller's already-loaded config and this module never
 /// touches config state or the filesystem.
 pub fn report_app_started(telemetry_enabled: bool) {
-    if !should_send(APP_KEY, telemetry_enabled) {
+    if !telemetry_enabled {
         return;
     }
 
@@ -261,10 +194,9 @@ pub fn report_app_started(telemetry_enabled: bool) {
         ::new()
         .name("telemetry".to_string())
         .spawn(|| {
-            let event = build_event();
-            match send_blocking(APP_KEY, &event) {
+            match send_blocking(&launch_url(), &build_launch()) {
                 Ok(status) => {
-                    crate::debug_print!("📊 Telemetry {} -> HTTP {}", EVENT_NAME, status);
+                    crate::debug_print!("📊 Telemetry launch -> HTTP {}", status);
                 }
                 Err(e) => {
                     // Offline, DNS failure, blocked by a firewall: all
@@ -281,108 +213,33 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_placeholder_key_leaves_telemetry_inert() {
-        // A fork that has not created its own Aptabase app must report
-        // nothing, even with the setting switched on.
-        assert!(!is_configured(PLACEHOLDER_APP_KEY));
-        assert!(!should_send(PLACEHOLDER_APP_KEY, true));
+    fn launches_go_to_the_website() {
+        assert_eq!(launch_url(), "https://mechvibes.com/api/app/launch");
     }
 
     #[test]
-    fn an_empty_key_leaves_telemetry_inert() {
-        assert!(!is_configured(""));
-        assert!(!should_send("", true));
-    }
+    fn the_payload_carries_only_the_agreed_fields() {
+        let json = serde_json::to_value(build_launch()).expect("launch must serialize");
 
-    #[test]
-    fn the_setting_being_off_blocks_a_real_key() {
-        // The opt-out must win over a perfectly valid configuration.
-        assert!(is_configured(APP_KEY));
-        assert!(!should_send(APP_KEY, false));
-    }
-
-    #[test]
-    fn a_real_key_with_the_setting_on_sends() {
-        assert!(should_send(APP_KEY, true));
-    }
-
-    #[test]
-    fn the_shipped_key_is_configured_and_routes_to_the_us_host() {
-        // Pins the embedded key so a bad edit cannot silently point the app
-        // at the wrong region or blank the key out.
-        assert!(is_configured(APP_KEY));
-        assert_eq!(host_for_key(APP_KEY), "https://us.aptabase.com");
-    }
-
-    #[test]
-    fn region_routing_follows_the_app_key() {
-        assert_eq!(host_for_key("A-EU-1234567890"), "https://eu.aptabase.com");
-        assert_eq!(host_for_key("A-US-1234567890"), "https://us.aptabase.com");
-        // Anything unrecognised falls back to US, matching Aptabase's own
-        // reference implementation rather than dropping the event.
-        assert_eq!(host_for_key("A-DEV-1234567890"), "https://us.aptabase.com");
-    }
-
-    #[test]
-    fn the_endpoint_is_the_documented_events_path() {
-        // Plural `events`, taking an array body. The singular form 404s.
-        assert_eq!(events_url("A-US-1234567890"), "https://us.aptabase.com/api/v0/events");
-        assert_eq!(events_url("A-EU-1234567890"), "https://eu.aptabase.com/api/v0/events");
-    }
-
-    #[test]
-    fn session_ids_have_the_epoch_plus_eight_digits_shape() {
-        let id = new_session_id();
-        assert!(id.chars().all(|c| c.is_ascii_digit()), "session id must be digits only: {id}");
-
-        // 10-digit epoch for any plausible clock, plus exactly 8 random.
-        let epoch_len = chrono::Utc::now().timestamp().to_string().len();
-        assert_eq!(id.len(), epoch_len + 8, "session id must carry exactly 8 random digits: {id}");
-    }
-
-    #[test]
-    fn session_ids_are_not_reused_across_launches() {
-        // The anonymity guarantee: nothing here is stable enough to follow a
-        // user across runs.
-        let a = new_session_id();
-        let b = new_session_id();
-        assert_ne!(a, b);
-    }
-
-    #[test]
-    fn the_payload_carries_only_the_documented_system_props() {
-        let event = build_event();
-        let json = serde_json::to_value([&event]).expect("event must serialize");
-
-        let array = json.as_array().expect("body must be an array of events");
-        assert_eq!(array.len(), 1, "one launch is one event");
-
-        let obj = array[0].as_object().expect("event must be an object");
+        let obj = json.as_object().expect("body must be one object");
         let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
         keys.sort_unstable();
-        assert_eq!(keys, ["eventName", "props", "sessionId", "systemProps", "timestamp"]);
+        assert_eq!(keys, ["appVersion", "debug", "locale", "os", "osVersion"]);
 
-        assert_eq!(obj["eventName"], EVENT_NAME);
-        assert_eq!(obj["props"], serde_json::json!({}), "no custom props are ever attached");
+        assert_eq!(obj["appVersion"], APP_VERSION);
+        assert_eq!(obj["debug"], cfg!(debug_assertions));
+    }
 
-        let system = obj["systemProps"].as_object().expect("systemProps must be an object");
-        let mut system_keys: Vec<&str> = system.keys().map(String::as_str).collect();
-        system_keys.sort_unstable();
-        assert_eq!(
-            system_keys,
-            ["appVersion", "isDebug", "locale", "osName", "osVersion", "sdkVersion"]
-        );
-
-        assert_eq!(system["appVersion"], crate::utils::constants::APP_VERSION);
-        assert_eq!(system["osName"], os_name());
+    #[test]
+    fn the_os_is_one_the_website_accepts() {
+        assert!(["Windows", "macOS", "Linux", "Unknown"].contains(&os_name().as_str()));
     }
 
     #[test]
     fn the_payload_contains_no_identifying_fields() {
-        // Guards the promise made in the README: the event carries the OS and
+        // Guards the promise made in the README: the ping carries the OS and
         // the app version, and nothing that could name a person or machine.
-        let event = build_event();
-        let body = serde_json::to_string(&[&event]).expect("event must serialize");
+        let body = serde_json::to_string(&build_launch()).expect("launch must serialize");
         let lowered = body.to_lowercase();
 
         for forbidden in [
@@ -393,19 +250,13 @@ mod tests {
             "device_id",
             "machineid",
             "hostname",
+            "session",
             "email",
             "soundpack",
             "path",
         ] {
             assert!(!lowered.contains(forbidden), "payload must not contain `{forbidden}`: {body}");
         }
-    }
-
-    #[test]
-    fn the_timestamp_is_utc_rfc3339_with_milliseconds() {
-        let event = build_event();
-        assert!(event.timestamp.ends_with('Z'), "timestamp must be UTC: {}", event.timestamp);
-        chrono::DateTime::parse_from_rfc3339(&event.timestamp).expect("timestamp must be RFC3339");
     }
 
     #[test]
@@ -421,34 +272,24 @@ mod tests {
 mod live_tests {
     use super::*;
 
-    /// Sends a real event through the real code path. Ignored by default so
+    /// Sends a real ping through the real code path. Ignored by default so
     /// the normal suite never touches the network; run explicitly with
-    /// `cargo test -- --ignored live_launch_events_are_accepted`.
+    /// `cargo test -- --ignored live_launch_pings_are_accepted`. A test build
+    /// sends `debug: true`, so the site answers without counting it.
     #[test]
-    #[ignore = "requires network; posts a real event to Aptabase"]
-    fn live_launch_events_are_accepted() {
-        let event = build_event();
-        println!("payload: {}", serde_json::to_string_pretty(&[&event]).unwrap());
+    #[ignore = "requires network; posts a real ping to mechvibes.com"]
+    fn live_launch_pings_are_accepted() {
+        let launch = build_launch();
+        println!("payload: {}", serde_json::to_string_pretty(&launch).unwrap());
 
-        // Blank system props would reach the dashboard as "Unknown" rows, so
-        // assert the ones this app exists to measure are actually populated.
-        assert!(!event.system_props.os_version.is_empty(), "OS version must resolve on this host");
-        assert!(!event.system_props.locale.is_empty(), "locale must resolve on this host");
+        // Blank fields would reach the dashboard as empty rows, so assert the
+        // ones this app exists to measure are actually populated.
+        assert!(!launch.os_version.is_empty(), "OS version must resolve on this host");
+        assert!(!launch.locale.is_empty(), "locale must resolve on this host");
 
-        let status = send_blocking(APP_KEY, &event).expect("request must complete");
-        println!("real key -> HTTP {status}");
-        assert_eq!(status, 200, "Aptabase must accept the event this app actually builds");
-    }
-
-    /// A wrong key must fail as a plain non-2xx status, not an error the app
-    /// could ever surface to the user.
-    #[test]
-    #[ignore = "requires network"]
-    fn live_a_bogus_key_fails_quietly() {
-        let event = build_event();
-        let status = send_blocking("A-US-0000000000", &event).expect("request must complete");
-        println!("bogus key -> HTTP {status}");
-        assert_ne!(status, 200);
+        let status = send_blocking(&launch_url(), &launch).expect("request must complete");
+        println!("-> HTTP {status}");
+        assert_eq!(status, 204, "the website must accept the ping this app actually builds");
     }
 }
 
