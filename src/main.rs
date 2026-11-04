@@ -238,6 +238,7 @@ fn main() {
     // Before the app state loads the sound pack list, so the packs brought over
     // from Mechvibes 2 are in it from the first frame.
     utils::legacy_migration::import_mechvibes2_packs();
+    utils::soundpack::reconvert_outdated_v1_packs();
 
     // Windows registers mechvibes:// and .mvtheme files in the installer and
     // the .deb in its desktop and MIME files. An AppImage installs nothing,

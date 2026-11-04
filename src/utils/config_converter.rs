@@ -71,6 +71,89 @@ fn get_duration_with_symphonia(file_path: &str) -> Result<f64, Box<dyn std::erro
     Ok(100.0)
 }
 
+/// Written into every converted config as `v1_conversion`, and raised when a
+/// change to the conversion is worth redoing for packs converted before it.
+///
+/// 2: the Windows keys, Home, End, Page Up/Down, Insert, Delete, Print
+/// Screen, Pause, right Ctrl and Alt, Menu and numpad Enter and = were read
+/// as numpad keys or other keys, so they played the wrong sound or none.
+pub const V1_CONVERSION: u64 = 2;
+
+/// Where `soundpack::load_soundpack_metadata` keeps a pack's V1 config before
+/// converting it in place.
+pub fn v1_backup_path(config_path: &Path) -> PathBuf {
+    let mut path = config_path.as_os_str().to_owned();
+    path.push(".v1.backup");
+    PathBuf::from(path)
+}
+
+/// The file a V1 "multi" pack's sounds are joined into.
+const CONCATENATED_AUDIO: &str = "concatenated_audio.wav";
+
+/// Converts a keyboard pack again from the V1 config kept next to it, when an
+/// older conversion wrote its config. Returns whether it did.
+///
+/// Only a config this converter wrote is redone: one without the V1 config
+/// next to it, or whose V1 config is for another pack (an install has since
+/// put a different pack in the folder), is left as it is.
+pub fn reconvert_outdated_v1_pack(config_path: &Path) -> Result<bool, String> {
+    let backup_path = v1_backup_path(config_path);
+    if !backup_path.is_file() {
+        return Ok(false);
+    }
+
+    let read_json = |path: &Path| -> Result<Value, String> {
+        let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
+        serde_json::from_str(&text).map_err(|e| format!("{}: {}", path.display(), e))
+    };
+    let current_text = std::fs::read_to_string(config_path).map_err(|e| e.to_string())?;
+    let current: Value = serde_json::from_str(&current_text).map_err(|e| e.to_string())?;
+    if current.get("config_version").and_then(Value::as_str) != Some("2") {
+        return Ok(false);
+    }
+    if current.get("v1_conversion").and_then(Value::as_u64).unwrap_or(0) >= V1_CONVERSION {
+        return Ok(false);
+    }
+    let original = read_json(&backup_path)?;
+    if original.get("id") != current.get("id") || original.get("name") != current.get("name") {
+        return Ok(false);
+    }
+
+    let dir = config_path.parent().ok_or("a pack config has a folder")?;
+
+    // The joined audio of a "multi" pack is this converter's own output: the
+    // first conversion moved any file of the pack's by that name aside. Set it
+    // aside instead of letting the conversion keep a second copy of it.
+    let joined = dir.join(CONCATENATED_AUDIO);
+    let set_aside = dir.join(format!("{}.previous", CONCATENATED_AUDIO));
+    let is_multi = original.get("key_define_type").and_then(Value::as_str) == Some("multi");
+    let moved = is_multi && joined.is_file() && std::fs::rename(&joined, &set_aside).is_ok();
+
+    let result = convert_v1_to_v2(
+        &backup_path.to_string_lossy(),
+        &config_path.to_string_lossy(),
+        Some(&dir.to_string_lossy()),
+        false
+    ).map_err(|e| e.to_string());
+
+    match result {
+        Ok(()) => {
+            if moved {
+                let _ = std::fs::remove_file(&set_aside);
+            }
+            Ok(true)
+        }
+        Err(e) => {
+            // Put the pack back as it was, so it plays as before.
+            let _ = std::fs::write(config_path, &current_text);
+            if moved {
+                let _ = std::fs::rename(&set_aside, &joined);
+            }
+            Err(e)
+        }
+    }
+}
+
 /// Convert soundpack config from version 1 to version 2
 /// Uses comprehensive IOHook keycode mapping (supports all platforms)
 /// Converts a V1 soundpack config to V2 in place.
@@ -130,6 +213,7 @@ pub fn convert_v1_to_v2(
 
     // Convert config_version to string format
     converted_config.insert("config_version".to_string(), Value::String("2".to_string()));
+    converted_config.insert("v1_conversion".to_string(), Value::from(V1_CONVERSION));
 
     if let Some(icon) = config.get("icon") {
         converted_config.insert("icon".to_string(), icon.clone());
@@ -185,7 +269,7 @@ pub fn convert_v1_to_v2(
         crate::always_print!("🔧 Found {} unique audio files in V1 multi method", audio_files_ordered.len());
 
         // Create a concatenated audio file name
-        let concat_filename = "concatenated_audio.wav";
+        let concat_filename = CONCATENATED_AUDIO;
         crate::always_print!("🎵 Creating concatenated audio file: {}", concat_filename);
 
         // Actually concatenate the audio files and get accurate timing
@@ -281,6 +365,14 @@ pub fn convert_v1_to_v2(
             for (iohook_code, value) in ordered {
                 if let Some((iohook_num, _)) = iohook_code_and_press(iohook_code) {
                     if let Some(key_name) = key_mappings.get(&iohook_num) {
+                        // The key's own code already gave it a sound (codes
+                        // are in order, and these come after every key's).
+                        if
+                            is_numpad_navigation_code(iohook_num) &&
+                            definitions.contains_key(key_name.as_str())
+                        {
+                            continue;
+                        }
                         if let Some(audio_filename) = value.as_str() {
                             if !audio_filename.is_empty() && audio_filename != "null" {
                                 let mut key_def = Map::new();
@@ -380,9 +472,22 @@ pub fn convert_v1_to_v2(
             // V1 single method: defines contains IOHook code -> timing array mappings
             crate::always_print!("🔧 Processing V1 single method defines");
 
-            for (iohook_code, value) in defines {
+            // Main keys before the Num Lock off codes, so a key both define
+            // keeps its own sound whatever order the JSON was written in.
+            let mut ordered: Vec<(&String, &Value)> = defines.iter().collect();
+            ordered.sort_by_key(|(code, _)| {
+                iohook_code_and_press(code).map(|(num, _)| is_numpad_navigation_code(num))
+            });
+
+            for (iohook_code, value) in ordered {
                 if let Some((iohook_num, _)) = iohook_code_and_press(iohook_code) {
                     if let Some(key_name) = key_mappings.get(&iohook_num) {
+                        if
+                            is_numpad_navigation_code(iohook_num) &&
+                            definitions.contains_key(key_name.as_str())
+                        {
+                            continue;
+                        }
                         let mut key_def = Map::new();
 
                         // For single method, use timing from defines
@@ -831,6 +936,26 @@ fn create_iohook_to_mouse_button_mapping() -> HashMap<u32, String> {
     mapping
 }
 
+/// The numpad keys with Num Lock off, which play as the key each one stands
+/// for. A pack that defines both codes keeps the main key's sound.
+const NUMPAD_NAVIGATION_CODES: &[(u32, &str)] = &[
+    (60999, "Home"), // VC_KP_HOME = 0xEE47
+    (61000, "ArrowUp"), // VC_KP_UP = 0xEE48
+    (61001, "PageUp"), // VC_KP_PAGE_UP = 0xEE49
+    (61003, "ArrowLeft"), // VC_KP_LEFT = 0xEE4B
+    (61004, "Clear"), // VC_KP_CLEAR = 0xEE4C
+    (61005, "ArrowRight"), // VC_KP_RIGHT = 0xEE4D
+    (61007, "End"), // VC_KP_END = 0xEE4F
+    (61008, "ArrowDown"), // VC_KP_DOWN = 0xEE50
+    (61009, "PageDown"), // VC_KP_PAGE_DOWN = 0xEE51
+    (61010, "Insert"), // VC_KP_INSERT = 0xEE52
+    (61011, "Delete"), // VC_KP_DELETE = 0xEE53
+];
+
+fn is_numpad_navigation_code(code: u32) -> bool {
+    NUMPAD_NAVIGATION_CODES.iter().any(|(c, _)| *c == code)
+}
+
 fn create_iohook_to_web_key_mapping() -> HashMap<u32, String> {
     let mut mapping = HashMap::new();
 
@@ -948,12 +1073,27 @@ fn create_iohook_to_web_key_mapping() -> HashMap<u32, String> {
     mapping.insert(125, "IntlYen".to_string()); // VC_YEN = 0x007D
     mapping.insert(126, "NumpadComma".to_string()); // VC_KP_COMMA = 0x007E
 
-    // Extended keys (proper extended scancode values)
-    // Extended numpad and control keys
-    mapping.insert(3637, "NumpadDivide".to_string()); // VC_KP_DIVIDE = 0x0E35
+    // Extended keys, as Mechvibes 2 recorded them (0x0Exx, its keycodes.js).
+    // These are the codes in every V1 pack: Mechvibes 2 played the Windows
+    // key, Home, Insert and the rest from exactly these numbers.
+    mapping.insert(3597, "NumpadEqual".to_string()); // VC_KP_EQUALS = 0x0E0D
     mapping.insert(3612, "NumpadEnter".to_string()); // VC_KP_ENTER = 0x0E1C
-    mapping.insert(3597, "ControlRight".to_string()); // VC_CONTROL_R = 0x0E1D
-    mapping.insert(3645, "NumpadEquals".to_string()); // VC_KP_EQUALS = 0x0E0D    // Navigation cluster - using CORRECT 0xE0xx values (fixed from incorrect mapping)
+    mapping.insert(3613, "ControlRight".to_string()); // VC_CONTROL_R = 0x0E1D
+    mapping.insert(3637, "NumpadDivide".to_string()); // VC_KP_DIVIDE = 0x0E35
+    mapping.insert(3639, "PrintScreen".to_string()); // VC_PRINTSCREEN = 0x0E37
+    mapping.insert(3640, "AltRight".to_string()); // VC_ALT_R = 0x0E38
+    mapping.insert(3653, "Pause".to_string()); // VC_PAUSE = 0x0E45
+    mapping.insert(3655, "Home".to_string()); // VC_HOME = 0x0E47
+    mapping.insert(3657, "PageUp".to_string()); // VC_PAGE_UP = 0x0E49
+    mapping.insert(3663, "End".to_string()); // VC_END = 0x0E4F
+    mapping.insert(3665, "PageDown".to_string()); // VC_PAGE_DOWN = 0x0E51
+    mapping.insert(3666, "Insert".to_string()); // VC_INSERT = 0x0E52
+    mapping.insert(3667, "Delete".to_string()); // VC_DELETE = 0x0E53
+    mapping.insert(3675, "MetaLeft".to_string()); // VC_META_L = 0x0E5B
+    mapping.insert(3676, "MetaRight".to_string()); // VC_META_R = 0x0E5C
+    mapping.insert(3677, "ContextMenu".to_string()); // VC_CONTEXT_MENU = 0x0E5D
+
+    // The same keys in the 0xE0xx range some other iohook builds report
     mapping.insert(57399, "PrintScreen".to_string()); // VC_PRINTSCREEN = 0xE037 = 57399
     mapping.insert(58437, "Pause".to_string()); // VC_PAUSE = 0xE045 = 57413 (keeping old for compatibility)
     mapping.insert(57415, "Home".to_string()); // VC_HOME = 0xE047 = 57415
@@ -1002,37 +1142,11 @@ fn create_iohook_to_web_key_mapping() -> HashMap<u32, String> {
     mapping.insert(58444, "Clear".to_string()); // VC_CLEAR = 0xE04C (alternate)
     mapping.insert(58470, "IntlBackslash".to_string()); // VC_LESSER_GREATER = 0xE046
 
-    // Legacy compatibility mappings for V1 configs and alternative implementations
-    // These handle cases where different IOHook implementations use different ranges
-
-    // Alternative numpad mappings (some implementations use these ranges)
-    mapping.insert(3597, "NumLock".to_string()); // Alternative range
-    mapping.insert(3612, "NumpadDivide".to_string()); // Alternative range
-    mapping.insert(3613, "NumpadMultiply".to_string()); // Alternative range
-    mapping.insert(3639, "Numpad7".to_string()); // Alternative range
-    mapping.insert(3640, "Numpad8".to_string()); // Alternative range
-    mapping.insert(3653, "Numpad9".to_string()); // Alternative range
-    mapping.insert(3655, "NumpadAdd".to_string()); // Alternative range
-    mapping.insert(3657, "Numpad4".to_string()); // Alternative range
-    mapping.insert(3663, "Numpad5".to_string()); // Alternative range
-    mapping.insert(3665, "Numpad6".to_string()); // Alternative range
-    mapping.insert(3666, "Numpad1".to_string()); // Alternative range
-    mapping.insert(3667, "Numpad2".to_string()); // Alternative range
-    mapping.insert(3675, "Numpad3".to_string()); // Alternative range
-    mapping.insert(3676, "NumpadEnter".to_string()); // Alternative range
-    mapping.insert(3677, "Numpad0".to_string()); // Alternative range
-
-    // Alternative extended key mappings for broader compatibility
-    mapping.insert(60999, "Insert".to_string()); // V1 compatibility
-    mapping.insert(61000, "Delete".to_string()); // V1 compatibility
-    mapping.insert(61001, "Home".to_string()); // V1 compatibility
-    mapping.insert(61003, "End".to_string()); // V1 compatibility
-    mapping.insert(61005, "PageUp".to_string()); // V1 compatibility
-    mapping.insert(61007, "PageDown".to_string()); // V1 compatibility
-    mapping.insert(61008, "PrintScreen".to_string()); // V1 compatibility
-    mapping.insert(61009, "ScrollLock".to_string()); // V1 compatibility
-    mapping.insert(61010, "Pause".to_string()); // V1 compatibility
-    mapping.insert(61011, "NumpadDecimal".to_string()); // V1 compatibility
+    // The numpad with Num Lock off (0xEE00 | scancode). Mechvibes 2 packs
+    // give these the same sound as the key each one stands for.
+    for (code, key) in NUMPAD_NAVIGATION_CODES {
+        mapping.insert(*code, key.to_string());
+    }
 
     // Additional platform-specific keycodes that might appear
     mapping.insert(94, "IntlBackslash".to_string()); // Less/Greater key on some keyboards
@@ -1175,6 +1289,139 @@ mod tests {
 
         assert_eq!(definitions["KeyA"]["timing"], serde_json::json!([[100.0, 180.0]]));
         assert_eq!(definitions["KeyB"]["timing"], serde_json::json!([[300.0, 360.0]]));
+    }
+
+    /// Every key Mechvibes 2 knew, by the code it recorded in V1 packs (its
+    /// `src/libs/keycodes.js`), and the key this app plays it on.
+    const MECHVIBES2_KEYS: &[(u32, &str)] = &[
+        (1, "Escape"), (59, "F1"), (60, "F2"), (61, "F3"), (62, "F4"), (63, "F5"),
+        (64, "F6"), (65, "F7"), (66, "F8"), (67, "F9"), (68, "F10"), (87, "F11"),
+        (88, "F12"), (91, "F13"), (92, "F14"), (93, "F15"), (41, "Backquote"),
+        (2, "Digit1"), (3, "Digit2"), (4, "Digit3"), (5, "Digit4"), (6, "Digit5"),
+        (7, "Digit6"), (8, "Digit7"), (9, "Digit8"), (10, "Digit9"), (11, "Digit0"),
+        (12, "Minus"), (13, "Equal"), (14, "Backspace"), (15, "Tab"), (58, "CapsLock"),
+        (30, "KeyA"), (48, "KeyB"), (46, "KeyC"), (32, "KeyD"), (18, "KeyE"),
+        (33, "KeyF"), (34, "KeyG"), (35, "KeyH"), (23, "KeyI"), (36, "KeyJ"),
+        (37, "KeyK"), (38, "KeyL"), (50, "KeyM"), (49, "KeyN"), (24, "KeyO"),
+        (25, "KeyP"), (16, "KeyQ"), (19, "KeyR"), (31, "KeyS"), (20, "KeyT"),
+        (22, "KeyU"), (47, "KeyV"), (17, "KeyW"), (45, "KeyX"), (21, "KeyY"),
+        (44, "KeyZ"), (26, "BracketLeft"), (27, "BracketRight"), (43, "Backslash"),
+        (39, "Semicolon"), (40, "Quote"), (28, "Enter"), (51, "Comma"), (52, "Period"),
+        (53, "Slash"), (57, "Space"), (3639, "PrintScreen"), (70, "ScrollLock"),
+        (3653, "Pause"), (3666, "Insert"), (3667, "Delete"), (3655, "Home"),
+        (3663, "End"), (3657, "PageUp"), (3665, "PageDown"), (57416, "ArrowUp"),
+        (57419, "ArrowLeft"), (57421, "ArrowRight"), (57424, "ArrowDown"),
+        (42, "ShiftLeft"), (54, "ShiftRight"), (29, "ControlLeft"), (3613, "ControlRight"),
+        (56, "AltLeft"), (3640, "AltRight"), (3675, "MetaLeft"), (3676, "MetaRight"),
+        (3677, "ContextMenu"), (69, "NumLock"), (3637, "NumpadDivide"),
+        (55, "NumpadMultiply"), (74, "NumpadSubtract"), (3597, "NumpadEqual"),
+        (78, "NumpadAdd"), (3612, "NumpadEnter"), (83, "NumpadDecimal"),
+        (79, "Numpad1"), (80, "Numpad2"), (81, "Numpad3"), (75, "Numpad4"),
+        (76, "Numpad5"), (77, "Numpad6"), (71, "Numpad7"), (72, "Numpad8"),
+        (73, "Numpad9"), (82, "Numpad0"),
+    ];
+
+    /// Issue #173: the Windows key played in Mechvibes 2 and not here, because
+    /// its code was read as Numpad3. Home, Insert, right Ctrl and others were
+    /// read as numpad keys the same way.
+    #[test]
+    fn every_mechvibes2_key_code_plays_on_the_key_it_was_recorded_for() {
+        let table = create_iohook_to_web_key_mapping();
+        for (code, key) in MECHVIBES2_KEYS {
+            assert_eq!(table.get(code).map(String::as_str), Some(*key), "code {}", code);
+        }
+    }
+
+    /// Mechvibes 2 packs also define the numpad with Num Lock off, with the
+    /// same sound as the key each one stands for. Read as other keys, 61001
+    /// (Page Up) wrote over Home.
+    #[test]
+    fn a_num_lock_off_code_plays_as_its_key_and_never_replaces_it() {
+        let dir = temp_dir("v1-numpad-navigation");
+        let config = dir.join("config.json");
+        write_tone_wav(&dir.join("sound.wav"), 44100, 2, 1000);
+        std::fs
+            ::write(
+                &config,
+                r#"{"id": "sound-pack-1", "name": "Old pack", "key_define_type": "single",
+                    "sound": "sound.wav",
+                    "defines": { "3655": [100, 50], "60999": [900, 50], "61001": [300, 50] } }"#
+            )
+            .expect("write v1 config");
+
+        super::convert_v1_to_v2(config.to_str().unwrap(), config.to_str().unwrap(), None, false)
+            .expect("conversion must succeed");
+
+        let converted: serde_json::Value = serde_json
+            ::from_str(&std::fs::read_to_string(&config).expect("read"))
+            .expect("json");
+        let definitions = &converted["definitions"];
+        assert_eq!(definitions["Home"]["timing"], serde_json::json!([[100.0, 150.0]]));
+        assert_eq!(definitions["PageUp"]["timing"], serde_json::json!([[300.0, 350.0]]));
+    }
+
+    fn write_v1_pack(dir: &std::path::Path, id: &str) -> std::path::PathBuf {
+        write_tone_wav(&dir.join("sound.wav"), 44100, 2, 1000);
+        let original = format!(
+            r#"{{"id": "{}", "name": "Old pack", "key_define_type": "single",
+                "sound": "sound.wav", "defines": {{ "3675": [100, 50], "81": [300, 50] }} }}"#,
+            id
+        );
+        let config = dir.join("config.json");
+        std::fs::write(super::v1_backup_path(&config), original).expect("write v1 backup");
+        config
+    }
+
+    /// What an older conversion wrote for `write_v1_pack`: the Windows key on
+    /// Numpad3, written over the real Numpad3, and no `v1_conversion`.
+    fn write_old_conversion(config: &std::path::Path, id: &str) {
+        let old = format!(
+            r#"{{"id": "{}", "name": "Old pack", "config_version": "2",
+                "definition_method": "single", "audio_file": "sound.wav",
+                "definitions": {{ "Numpad3": {{ "timing": [[100.0, 150.0]] }} }} }}"#,
+            id
+        );
+        std::fs::write(config, old).expect("write old conversion");
+    }
+
+    #[test]
+    fn a_pack_an_older_conversion_wrote_is_converted_again_once() {
+        let dir = temp_dir("reconvert-old");
+        let config = write_v1_pack(&dir, "sound-pack-1");
+        write_old_conversion(&config, "sound-pack-1");
+
+        assert_eq!(super::reconvert_outdated_v1_pack(&config), Ok(true));
+        let fixed: serde_json::Value = serde_json
+            ::from_str(&std::fs::read_to_string(&config).expect("read"))
+            .expect("json");
+        let definitions = &fixed["definitions"];
+        assert_eq!(definitions["MetaLeft"]["timing"], serde_json::json!([[100.0, 150.0]]));
+        assert_eq!(definitions["Numpad3"]["timing"], serde_json::json!([[300.0, 350.0]]));
+        assert_eq!(fixed["v1_conversion"], super::V1_CONVERSION);
+
+        // Up to date now, so the next start leaves it alone.
+        assert_eq!(super::reconvert_outdated_v1_pack(&config), Ok(false));
+    }
+
+    /// A V1 config left next to a pack an install has since replaced belongs
+    /// to the old pack. Converting it would put the old pack back.
+    #[test]
+    fn a_pack_replaced_in_the_same_folder_is_left_alone() {
+        let dir = temp_dir("reconvert-replaced");
+        let config = write_v1_pack(&dir, "sound-pack-1");
+        write_old_conversion(&config, "mv-0123456789abcdef0123456789abcdef");
+        let before = std::fs::read_to_string(&config).expect("read");
+
+        assert_eq!(super::reconvert_outdated_v1_pack(&config), Ok(false));
+        assert_eq!(std::fs::read_to_string(&config).expect("read"), before);
+    }
+
+    #[test]
+    fn a_pack_with_no_v1_config_next_to_it_is_left_alone() {
+        let dir = temp_dir("reconvert-none");
+        let config = dir.join("config.json");
+        write_old_conversion(&config, "sound-pack-1");
+        assert_eq!(super::reconvert_outdated_v1_pack(&config), Ok(false));
     }
 
     #[test]

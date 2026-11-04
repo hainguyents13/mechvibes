@@ -23,6 +23,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - **The mouse wheel makes sound on Windows.** Scrolling up or down now plays when the sound pack has sounds for `MouseWheelUp` and `MouseWheelDown`. The mouse packs that come with the app only have left and right clicks, so they stay quiet on scroll.
 - **No more double sounds when one copy runs as administrator (Windows).** If Mechvibes is already running as administrator, opening it again without admin rights no longer starts a second copy next to it, so each key plays once. It brings the running window to the front instead, and a library link or theme file opened at that moment is picked up.
 - **Mood toggles, mute and play act once.** Switching a sound on no longer starts it twice, and each click saves your settings once. Unmuting while paused stays silent, and a sound switched on while muted plays when you unmute.
+- **The Windows key plays again, and Home, End and others play their own sound.** Sound packs from Mechvibes 2 had the Windows keys, right Ctrl and Alt, the Menu key, Home, End, Page Up, Page Down, Insert, Delete, Print Screen, Pause and numpad Enter read as other keys, so some were silent and others played the sound of a different key. The packs that come with the app are fixed, and packs you brought over from Mechvibes 2 are fixed on their own the first time the new version starts.
 
 ## [3.4.0] - 2026-11-01
 

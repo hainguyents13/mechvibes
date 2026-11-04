@@ -4,6 +4,29 @@ use crate::utils::config_converter;
 use crate::utils::soundpack_validator::{ validate_soundpack_config, SoundpackValidationStatus };
 use std::fs;
 
+/// Converts the keyboard packs an older V1 conversion wrote again, from the V1
+/// configs kept next to them, so keys it read wrong play the pack's sound.
+/// Runs once per start, before any pack loads; a pack that is already up to
+/// date costs one file check.
+pub fn reconvert_outdated_v1_packs() {
+    let keyboard_dir = paths::soundpacks::get_custom_soundpacks_dir().join("keyboard");
+    let Ok(entries) = fs::read_dir(&keyboard_dir) else {
+        return;
+    };
+    for entry in entries.filter_map(|e| e.ok()) {
+        let config_path = entry.path().join("config.json");
+        match config_converter::reconvert_outdated_v1_pack(&config_path) {
+            Ok(true) => {
+                crate::always_print!("🔧 Converted {} again with the fixed key codes", entry.path().display());
+            }
+            Ok(false) => {}
+            Err(e) => {
+                crate::always_eprint!("⚠️  Could not convert {} again: {}", entry.path().display(), e);
+            }
+        }
+    }
+}
+
 /// Load soundpack metadata from config.json
 pub fn load_soundpack_metadata(soundpack_id: &str) -> Result<SoundpackMetadata, String> {
     let config_path = paths::soundpacks::config_json(soundpack_id);
@@ -37,13 +60,13 @@ pub fn load_soundpack_metadata(soundpack_id: &str) -> Result<SoundpackMetadata, 
         // nor a working config. A backup that cannot be written means the
         // conversion is unrecoverable, so refuse to start it rather than
         // convert without a safety net.
-        let backup_path = format!("{}.v1.backup", config_path);
+        let backup_path = config_converter::v1_backup_path(std::path::Path::new(&config_path));
         if let Err(e) = fs::copy(&config_path, &backup_path) {
             return Err(
                 format!(
                     "Refusing to convert {}: could not back up its config to {}: {}",
                     soundpack_id,
-                    backup_path,
+                    backup_path.display(),
                     e
                 )
             );
