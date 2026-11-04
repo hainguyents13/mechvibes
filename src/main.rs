@@ -220,7 +220,9 @@ fn main() {
     // the point of the launch, even when "start minimized" is on.
     let should_start_minimized =
         !opened_by_link &&
-        (cli.minimized || (startup_config.auto_start && startup_config.start_minimized));
+        (cli.minimized ||
+            startup_config.start_hidden ||
+            (startup_config.auto_start && startup_config.start_minimized));
 
     // Before anything shows the look: save a look of the user's own that no
     // theme holds yet as "My theme", point at the theme the look on screen

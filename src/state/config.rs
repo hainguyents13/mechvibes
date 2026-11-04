@@ -164,6 +164,8 @@ pub struct AppConfig {
     // System settings
     pub auto_start: bool,
     pub start_minimized: bool, // Start minimized to tray when starting at login
+    /// Open hidden in the tray on every start, not only at login.
+    pub start_hidden: bool,
     pub landscape_mode: bool, // Enable/disable landscape mode layout
     pub auto_update: AutoUpdateConfig, // Auto-update settings
     /// Send one anonymous launch event (OS + app version) per start.
@@ -313,6 +315,7 @@ impl AppConfig {
             && self.ambiance_is_muted == other.ambiance_is_muted
             && self.auto_start == other.auto_start
             && self.start_minimized == other.start_minimized
+            && self.start_hidden == other.start_hidden
             && self.landscape_mode == other.landscape_mode
             && self.auto_update == other.auto_update
             && self.enable_telemetry == other.enable_telemetry
@@ -494,6 +497,7 @@ impl Default for AppConfig {
             // Note: ambiance play state is not persistent - always starts paused
             auto_start: false,
             start_minimized: false, // Default to not starting minimized
+            start_hidden: false,
             landscape_mode: false, // Default landscape mode disabled
             auto_update: AutoUpdateConfig::default(), // Default auto-update settings
             enable_telemetry: true, // Opt-out: on by default, disclosed in README and Settings
@@ -598,6 +602,22 @@ mod tests {
         toggled.enable_telemetry = !original.enable_telemetry;
 
         assert!(!toggled.data_equals(&original), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before "Start hidden" loads with the window shown, and
+    /// switching it on is saved.
+    #[test]
+    fn start_hidden_is_off_until_switched_on_and_is_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("start_hidden");
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating start_hidden must deserialize, not reset");
+        assert!(!restored.start_hidden);
+
+        let mut toggled = restored.clone();
+        toggled.start_hidden = true;
+        assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
     }
 
     /// Pointing at another saved theme must be saved, or the app forgets

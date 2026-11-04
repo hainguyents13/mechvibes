@@ -13,6 +13,9 @@ use dioxus::prelude::*;
 use lucide_dioxus::{ Heart, PartyPopper, Settings };
 use std::sync::Arc;
 
+/// Where the app's icon lives while its window is hidden.
+const TRAY_NAME: &str = if cfg!(target_os = "macos") { "menu bar" } else { "tray" };
+
 #[component]
 pub fn SettingsPage() -> Element {
     // Use shared config hook
@@ -27,6 +30,7 @@ pub fn SettingsPage() -> Element {
     let enable_volume_boost = use_memo(move || config().enable_volume_boost);
     let auto_start = use_memo(move || config().auto_start);
     let start_minimized = use_memo(move || config().start_minimized);
+    let start_hidden = use_memo(move || config().start_hidden);
     let enable_telemetry = use_memo(move || config().enable_telemetry);
     let auto_update_config = use_memo(move || config().auto_update.clone());
 
@@ -138,8 +142,9 @@ pub fn SettingsPage() -> Element {
                       }
                   },
                 }
-                // Start Minimized (only show when auto start is enabled)
-                if auto_start() {
+                // Start Minimized (only show when auto start is enabled, and
+                // not when every start is hidden anyway)
+                if auto_start() && !start_hidden() {
                   Toggler {
                     title: "Start minimized to tray".to_string(),
                     description: Some("When starting at login, open minimized to the system tray".to_string()),
@@ -173,6 +178,29 @@ pub fn SettingsPage() -> Element {
                         }
                     },
                   }
+                }
+                // Start Hidden: every start, not only at login
+                Toggler {
+                  title: format!("Start hidden in the {}", TRAY_NAME),
+                  description: Some(
+                      format!(
+                          "Every time {} starts, it plays sounds in the background with its window hidden. Click the {} icon or open {} again to show it.",
+                          APP_NAME,
+                          TRAY_NAME,
+                          APP_NAME,
+                      ),
+                  ),
+                  checked: start_hidden(),
+                  on_change: {
+                      let update_config = update_config.clone();
+                      move |new_value: bool| {
+                          update_config(
+                              Box::new(move |config| {
+                                  config.start_hidden = new_value;
+                              }),
+                          );
+                      }
+                  },
                 }
               }
             },
