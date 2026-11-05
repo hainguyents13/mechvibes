@@ -677,6 +677,7 @@ fn map_vkey_to_code(vkey: u16, scancode: u16, is_e0: bool) -> Option<String> {
         }
         VK_LWIN => "MetaLeft",
         VK_RWIN => "MetaRight",
+        VK_APPS => "ContextMenu",
 
         VK_OEM_MINUS => "Minus",
         VK_OEM_PLUS => "Equal",

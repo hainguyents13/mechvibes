@@ -500,6 +500,7 @@ fn map_evdev_keycode(key: evdev::KeyCode) -> &'static str {
         KeyCode::KEY_SYSRQ => "PrintScreen",
         KeyCode::KEY_PAUSE => "Pause",
         KeyCode::KEY_102ND => "IntlBackslash",
+        KeyCode::KEY_COMPOSE => "ContextMenu",
 
         _ => "",
     }
@@ -682,6 +683,7 @@ mod tests {
             (KeyCode::KEY_SYSRQ, "PrintScreen"),
             (KeyCode::KEY_PAUSE, "Pause"),
             (KeyCode::KEY_102ND, "IntlBackslash"),
+            (KeyCode::KEY_COMPOSE, "ContextMenu"),
         ];
 
         for (key, expected) in cases {
