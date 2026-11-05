@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Start hidden in the tray.** A new switch in Settings > General opens Mechvibes in the background every time it starts, not only at login, with sounds on and the window hidden. Click the tray icon (the menu bar icon on macOS) or open Mechvibes again to show it.
 - **A build for Intel Macs.** Each release now has two macOS downloads: `macos-arm64.dmg` for Apple Silicon (M1 and later) and `macos-x86_64.dmg` for Intel Macs. Like the Apple Silicon build, it is experimental and not notarized.
 
 ### Changed
