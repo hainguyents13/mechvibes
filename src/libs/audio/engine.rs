@@ -40,6 +40,9 @@ pub enum AudioCommand {
     SetSoundEnabled(bool),
     SetKeyboardSoundEnabled(bool),
     SetMouseSoundEnabled(bool),
+    /// Sent by the microphone watcher (`libs::mic_activity`). Runtime only,
+    /// separate from `SetSoundEnabled`, so the user's own mute survives a call.
+    SetMicMuted(bool),
     LoadKeyboardPack {
         soundpack_id: String,
         update_cache_on_error: bool,
@@ -104,6 +107,12 @@ pub fn spawn_engine(
     });
 
     let handle = AudioEngineHandle { tx: cmd_tx };
+
+    // Both launch paths (window and headless) come through here, so the
+    // microphone watcher starts with every engine.
+    #[cfg(target_os = "windows")]
+    crate::libs::mic_activity::spawn_watcher(handle.clone());
+
     let _ = ENGINE_HANDLE.set(handle.clone());
     let _ = UI_EVENT_RX.set(event_rx);
     handle
@@ -152,6 +161,9 @@ pub(super) struct EngineState {
     volume: f32,
     mouse_volume: f32,
     sound_enabled: bool,
+    /// Another app is using a microphone and the user asked to go quiet then.
+    /// Never persisted; starts off and only `SetMicMuted` moves it.
+    mic_muted: bool,
     keyboard_sound_enabled: bool,
     mouse_sound_enabled: bool,
 }
@@ -221,13 +233,14 @@ impl EngineState {
             volume: config.volume,
             mouse_volume: config.mouse_volume,
             sound_enabled: config.enable_sound,
+            mic_muted: false,
             keyboard_sound_enabled: config.enable_keyboard_sound,
             mouse_sound_enabled: config.enable_mouse_sound,
         }
     }
 
     fn handle_key_event(&mut self, code: &str, down: bool) {
-        if !should_play(self.sound_enabled, self.keyboard_sound_enabled) {
+        if !should_play(self.sound_enabled, self.mic_muted, self.keyboard_sound_enabled) {
             return;
         }
         if !debounce_press(&mut self.key_pressed, code, down) {
@@ -247,7 +260,7 @@ impl EngineState {
     }
 
     fn handle_mouse_event(&mut self, code: &str, down: bool) {
-        if !should_play(self.sound_enabled, self.mouse_sound_enabled) {
+        if !should_play(self.sound_enabled, self.mic_muted, self.mouse_sound_enabled) {
             return;
         }
         let now = Instant::now();
@@ -310,15 +323,18 @@ impl EngineState {
     }
 }
 
-/// Whether a keystroke should produce sound, given the global mute flag and
-/// the per-input-type (keyboard/mouse) flag.
+/// Whether a keystroke should produce sound, given the global mute flag, the
+/// microphone mute and the per-input-type (keyboard/mouse) flag.
 ///
-/// Both flags live in `EngineState` and are only moved by
-/// `AudioCommand::Set*SoundEnabled`, so a UI that writes the config without
-/// sending that command leaves this returning `true` and the app keeps playing
-/// while the UI shows muted - the mute-button bug this guards against.
-fn should_play(sound_enabled: bool, type_enabled: bool) -> bool {
-    sound_enabled && type_enabled
+/// The flags live in `EngineState` and are only moved by
+/// `AudioCommand::Set*SoundEnabled` and `AudioCommand::SetMicMuted`, so a UI
+/// that writes the config without sending that command leaves this returning
+/// `true` and the app keeps playing while the UI shows muted - the mute-button
+/// bug this guards against. The microphone mute is a separate input rather
+/// than a write to `sound_enabled`, so ending a call cannot undo the user's own
+/// mute.
+fn should_play(sound_enabled: bool, mic_muted: bool, type_enabled: bool) -> bool {
+    sound_enabled && !mic_muted && type_enabled
 }
 
 /// True for the impulse mouse codes - the vertical wheel. These have no
@@ -586,6 +602,9 @@ fn handle_command(state: &mut EngineState, event_tx: &Sender<UiEvent>, command: 
         AudioCommand::SetMouseSoundEnabled(enabled) => {
             state.mouse_sound_enabled = enabled;
         }
+        AudioCommand::SetMicMuted(muted) => {
+            state.mic_muted = muted;
+        }
         AudioCommand::LoadKeyboardPack { soundpack_id, update_cache_on_error } => {
             let result = crate::libs::trace::time(
                 crate::libs::trace::Point::PackLoad,
@@ -779,16 +798,58 @@ mod tests {
     fn global_mute_silences_both_input_types() {
         // The global flag wins regardless of the per-type flag - this is what
         // the home-page mute button and Ctrl+Alt+M both drive.
-        assert!(!should_play(false, true), "global mute must silence keyboard");
-        assert!(!should_play(false, false));
+        assert!(!should_play(false, false, true), "global mute must silence keyboard");
+        assert!(!should_play(false, false, false));
     }
 
     #[test]
     fn per_type_mute_silences_only_that_type() {
         // Muting the keyboard slider must not require touching the global
         // flag, and vice versa for the mouse slider.
-        assert!(!should_play(true, false));
-        assert!(should_play(true, true), "nothing muted must play");
+        assert!(!should_play(true, false, false));
+        assert!(should_play(true, false, true), "nothing muted must play");
+    }
+
+    #[test]
+    fn microphone_mute_silences_and_releases_without_touching_the_users_mute() {
+        // During a call the app goes quiet even with sound on.
+        assert!(!should_play(true, true, true), "mic in use must silence the app");
+
+        // After the call, whatever the user chose before is what plays: sound
+        // on comes back, a Ctrl+Alt+M mute made during the call stays muted.
+        let mut sound_enabled = true;
+        let mut mic_muted = false;
+        for command in [
+            AudioCommand::SetMicMuted(true),
+            AudioCommand::SetSoundEnabled(false),
+            AudioCommand::SetMicMuted(false),
+        ] {
+            match command {
+                AudioCommand::SetMicMuted(v) => {
+                    mic_muted = v;
+                }
+                AudioCommand::SetSoundEnabled(v) => {
+                    sound_enabled = v;
+                }
+                _ => unreachable!("only mute commands are exercised here"),
+            }
+        }
+        assert!(!mic_muted);
+        assert!(!should_play(sound_enabled, mic_muted, true), "the user's mute must survive the call");
+        assert!(should_play(true, mic_muted, true), "sound on must come back after the call");
+    }
+
+    #[test]
+    fn the_microphone_mute_never_writes_the_saved_sound_setting() {
+        // The user's mute is persisted; the microphone mute must stay
+        // runtime-only so a call cannot leave the app muted on next launch.
+        let arm = runtime_source()
+            .split("AudioCommand::SetMicMuted(muted) =>")
+            .nth(1)
+            .and_then(|rest| rest.split("AudioCommand::").next())
+            .expect("handle_command must handle SetMicMuted");
+        assert!(!arm.contains("enable_sound"));
+        assert!(!arm.contains("config_writer"));
     }
 
     #[test]
@@ -826,8 +887,8 @@ mod tests {
         assert!(!sound_enabled);
         assert!(!keyboard_sound_enabled);
         assert!(!mouse_sound_enabled);
-        assert!(!should_play(sound_enabled, keyboard_sound_enabled));
-        assert!(!should_play(sound_enabled, mouse_sound_enabled));
+        assert!(!should_play(sound_enabled, false, keyboard_sound_enabled));
+        assert!(!should_play(sound_enabled, false, mouse_sound_enabled));
     }
 
     #[test]

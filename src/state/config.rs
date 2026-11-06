@@ -166,6 +166,8 @@ pub struct AppConfig {
     pub start_minimized: bool, // Start minimized to tray when starting at login
     /// Open hidden in the tray on every start, not only at login.
     pub start_hidden: bool,
+    /// Go quiet while another app is using a microphone (Windows only).
+    pub mute_while_mic_in_use: bool,
     pub landscape_mode: bool, // Enable/disable landscape mode layout
     pub auto_update: AutoUpdateConfig, // Auto-update settings
     /// Send one anonymous launch event (OS + app version) per start.
@@ -316,6 +318,7 @@ impl AppConfig {
             && self.auto_start == other.auto_start
             && self.start_minimized == other.start_minimized
             && self.start_hidden == other.start_hidden
+            && self.mute_while_mic_in_use == other.mute_while_mic_in_use
             && self.landscape_mode == other.landscape_mode
             && self.auto_update == other.auto_update
             && self.enable_telemetry == other.enable_telemetry
@@ -498,6 +501,7 @@ impl Default for AppConfig {
             auto_start: false,
             start_minimized: false, // Default to not starting minimized
             start_hidden: false,
+            mute_while_mic_in_use: false,
             landscape_mode: false, // Default landscape mode disabled
             auto_update: AutoUpdateConfig::default(), // Default auto-update settings
             enable_telemetry: true, // Opt-out: on by default, disclosed in README and Settings
@@ -617,6 +621,22 @@ mod tests {
 
         let mut toggled = restored.clone();
         toggled.start_hidden = true;
+        assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before the microphone mute loads with it off, and
+    /// switching it on is saved.
+    #[test]
+    fn mute_while_mic_in_use_is_off_until_switched_on_and_is_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("mute_while_mic_in_use");
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating mute_while_mic_in_use must deserialize, not reset");
+        assert!(!restored.mute_while_mic_in_use);
+
+        let mut toggled = restored.clone();
+        toggled.mute_while_mic_in_use = true;
         assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
     }
 

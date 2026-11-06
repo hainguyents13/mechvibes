@@ -87,6 +87,14 @@ block2 = "0.6"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.52"
+# Microphone-in-use detection (src/libs/mic_activity.rs). Same version and
+# features cpal already builds, so this adds nothing to compile.
+windows = { version = "0.54", features = [
+  "Win32_Foundation",
+  "Win32_Media_Audio",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+] }
 winapi = { version = "0.3", features = [
   "wincon",
   "winuser",
