@@ -54,24 +54,8 @@ pub fn spawn_watcher(engine: AudioEngineHandle) {
     });
 }
 
-#[cfg(target_os = "windows")]
 use windows_impl::Detector;
 
-#[cfg(not(target_os = "windows"))]
-struct Detector;
-
-#[cfg(not(target_os = "windows"))]
-impl Detector {
-    fn new() -> Self {
-        Self
-    }
-
-    fn microphone_in_use(&self) -> bool {
-        false
-    }
-}
-
-#[cfg(target_os = "windows")]
 mod windows_impl {
     use windows::Win32::Media::Audio::{
         eCapture,
