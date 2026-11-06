@@ -7,6 +7,7 @@ pub mod headless;
 pub mod input_device_manager;
 pub mod input_listener;
 pub mod input_manager;
+pub mod mic_activity;
 pub mod protocol;
 pub mod routes;
 pub mod theme;

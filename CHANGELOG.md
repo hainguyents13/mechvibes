@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Mute while the microphone is in use (Windows).** A new switch in Settings > General keeps Mechvibes quiet while any app is using your microphone, like a call or a recording, and brings the sounds back when the microphone is free. It works on its own, so a mute you set yourself with Ctrl+Alt+M stays as it was when the call ends. It is off until you switch it on.
+
 ## [3.5.0] - 2026-11-05
 
 ### Added
