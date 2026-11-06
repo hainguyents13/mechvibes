@@ -524,6 +524,12 @@ pub mod data {
         get_writable_data_dir().join("mechvibesdx-app-asked")
     }
 
+    /// Copies of the sounds the user added to Mood. Kept in this copy's own
+    /// data folder, so removing a sound here never touches another copy's.
+    pub fn mood_sounds_dir() -> PathBuf {
+        get_writable_data_dir().join("mood_sounds")
+    }
+
     /// Custom images directory for user-uploaded images
     /// Uses system app data directory (e.g., %APPDATA%/Mechvibes/custom_images on Windows)
     pub fn custom_images_dir() -> PathBuf {

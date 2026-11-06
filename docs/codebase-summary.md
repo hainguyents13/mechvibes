@@ -282,6 +282,7 @@ pub struct AppConfig {
     pub ambiance_active_sounds: HashMap<String, f32>, // sound_id → volume
     pub ambiance_global_volume: f32,
     pub ambiance_is_muted: bool,
+    pub ambiance_custom_sounds: Vec<CustomMoodSound>, // user-added sounds; files in data/mood_sounds
     
     // System
     pub auto_start: bool,

@@ -14,7 +14,11 @@ use lucide_dioxus::{
     Moon,
     Coffee,
     Radio,
+    Music,
+    Plus,
+    Trash2,
 };
+use crate::utils::notice::{ self, NoticeKind };
 
 use crate::components::ui::{ PageHeader };
 use crate::state::ambiance::{
@@ -191,6 +195,9 @@ fn SoundSelectionPanel(
                         "radio" => rsx! {
                           Radio { class: "w-5 h-5 text-base-content/50" }
                         },
+                        "music" => rsx! {
+                          Music { class: "w-5 h-5 text-base-content/50" }
+                        },
                         _ => rsx! {
                           TreePine { class: "w-5 h-5 text-base-content/50" }
                         },
@@ -206,8 +213,24 @@ fn SoundSelectionPanel(
                     }
                   }
                 }
-                // Right side: Toggle Switch
-                div { class: "flex-shrink-0",
+                // Right side: Remove (own sounds only) + Toggle Switch
+                div { class: "flex-shrink-0 flex items-center gap-2",
+                  if sound.custom {
+                    button {
+                      class: "btn btn-ghost btn-xs btn-square",
+                      title: "Remove this sound",
+                      onclick: {
+                          let sound_id = sound.id.clone();
+                          move |_| {
+                              update_global_ambiance_player_state(|player| {
+                                  player.remove_custom_sound(&sound_id);
+                              });
+                              refresh_trigger.set(refresh_trigger() + 1);
+                          }
+                      },
+                      Trash2 { class: "w-4 h-4 text-base-content/50" }
+                    }
+                  }
                   input {
                     r#type: "checkbox",
                     class: "toggle toggle-xs toggle-primary",
@@ -255,6 +278,70 @@ fn SoundSelectionPanel(
               }
             }
           }
+        }
+        AddSoundButton { refresh_trigger }
+      }
+    }
+}
+
+/// Picks a sound file of the user's own and adds it to the list, switched on.
+#[component]
+fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
+    let mut adding = use_signal(|| false);
+
+    rsx! {
+      div { class: "space-y-1",
+        button {
+          class: "btn btn-sm btn-soft w-full",
+          disabled: adding(),
+          onclick: move |_| {
+              spawn(async move {
+                  let picked = rfd::AsyncFileDialog::new()
+                      .add_filter("Sounds", crate::utils::mood_sounds::SUPPORTED_EXTENSIONS)
+                      .set_title("Add your own sound")
+                      .pick_file()
+                      .await;
+                  let Some(handle) = picked else {
+                      return;
+                  };
+                  let source = handle.path().to_path_buf();
+
+                  // Copying a long music file takes a moment, so it runs off
+                  // the window's thread.
+                  adding.set(true);
+                  let added = tokio::task
+                      ::spawn_blocking(move || crate::utils::mood_sounds::add(&source)).await
+                      .unwrap_or_else(|e| Err(format!("Could not add the sound: {}", e)));
+                  adding.set(false);
+
+                  match added {
+                      Ok(sound) => {
+                          let mut is_new = false;
+                          update_global_ambiance_player_state(|player| {
+                              is_new = player.add_custom_sound(sound);
+                          });
+                          if !is_new {
+                              notice::report(NoticeKind::Info, "This sound is already in your list.", None);
+                          }
+                          refresh_trigger.set(refresh_trigger() + 1);
+                      }
+                      Err(e) => {
+                          crate::always_eprint!("Failed to add a Mood sound: {}", e);
+                          notice::report(NoticeKind::Error, e, None);
+                      }
+                  }
+              });
+          },
+          if adding() {
+            span { class: "loading loading-spinner loading-xs" }
+            "Adding..."
+          } else {
+            Plus { class: "w-4 h-4" }
+            "Add your own sound"
+          }
+        }
+        p { class: "text-xs text-base-content/50 text-center",
+          "MP3, WAV, OGG, FLAC or M4A. It plays on repeat."
         }
       }
     }

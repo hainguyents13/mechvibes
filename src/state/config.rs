@@ -160,6 +160,9 @@ pub struct AppConfig {
     pub ambiance_active_sounds: HashMap<String, f32>, // sound_id -> volume (0.0 to 1.0)
     pub ambiance_global_volume: f32, // 0.0 to 1.0 - global multiplier
     pub ambiance_is_muted: bool,
+    /// Sounds the user added to Mood, in the order they were added. Their
+    /// files live in this copy's Mood sounds folder.
+    pub ambiance_custom_sounds: Vec<CustomMoodSound>,
     // Note: ambiance play state is not persistent - always starts paused
     // System settings
     pub auto_start: bool,
@@ -175,6 +178,17 @@ pub struct AppConfig {
     /// would silently opt the user out on upgrade from a config predating it.
     #[serde(default = "default_true")]
     pub enable_telemetry: bool,
+}
+
+/// A sound the user added to Mood from a file of their own.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CustomMoodSound {
+    /// "custom-<32 hex>", taken from the file's content.
+    pub id: String,
+    /// Shown in the list: the picked file's name without its extension.
+    pub name: String,
+    /// The copy's name inside the Mood sounds folder.
+    pub file_name: String,
 }
 
 /// serde default for opt-out booleans, which have no `#[derive(Default)]`
@@ -315,6 +329,7 @@ impl AppConfig {
             && self.ambiance_active_sounds == other.ambiance_active_sounds
             && self.ambiance_global_volume == other.ambiance_global_volume
             && self.ambiance_is_muted == other.ambiance_is_muted
+            && self.ambiance_custom_sounds == other.ambiance_custom_sounds
             && self.auto_start == other.auto_start
             && self.start_minimized == other.start_minimized
             && self.start_hidden == other.start_hidden
@@ -497,6 +512,7 @@ impl Default for AppConfig {
             ambiance_active_sounds: HashMap::new(),
             ambiance_global_volume: 0.5, // Default global ambiance volume to 50%
             ambiance_is_muted: false,
+            ambiance_custom_sounds: Vec::new(),
             // Note: ambiance play state is not persistent - always starts paused
             auto_start: false,
             start_minimized: false, // Default to not starting minimized
@@ -638,6 +654,24 @@ mod tests {
         let mut toggled = restored.clone();
         toggled.mute_while_mic_in_use = true;
         assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before custom Mood sounds loads with none, and adding
+    /// one is saved.
+    #[test]
+    fn custom_mood_sounds_start_empty_and_adding_one_is_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("ambiance_custom_sounds");
+        let restored = parse_lenient(&value.to_string()).expect("an older config still loads");
+        assert!(restored.ambiance_custom_sounds.is_empty());
+
+        let mut added = restored.clone();
+        added.ambiance_custom_sounds.push(CustomMoodSound {
+            id: "custom-0123456789abcdef0123456789abcdef".to_string(),
+            name: "Lofi".to_string(),
+            file_name: "sound-0123456789abcdef0123456789abcdef.mp3".to_string(),
+        });
+        assert!(!added.data_equals(&restored), "adding a sound must mark the config dirty");
     }
 
     /// Pointing at another saved theme must be saved, or the app forgets
@@ -949,6 +983,10 @@ mod tests {
             ("enabled_keyboards", json!(["keyboard-1"])),
             ("enabled_mice", json!(["mouse-1"])),
             ("ambiance_active_sounds", json!({ "rain": 0.5 })),
+            (
+                "ambiance_custom_sounds",
+                json!([{ "id": "custom-0123456789abcdef0123456789abcdef", "name": "Lofi", "file_name": "sound-0123456789abcdef0123456789abcdef.mp3" }]),
+            ),
             ("active_theme_id", json!("starter:retro-beige")),
             ("auto_update", auto_update),
         ]);
