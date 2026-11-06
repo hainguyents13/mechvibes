@@ -102,28 +102,26 @@ pub fn SettingsPage() -> Element {
                       }
                   },
                 }
-                // Mute while the microphone is in use (detection is Windows only)
-                if cfg!(target_os = "windows") {
-                  Toggler {
-                    title: "Mute while the microphone is in use".to_string(),
-                    description: Some(
-                        format!(
-                            "{} goes quiet during calls and recordings, and comes back when your microphone is free.",
-                            APP_NAME,
-                        ),
-                    ),
-                    checked: mute_while_mic_in_use(),
-                    on_change: {
-                        let update_config = update_config.clone();
-                        move |new_value: bool| {
-                            update_config(
-                                Box::new(move |config| {
-                                    config.mute_while_mic_in_use = new_value;
-                                }),
-                            );
-                        }
-                    },
-                  }
+                // Mute while the microphone is in use
+                Toggler {
+                  title: "Mute while the microphone is in use".to_string(),
+                  description: Some(
+                      format!(
+                          "{} goes quiet during calls and recordings, and comes back when your microphone is free.",
+                          APP_NAME,
+                      ),
+                  ),
+                  checked: mute_while_mic_in_use(),
+                  on_change: {
+                      let update_config = update_config.clone();
+                      move |new_value: bool| {
+                          update_config(
+                              Box::new(move |config| {
+                                  config.mute_while_mic_in_use = new_value;
+                              }),
+                          );
+                      }
+                  },
                 }
                 // Auto Start
                 Toggler {

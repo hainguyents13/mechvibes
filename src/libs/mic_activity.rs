@@ -1,13 +1,11 @@
 //! Mutes the app while another app is using a microphone, when the user has
-//! switched "Mute while the microphone is in use" on (Windows only for now).
+//! switched "Mute while the microphone is in use" on.
 //!
-//! The detector asks the Windows audio stack directly: a capture endpoint
-//! with an active audio session means some app is recording from it right
-//! now, which is the same signal that lights the microphone icon in the
-//! taskbar. The `CapabilityAccessManager` registry key that tracks
-//! microphone use was tried first, but current Windows builds no longer
-//! update its `LastUsedTimeStop` values while an app records, so it cannot
-//! tell a call in progress from one that ended weeks ago.
+//! Each platform has its own detector, in the submodule of the same name:
+//! Windows asks for active capture sessions, macOS asks CoreAudio which
+//! processes are taking input, and Linux asks the PulseAudio or PipeWire
+//! server for recording streams. Each one answers "not in use" when it cannot
+//! tell, so a detector that fails leaves the app playing.
 //!
 //! The mute is runtime-only. It never writes `enable_sound`: the engine plays
 //! only when the user's own mute is off *and* the microphone mute is off, so
@@ -36,7 +34,7 @@ fn command_for_change(last_sent: bool, wanted: bool) -> Option<AudioCommand> {
 /// step with the setting and the microphone. One check per second.
 pub fn spawn_watcher(engine: AudioEngineHandle) {
     std::thread::spawn(move || {
-        let detector = Detector::new();
+        let mut detector = Detector::new();
         let mut last_sent = false;
         loop {
             let setting_on = crate::state::config_writer::current().mute_while_mic_in_use;
@@ -54,92 +52,20 @@ pub fn spawn_watcher(engine: AudioEngineHandle) {
     });
 }
 
-use windows_impl::Detector;
+#[cfg(target_os = "windows")]
+mod windows;
+#[cfg(target_os = "windows")]
+use self::windows::Detector;
 
-mod windows_impl {
-    use windows::Win32::Media::Audio::{
-        eCapture,
-        AudioSessionStateActive,
-        IAudioSessionManager2,
-        IMMDevice,
-        IMMDeviceEnumerator,
-        MMDeviceEnumerator,
-        DEVICE_STATE_ACTIVE,
-    };
-    use windows::Win32::System::Com::{
-        CoCreateInstance,
-        CoInitializeEx,
-        CLSCTX_ALL,
-        COINIT_MULTITHREADED,
-    };
+#[cfg(target_os = "macos")]
+mod macos;
+#[cfg(target_os = "macos")]
+use self::macos::Detector;
 
-    pub(super) struct Detector {
-        enumerator: Option<IMMDeviceEnumerator>,
-    }
-
-    impl Detector {
-        /// Joins this thread to the multithreaded COM apartment and creates
-        /// the device enumerator once. If that fails the detector reports the
-        /// microphone as free, so the app just keeps playing.
-        pub(super) fn new() -> Self {
-            // SAFETY: plain COM calls on the watcher's own thread, which
-            // stays in the apartment for its whole life.
-            let enumerator = unsafe {
-                let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-                CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)
-            };
-            match enumerator {
-                Ok(enumerator) => Self { enumerator: Some(enumerator) },
-                Err(e) => {
-                    crate::always_eprint!("❌ [MicActivity] Could not open the audio device list: {}", e);
-                    Self { enumerator: None }
-                }
-            }
-        }
-
-        /// True when any active capture device has an active audio session,
-        /// i.e. some app is recording from a microphone right now. A failed
-        /// call counts as "not recording".
-        pub(super) fn microphone_in_use(&self) -> bool {
-            let Some(enumerator) = &self.enumerator else {
-                return false;
-            };
-            // SAFETY: COM calls on an enumerator created on this thread.
-            unsafe {
-                let Ok(devices) = enumerator.EnumAudioEndpoints(eCapture, DEVICE_STATE_ACTIVE) else {
-                    return false;
-                };
-                let count = devices.GetCount().unwrap_or(0);
-                (0..count).any(|index| {
-                    devices
-                        .Item(index)
-                        .is_ok_and(|device| device_is_recording(&device))
-                })
-            }
-        }
-    }
-
-    /// Whether any audio session on this capture device is active.
-    fn device_is_recording(device: &IMMDevice) -> bool {
-        // SAFETY: COM calls on a device handed out by the enumerator above,
-        // on the same thread.
-        unsafe {
-            let Ok(manager) = device.Activate::<IAudioSessionManager2>(CLSCTX_ALL, None) else {
-                return false;
-            };
-            let Ok(sessions) = manager.GetSessionEnumerator() else {
-                return false;
-            };
-            let count = sessions.GetCount().unwrap_or(0);
-            (0..count).any(|index| {
-                sessions
-                    .GetSession(index)
-                    .and_then(|session| session.GetState())
-                    .is_ok_and(|state| state == AudioSessionStateActive)
-            })
-        }
-    }
-}
+#[cfg(target_os = "linux")]
+mod linux;
+#[cfg(target_os = "linux")]
+use self::linux::Detector;
 
 #[cfg(test)]
 mod tests {

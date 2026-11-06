@@ -169,7 +169,7 @@ pub struct AppConfig {
     pub start_minimized: bool, // Start minimized to tray when starting at login
     /// Open hidden in the tray on every start, not only at login.
     pub start_hidden: bool,
-    /// Go quiet while another app is using a microphone (Windows only).
+    /// Go quiet while another app is using a microphone.
     pub mute_while_mic_in_use: bool,
     pub landscape_mode: bool, // Enable/disable landscape mode layout
     pub auto_update: AutoUpdateConfig, // Auto-update settings

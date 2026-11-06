@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Mute while the microphone is in use, now on macOS and Linux.** The switch in Settings > General is no longer Windows only. On macOS 14 and later it works with any microphone. On older macOS it watches microphones that are a device of their own, like a built-in or USB microphone, but not the microphone of a headset. On Linux it works with PulseAudio and PipeWire, and apps that record only your system sound, like a screen recorder, do not count.
+
 ## [3.5.2] - 2026-11-06
 
 ### Added
