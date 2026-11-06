@@ -672,6 +672,11 @@ fn run_engine(
         let _ = event_tx.send(UiEvent::PackLoaded { is_keyboard: false, result });
     }
 
+    // Mood follows every global mute (see `mood_silenced`). Sent once now, so a
+    // user who quit muted starts with Mood silenced too, then on each change.
+    let mut mood_silenced_sent = None;
+    sync_mood_silence(&state, &mut mood_silenced_sent);
+
     // This loop is purely event-driven: every arm below is a channel receive,
     // and there is no timed arm. Nothing here polls the audio device.
     //
@@ -725,7 +730,30 @@ fn run_engine(
                 }
             }
         }
+        sync_mood_silence(&state, &mut mood_silenced_sent);
     }
+}
+
+/// Whether Mood should be silent: the user muted the app (tray, Ctrl+Alt+M,
+/// the Home toggle) or the microphone mute is on. Keyboard and mouse switches
+/// are not a global mute and leave Mood alone.
+fn mood_silenced(sound_enabled: bool, mic_muted: bool) -> bool {
+    !sound_enabled || mic_muted
+}
+
+/// Tells the Mood player when `mood_silenced` changes, and only then.
+fn sync_mood_silence(state: &EngineState, sent: &mut Option<bool>) {
+    let silenced = mood_silenced(state.sound_enabled, state.mic_muted);
+    if mood_silence_changed(*sent, silenced) {
+        *sent = Some(silenced);
+        crate::state::ambiance::set_ambiance_silenced(silenced);
+    }
+}
+
+/// Whether `silenced` differs from what Mood was last told (nothing yet
+/// counts as different).
+fn mood_silence_changed(sent: Option<bool>, silenced: bool) -> bool {
+    sent != Some(silenced)
 }
 
 #[cfg(test)]
@@ -888,6 +916,22 @@ mod tests {
         assert!(!mouse_sound_enabled);
         assert!(!should_play(sound_enabled, false, keyboard_sound_enabled));
         assert!(!should_play(sound_enabled, false, mouse_sound_enabled));
+    }
+
+    #[test]
+    fn every_global_mute_silences_mood() {
+        assert!(!mood_silenced(true, false), "sound on, microphone free: Mood plays");
+        assert!(mood_silenced(false, false), "the user's mute");
+        assert!(mood_silenced(true, true), "the microphone mute");
+        assert!(mood_silenced(false, true));
+    }
+
+    #[test]
+    fn mood_hears_about_silence_once_at_start_then_only_on_change() {
+        assert!(mood_silence_changed(None, false), "the first value is always sent");
+        assert!(mood_silence_changed(None, true));
+        assert!(!mood_silence_changed(Some(true), true));
+        assert!(mood_silence_changed(Some(true), false));
     }
 
     #[test]

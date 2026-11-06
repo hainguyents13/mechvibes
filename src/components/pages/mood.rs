@@ -26,6 +26,7 @@ use crate::state::ambiance::{
     initialize_global_ambiance_player_state,
     update_global_ambiance_player_state,
     get_global_ambiance_player_state_copy,
+    ambiance_mute_flags,
 };
 use dioxus::core::spawn_forever;
 use futures_timer::Delay;
@@ -115,6 +116,8 @@ fn SoundSelectionPanel(
                 update_global_ambiance_player_state(|player| {
                     player.toggle_mute();
                 });
+                // The tray has a "Mute Mood" checkmark for the same mute.
+                crate::libs::tray_service::request_tray_update();
                 refresh_trigger.set(refresh_trigger() + 1);
             },
             if ambiance_player().is_muted {
@@ -145,6 +148,12 @@ fn SoundSelectionPanel(
           }
           div { class: "text-xs text-base-content/70 whitespace-nowrap",
             "{(ambiance_player().global_volume * 100.0) as i32}%"
+          }
+        }
+        // Mood is playing as far as its own controls go, but the app is muted.
+        if ambiance_player().silenced && ambiance_player().is_playing && !ambiance_player().is_muted {
+          p { class: "text-xs text-base-content/70",
+            "Mood is quiet while Mechvibes is muted or your microphone is in use."
           }
         }
         // Sound Selection List
@@ -368,6 +377,23 @@ pub fn MoodPage() -> Element {
         let _trigger = refresh_trigger();
         if let Some(global_ambiance_state) = get_global_ambiance_player_state_copy() {
             ambiance_player.set(global_ambiance_state);
+        }
+    });
+
+    // Mood's mute also changes from the tray, and the global silence from the
+    // audio engine (a call starting, Ctrl+Alt+M), neither of which goes through
+    // this page. Check the two flags while the page is open and pick up a change.
+    let mut refresh_trigger_for_watch = refresh_trigger;
+    use_future(move || async move {
+        loop {
+            Delay::new(Duration::from_millis(500)).await;
+            let local = ambiance_player.peek();
+            let shown = (local.is_muted, local.silenced);
+            drop(local);
+            if ambiance_mute_flags().is_some_and(|flags| flags != shown) {
+                let next = *refresh_trigger_for_watch.peek() + 1;
+                refresh_trigger_for_watch.set(next);
+            }
         }
     });
 
