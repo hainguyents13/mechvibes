@@ -306,6 +306,7 @@ For `definition_method: "multi"`, each sound can have its own audio file:
 - `selected_audio_device` — device name (or `None` for system default).
 - `enabled_keyboards`, `enabled_mice` — device instance IDs for per-device filtering (Windows).
 - `ambiance_active_sounds` — sounds currently playing in ambiance player (HashMap key = sound_id).
+- `ambiance_custom_sounds` — sounds the user added to Mood. The files are copied into `mood_sounds/` in the writable data folder, named `sound-<32 hex of the SHA-256>.<ext>` (`src/utils/mood_sounds.rs`).
 
 ### Channel Contracts
 

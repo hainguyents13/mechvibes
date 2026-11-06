@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Your own sounds in Mood.** A new "Add your own sound" button on the Mood page takes an MP3, WAV, OGG, FLAC or M4A file, like a lo-fi track or a recording of your favorite café, and plays it on repeat. It gets its own switch and volume slider and mixes with the built-in sounds. Mechvibes keeps its own copy, so moving the original file later is fine, and the bin icon removes it again.
+
 ## [3.5.1] - 2026-11-06
 
 ### Added

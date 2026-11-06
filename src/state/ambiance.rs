@@ -6,8 +6,10 @@ use std::thread;
 use rodio::{ Decoder, OutputStream, OutputStreamHandle, Sink, Source };
 use std::fs::File;
 use std::io::BufReader;
+use std::path::{ Path, PathBuf };
 
 use crate::libs::device_manager::DeviceManager;
+use crate::state::config::CustomMoodSound;
 
 /// Commands for the single background thread that owns the shared ambiance
 /// `OutputStream`. All sounds share one stream/handle (rather than each
@@ -17,7 +19,7 @@ use crate::libs::device_manager::DeviceManager;
 enum AmbianceEngineCommand {
     Play {
         sound_id: String,
-        audio_url: String,
+        path: PathBuf,
         volume: f32,
     },
     Stop(String),
@@ -40,7 +42,7 @@ enum AmbianceEngineCommand {
     /// thread only knows about `Sink`s, not playback intent.
     SwitchDevice {
         device_id: Option<String>,
-        resume: Vec<(String, String, f32)>, // (sound_id, audio_url, effective_volume)
+        resume: Vec<(String, PathBuf, f32)>, // (sound_id, file, effective_volume)
     },
 }
 
@@ -74,8 +76,8 @@ pub fn switch_ambiance_player_device(device_id: Option<String>) {
                 .effective_volumes()
                 .into_iter()
                 .filter_map(|(sound_id, volume)| {
-                    let audio_url = state.get_sound_by_id(&sound_id)?.audio_url.clone();
-                    Some((sound_id, audio_url, volume))
+                    let path = state.get_sound_by_id(&sound_id)?.file_path();
+                    Some((sound_id, path, volume))
                 })
                 .collect()
         })
@@ -84,21 +86,16 @@ pub fn switch_ambiance_player_device(device_id: Option<String>) {
     send_engine_command(AmbianceEngineCommand::SwitchDevice { device_id, resume });
 }
 
-/// Opens, decodes, and starts a looping `Sink` for `audio_url` on
+/// Opens, decodes, and starts a looping `Sink` for the file at `path` on
 /// `stream_handle`. Shared by `Play` and the `SwitchDevice` resume step so
-/// both build sinks the same way.
+/// both build sinks the same way. `path` comes from `AmbianceSound::file_path`.
 fn build_ambiance_sink(
     stream_handle: &OutputStreamHandle,
-    audio_url: &str,
+    path: &Path,
     volume: f32
 ) -> Result<Sink, String> {
-    // `audio_url` is the web-style "assets/sounds/x.mp3" string the sound list
-    // stores; the resolver turns it into the real on-disk location, which is
-    // beside the executable on Windows/macOS but under /usr/lib on a Linux
-    // install where the process cwd is wherever the user launched from.
-    let full_path = crate::state::paths::bundled_assets::asset_path(audio_url);
-    let file = File::open(&full_path).map_err(|e|
-        format!("Failed to open audio file {}: {}", full_path.display(), e)
+    let file = File::open(path).map_err(|e|
+        format!("Failed to open audio file {}: {}", path.display(), e)
     )?;
     let decoder = Decoder::new(BufReader::new(file)).map_err(|e|
         format!("Failed to decode audio: {}", e)
@@ -152,12 +149,12 @@ pub fn initialize_global_ambiance_player() {
 
         while let Ok(command) = rx.recv() {
             match command {
-                AmbianceEngineCommand::Play { sound_id, audio_url, volume } => {
+                AmbianceEngineCommand::Play { sound_id, path, volume } => {
                     if let Some(old) = sinks.remove(&sound_id) {
                         old.stop();
                     }
 
-                    match build_ambiance_sink(&stream_handle, &audio_url, volume) {
+                    match build_ambiance_sink(&stream_handle, &path, volume) {
                         Ok(sink) => {
                             sinks.insert(sound_id.clone(), sink);
                             crate::always_print!("🎵 [Ambiance] Started playing sound: {}", sound_id);
@@ -202,8 +199,8 @@ pub fn initialize_global_ambiance_player() {
                             stream = new_stream;
                             stream_handle = new_handle;
 
-                            for (sound_id, audio_url, volume) in resume {
-                                match build_ambiance_sink(&stream_handle, &audio_url, volume) {
+                            for (sound_id, path, volume) in resume {
+                                match build_ambiance_sink(&stream_handle, &path, volume) {
                                     Ok(sink) => {
                                         sinks.insert(sound_id, sink);
                                     }
@@ -291,8 +288,48 @@ pub struct AmbianceSound {
     pub id: String,
     pub name: String,
     pub description: String,
+    /// A built-in sound's "assets/sounds/x.mp3", or, for one the user added,
+    /// its file name in the Mood sounds folder. `file_path` resolves either.
     pub audio_url: String,
     pub icon: String, // Icon name for UI display
+    /// Added by the user from a file of their own, so it can be removed.
+    #[serde(default)]
+    pub custom: bool,
+}
+
+impl AmbianceSound {
+    /// A sound the user added, as the list shows it.
+    pub fn from_custom(sound: &CustomMoodSound) -> Self {
+        Self {
+            id: sound.id.clone(),
+            name: sound.name.clone(),
+            description: "Your sound".to_string(),
+            audio_url: sound.file_name.clone(),
+            icon: "music".to_string(),
+            custom: true,
+        }
+    }
+
+    /// Where the sound's file is on disk.
+    pub fn file_path(&self) -> PathBuf {
+        if self.custom {
+            crate::utils::mood_sounds::path_of(&self.audio_url)
+        } else {
+            // The web-style "assets/sounds/x.mp3" resolves beside the
+            // executable on Windows/macOS but under /usr/lib on a Linux
+            // install, where the process cwd is wherever the user launched from.
+            crate::state::paths::bundled_assets::asset_path(&self.audio_url)
+        }
+    }
+
+    /// The entry the config keeps for a sound the user added.
+    fn to_custom(&self) -> Option<CustomMoodSound> {
+        self.custom.then(|| CustomMoodSound {
+            id: self.id.clone(),
+            name: self.name.clone(),
+            file_name: self.audio_url.clone(),
+        })
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -326,7 +363,7 @@ impl AmbiancePlayerState {
         let config = crate::state::config_writer::current();
 
         Self {
-            sounds: Self::get_builtin_sounds(),
+            sounds: Self::sounds_with(&config.ambiance_custom_sounds),
             active_sounds: config.ambiance_active_sounds.clone(),
             global_volume: config.ambiance_global_volume,
             is_muted: config.ambiance_is_muted,
@@ -343,12 +380,71 @@ impl AmbiancePlayerState {
         let active_sounds = self.active_sounds.clone();
         let global_volume = self.global_volume;
         let is_muted = self.is_muted;
+        let custom_sounds = self.custom_sounds();
         crate::state::config_writer::apply(move |config| {
             config.ambiance_active_sounds = active_sounds;
             config.ambiance_global_volume = global_volume;
             config.ambiance_is_muted = is_muted;
+            config.ambiance_custom_sounds = custom_sounds;
             // Don't save is_playing - always start paused
         });
+    }
+
+    /// The built-in sounds followed by the ones the user added.
+    fn sounds_with(custom: &[CustomMoodSound]) -> Vec<AmbianceSound> {
+        let mut sounds = Self::get_builtin_sounds();
+        sounds.extend(custom.iter().map(AmbianceSound::from_custom));
+        sounds
+    }
+
+    /// The config entries of the sounds the user added, in list order.
+    fn custom_sounds(&self) -> Vec<CustomMoodSound> {
+        self.sounds.iter().filter_map(AmbianceSound::to_custom).collect()
+    }
+
+    /// Add a sound from the user's own file, switched on and, when sound is
+    /// audible, playing right away. Returns false when that file is already
+    /// in the list. Saves the change.
+    pub fn add_custom_sound(&mut self, sound: CustomMoodSound) -> bool {
+        let Some(commands) = self.add_custom_sound_commands(sound) else {
+            return false;
+        };
+        send_engine_commands(commands);
+        self.save_config();
+        true
+    }
+
+    /// The state change behind `add_custom_sound`.
+    fn add_custom_sound_commands(&mut self, sound: CustomMoodSound) -> Option<Vec<AmbianceEngineCommand>> {
+        if self.get_sound_by_id(&sound.id).is_some() {
+            return None;
+        }
+        let id = sound.id.clone();
+        self.sounds.push(AmbianceSound::from_custom(&sound));
+        Some(self.toggle_sound_commands(id))
+    }
+
+    /// Remove a sound the user added: stop it, drop it from the list, save,
+    /// and delete its copy. A built-in sound is never removed.
+    pub fn remove_custom_sound(&mut self, sound_id: &str) {
+        let Some((commands, file_name)) = self.remove_custom_sound_commands(sound_id) else {
+            return;
+        };
+        send_engine_commands(commands);
+        self.save_config();
+        crate::utils::mood_sounds::remove(&file_name);
+    }
+
+    /// The state change behind `remove_custom_sound`, with the file to delete.
+    fn remove_custom_sound_commands(&mut self, sound_id: &str) -> Option<(Vec<AmbianceEngineCommand>, String)> {
+        let index = self.sounds.iter().position(|sound| sound.id == sound_id && sound.custom)?;
+        let sound = self.sounds.remove(index);
+        let commands = if self.active_sounds.remove(sound_id).is_some() {
+            vec![AmbianceEngineCommand::Stop(sound_id.to_string())]
+        } else {
+            Vec::new()
+        };
+        Some((commands, sound.audio_url))
     }
 
     /// Get built-in ambiance sounds (using local assets)
@@ -360,6 +456,7 @@ impl AmbiancePlayerState {
                 description: "Gentle rainfall".to_string(),
                 audio_url: "assets/sounds/rain.mp3".to_string(),
                 icon: "cloud-rain".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "forest".to_string(),
@@ -367,6 +464,7 @@ impl AmbiancePlayerState {
                 description: "Birds chirping in the forest".to_string(),
                 audio_url: "assets/sounds/forest.mp3".to_string(),
                 icon: "tree-pine".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "ocean".to_string(),
@@ -374,6 +472,7 @@ impl AmbiancePlayerState {
                 description: "Calming ocean waves".to_string(),
                 audio_url: "assets/sounds/ocean.mp3".to_string(),
                 icon: "waves".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "thunderstorm".to_string(),
@@ -381,6 +480,7 @@ impl AmbiancePlayerState {
                 description: "Thunder and heavy rain".to_string(),
                 audio_url: "assets/sounds/thunderstorm.mp3".to_string(),
                 icon: "zap".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "fire".to_string(),
@@ -388,6 +488,7 @@ impl AmbiancePlayerState {
                 description: "Crackling campfire".to_string(),
                 audio_url: "assets/sounds/fire.mp3".to_string(),
                 icon: "flame".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "wind".to_string(),
@@ -395,6 +496,7 @@ impl AmbiancePlayerState {
                 description: "Gentle wind through trees".to_string(),
                 audio_url: "assets/sounds/wind.mp3".to_string(),
                 icon: "wind".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "stream".to_string(),
@@ -402,6 +504,7 @@ impl AmbiancePlayerState {
                 description: "Babbling brook".to_string(),
                 audio_url: "assets/sounds/stream.mp3".to_string(),
                 icon: "waves".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "river".to_string(),
@@ -409,6 +512,7 @@ impl AmbiancePlayerState {
                 description: "Flowing river water".to_string(),
                 audio_url: "assets/sounds/river.mp3".to_string(),
                 icon: "waves".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "cricket".to_string(),
@@ -416,6 +520,7 @@ impl AmbiancePlayerState {
                 description: "Crickets and night sounds".to_string(),
                 audio_url: "assets/sounds/cricket.mp3".to_string(),
                 icon: "moon".to_string(),
+                custom: false,
             },
             AmbianceSound {
                 id: "chatter".to_string(),
@@ -423,6 +528,7 @@ impl AmbiancePlayerState {
                 description: "Ambient coffee shop chatter".to_string(),
                 audio_url: "assets/sounds/chatter.mp3".to_string(),
                 icon: "coffee".to_string(),
+                custom: false,
             }
         ]
     }
@@ -470,7 +576,7 @@ impl AmbiancePlayerState {
         match self.get_sound_by_id(&sound_id) {
             Some(sound) =>
                 vec![AmbianceEngineCommand::Play {
-                    audio_url: sound.audio_url.clone(),
+                    path: sound.file_path(),
                     volume: effective_volume(volume, self.global_volume),
                     sound_id,
                 }],
@@ -558,8 +664,8 @@ impl AmbiancePlayerState {
         self.effective_volumes()
             .into_iter()
             .filter_map(|(sound_id, volume)| {
-                let audio_url = self.get_sound_by_id(&sound_id)?.audio_url.clone();
-                Some(AmbianceEngineCommand::Play { sound_id, audio_url, volume })
+                let path = self.get_sound_by_id(&sound_id)?.file_path();
+                Some(AmbianceEngineCommand::Play { sound_id, path, volume })
             })
             .collect()
     }
@@ -605,9 +711,79 @@ mod tests {
     fn play(sound_id: &str, volume: f32) -> AmbianceEngineCommand {
         AmbianceEngineCommand::Play {
             sound_id: sound_id.to_string(),
-            audio_url: format!("assets/sounds/{}.mp3", sound_id),
+            path: crate::state::paths::bundled_assets::asset_path(&format!("assets/sounds/{}.mp3", sound_id)),
             volume,
         }
+    }
+
+    fn lofi() -> CustomMoodSound {
+        CustomMoodSound {
+            id: "custom-0123456789abcdef0123456789abcdef".to_string(),
+            name: "Lofi".to_string(),
+            file_name: "sound-0123456789abcdef0123456789abcdef.mp3".to_string(),
+        }
+    }
+
+    #[test]
+    fn an_added_sound_joins_the_list_on_and_plays_from_the_mood_sounds_folder() {
+        let mut state = playing_state();
+
+        let commands = state.add_custom_sound_commands(lofi()).expect("a new sound is added");
+
+        assert_eq!(commands, vec![AmbianceEngineCommand::Play {
+            sound_id: lofi().id,
+            path: crate::utils::mood_sounds::path_of(&lofi().file_name),
+            volume: 0.4,
+        }]);
+        assert!(state.is_sound_active(&lofi().id));
+        assert_eq!(state.sounds.last().map(|sound| sound.name.as_str()), Some("Lofi"));
+        assert_eq!(state.custom_sounds(), vec![lofi()], "the config gets the entry back as it came");
+    }
+
+    #[test]
+    fn the_same_file_added_twice_stays_one_entry() {
+        let mut state = playing_state();
+        state.add_custom_sound_commands(lofi());
+        assert_eq!(state.add_custom_sound_commands(lofi()), None);
+        assert_eq!(state.custom_sounds().len(), 1);
+    }
+
+    #[test]
+    fn an_added_sound_waits_while_paused() {
+        let mut state = AmbiancePlayerState::new();
+        assert_eq!(state.add_custom_sound_commands(lofi()), Some(vec![]));
+        assert!(state.is_sound_active(&lofi().id), "it starts with the rest on play");
+    }
+
+    #[test]
+    fn removing_an_added_sound_stops_it_and_hands_back_its_file() {
+        let mut state = playing_state();
+        state.add_custom_sound_commands(lofi());
+
+        let (commands, file_name) = state.remove_custom_sound_commands(&lofi().id).unwrap();
+
+        assert_eq!(commands, vec![AmbianceEngineCommand::Stop(lofi().id)]);
+        assert_eq!(file_name, lofi().file_name);
+        assert!(!state.is_sound_active(&lofi().id));
+        assert!(state.custom_sounds().is_empty());
+    }
+
+    #[test]
+    fn built_in_sounds_cannot_be_removed() {
+        let mut state = playing_state();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+        assert_eq!(state.remove_custom_sound_commands("rain"), None);
+        assert!(state.get_sound_by_id("rain").is_some());
+        assert!(state.is_sound_active("rain"));
+    }
+
+    #[test]
+    fn sounds_from_the_config_follow_the_built_in_ones() {
+        let sounds = AmbiancePlayerState::sounds_with(&[lofi()]);
+        let builtin = AmbiancePlayerState::get_builtin_sounds();
+        assert_eq!(sounds.len(), builtin.len() + 1);
+        assert!(builtin.iter().all(|sound| !sound.custom));
+        assert!(sounds.last().unwrap().custom);
     }
 
     #[test]
