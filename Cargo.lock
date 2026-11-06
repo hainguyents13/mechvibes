@@ -3590,7 +3590,7 @@ dependencies = [
 
 [[package]]
 name = "mechvibes"
-version = "3.5.2"
+version = "3.5.3"
 dependencies = [
  "base64",
  "bincode",
