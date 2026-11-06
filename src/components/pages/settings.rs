@@ -32,6 +32,7 @@ pub fn SettingsPage() -> Element {
     let start_minimized = use_memo(move || config().start_minimized);
     let start_hidden = use_memo(move || config().start_hidden);
     let mute_while_mic_in_use = use_memo(move || config().mute_while_mic_in_use);
+    let mute_mood_with_sounds = use_memo(move || config().mute_mood_with_sounds);
     let enable_telemetry = use_memo(move || config().enable_telemetry);
     let auto_update_config = use_memo(move || config().auto_update.clone());
 
@@ -120,6 +121,26 @@ pub fn SettingsPage() -> Element {
                                   config.mute_while_mic_in_use = new_value;
                               }),
                           );
+                      }
+                  },
+                }
+                // Mute Mood along with the app
+                Toggler {
+                  title: "Mute Mood with your keyboard and mouse".to_string(),
+                  description: Some(
+                      "When you mute Mechvibes from the tray, with Ctrl+Alt+M or during a call, the Mood sounds go quiet too."
+                          .to_string(),
+                  ),
+                  checked: mute_mood_with_sounds(),
+                  on_change: {
+                      let update_config = update_config.clone();
+                      move |new_value: bool| {
+                          update_config(
+                              Box::new(move |config| {
+                                  config.mute_mood_with_sounds = new_value;
+                              }),
+                          );
+                          crate::state::ambiance::set_mood_follows_mute(new_value);
                       }
                   },
                 }

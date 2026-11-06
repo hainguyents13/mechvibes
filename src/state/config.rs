@@ -171,6 +171,9 @@ pub struct AppConfig {
     pub start_hidden: bool,
     /// Go quiet while another app is using a microphone.
     pub mute_while_mic_in_use: bool,
+    /// Muting the app (tray, Ctrl+Alt+M, Home, the microphone mute) quiets
+    /// Mood as well as the keyboard and mouse.
+    pub mute_mood_with_sounds: bool,
     pub landscape_mode: bool, // Enable/disable landscape mode layout
     pub auto_update: AutoUpdateConfig, // Auto-update settings
     /// Send one anonymous launch event (OS + app version) per start.
@@ -334,6 +337,7 @@ impl AppConfig {
             && self.start_minimized == other.start_minimized
             && self.start_hidden == other.start_hidden
             && self.mute_while_mic_in_use == other.mute_while_mic_in_use
+            && self.mute_mood_with_sounds == other.mute_mood_with_sounds
             && self.landscape_mode == other.landscape_mode
             && self.auto_update == other.auto_update
             && self.enable_telemetry == other.enable_telemetry
@@ -518,6 +522,7 @@ impl Default for AppConfig {
             start_minimized: false, // Default to not starting minimized
             start_hidden: false,
             mute_while_mic_in_use: false,
+            mute_mood_with_sounds: true,
             landscape_mode: false, // Default landscape mode disabled
             auto_update: AutoUpdateConfig::default(), // Default auto-update settings
             enable_telemetry: true, // Opt-out: on by default, disclosed in README and Settings
@@ -653,6 +658,22 @@ mod tests {
 
         let mut toggled = restored.clone();
         toggled.mute_while_mic_in_use = true;
+        assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before the choice keeps muting Mood with the app, as
+    /// 3.5.4 did, and switching it off is saved.
+    #[test]
+    fn mute_mood_with_sounds_is_on_until_switched_off_and_is_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("mute_mood_with_sounds");
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating mute_mood_with_sounds must deserialize, not reset");
+        assert!(restored.mute_mood_with_sounds);
+
+        let mut toggled = restored.clone();
+        toggled.mute_mood_with_sounds = false;
         assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
     }
 

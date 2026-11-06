@@ -672,10 +672,10 @@ fn run_engine(
         let _ = event_tx.send(UiEvent::PackLoaded { is_keyboard: false, result });
     }
 
-    // Mood follows every global mute (see `mood_silenced`). Sent once now, so a
-    // user who quit muted starts with Mood silenced too, then on each change.
-    let mut mood_silenced_sent = None;
-    sync_mood_silence(&state, &mut mood_silenced_sent);
+    // Mood hears about every app-wide mute (see `app_muted`). Sent once now, so
+    // a user who quit muted starts with Mood silenced too, then on each change.
+    let mut app_muted_sent = None;
+    sync_app_muted(&state, &mut app_muted_sent);
 
     // This loop is purely event-driven: every arm below is a channel receive,
     // and there is no timed arm. Nothing here polls the audio device.
@@ -730,30 +730,30 @@ fn run_engine(
                 }
             }
         }
-        sync_mood_silence(&state, &mut mood_silenced_sent);
+        sync_app_muted(&state, &mut app_muted_sent);
     }
 }
 
-/// Whether Mood should be silent: the user muted the app (tray, Ctrl+Alt+M,
-/// the Home toggle) or the microphone mute is on. Keyboard and mouse switches
-/// are not a global mute and leave Mood alone.
-fn mood_silenced(sound_enabled: bool, mic_muted: bool) -> bool {
+/// Whether the whole app is muted: by the user (tray, Ctrl+Alt+M, the Home
+/// toggle) or by the microphone mute. Keyboard and mouse switches are not an
+/// app-wide mute. Mood decides itself whether to follow it (Settings).
+fn app_muted(sound_enabled: bool, mic_muted: bool) -> bool {
     !sound_enabled || mic_muted
 }
 
-/// Tells the Mood player when `mood_silenced` changes, and only then.
-fn sync_mood_silence(state: &EngineState, sent: &mut Option<bool>) {
-    let silenced = mood_silenced(state.sound_enabled, state.mic_muted);
-    if mood_silence_changed(*sent, silenced) {
-        *sent = Some(silenced);
-        crate::state::ambiance::set_ambiance_silenced(silenced);
+/// Tells the Mood player when `app_muted` changes, and only then.
+fn sync_app_muted(state: &EngineState, sent: &mut Option<bool>) {
+    let muted = app_muted(state.sound_enabled, state.mic_muted);
+    if app_muted_changed(*sent, muted) {
+        *sent = Some(muted);
+        crate::state::ambiance::set_app_muted(muted);
     }
 }
 
-/// Whether `silenced` differs from what Mood was last told (nothing yet
-/// counts as different).
-fn mood_silence_changed(sent: Option<bool>, silenced: bool) -> bool {
-    sent != Some(silenced)
+/// Whether `muted` differs from what Mood was last told (nothing yet counts
+/// as different).
+fn app_muted_changed(sent: Option<bool>, muted: bool) -> bool {
+    sent != Some(muted)
 }
 
 #[cfg(test)]
@@ -919,19 +919,19 @@ mod tests {
     }
 
     #[test]
-    fn every_global_mute_silences_mood() {
-        assert!(!mood_silenced(true, false), "sound on, microphone free: Mood plays");
-        assert!(mood_silenced(false, false), "the user's mute");
-        assert!(mood_silenced(true, true), "the microphone mute");
-        assert!(mood_silenced(false, true));
+    fn the_users_mute_and_the_microphone_mute_both_mute_the_app() {
+        assert!(!app_muted(true, false), "sound on, microphone free");
+        assert!(app_muted(false, false), "the user's mute");
+        assert!(app_muted(true, true), "the microphone mute");
+        assert!(app_muted(false, true));
     }
 
     #[test]
-    fn mood_hears_about_silence_once_at_start_then_only_on_change() {
-        assert!(mood_silence_changed(None, false), "the first value is always sent");
-        assert!(mood_silence_changed(None, true));
-        assert!(!mood_silence_changed(Some(true), true));
-        assert!(mood_silence_changed(Some(true), false));
+    fn mood_hears_about_the_app_mute_once_at_start_then_only_on_change() {
+        assert!(app_muted_changed(None, false), "the first value is always sent");
+        assert!(app_muted_changed(None, true));
+        assert!(!app_muted_changed(Some(true), true));
+        assert!(app_muted_changed(Some(true), false));
     }
 
     #[test]
