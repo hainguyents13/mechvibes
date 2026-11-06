@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Mute Mood from the tray.** A new "Mute Mood" item in the tray menu quiets the background sounds without opening the app. It is the same mute as the button on the Mood page, and the two always match.
+
+### Changed
+
+- **Muting Mechvibes now quiets Mood too.** "Mute sounds" in the tray, Ctrl+Alt+M, the mute toggle on Home and the automatic mute while your microphone is in use now silence the Mood sounds as well as your keyboard and mouse. Unmuting brings Mood back just as it was.
+
 ## [3.5.3] - 2026-11-06
 
 ### Added

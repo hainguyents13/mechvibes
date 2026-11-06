@@ -1,6 +1,7 @@
 use serde::{ Deserialize, Serialize };
 use std::collections::HashMap;
 use std::sync::{ Arc, Mutex };
+use std::sync::atomic::{ AtomicBool, Ordering };
 use std::sync::mpsc;
 use std::thread;
 use rodio::{ Decoder, OutputStream, OutputStreamHandle, Sink, Source };
@@ -52,6 +53,32 @@ static AMBIANCE_ENGINE_TX: std::sync::OnceLock<
 
 // Global ambiance player state
 static GLOBAL_AMBIANCE_PLAYER_STATE: std::sync::OnceLock<Arc<Mutex<AmbiancePlayerState>>> = std::sync::OnceLock::new();
+
+/// The latest `set_ambiance_silenced` value, so a player state built after it
+/// was sent still starts silenced.
+static SILENCED: AtomicBool = AtomicBool::new(false);
+
+/// Silences Mood while the whole app is muted (the user's own mute, from the
+/// tray, Ctrl+Alt+M or the Home toggle, or the microphone mute), and lets it
+/// play again when that ends. The audio engine calls this, since it is the
+/// one place that sees every one of those.
+///
+/// Runtime only and separate from Mood's own mute: `ambiance_is_muted` is
+/// never written, so lifting it brings Mood back exactly as it was.
+pub fn set_ambiance_silenced(silenced: bool) {
+    SILENCED.store(silenced, Ordering::SeqCst);
+    update_global_ambiance_player_state(|player| {
+        send_engine_commands(player.set_silenced_commands(silenced));
+    });
+}
+
+/// Mood's own mute and the global silence, read without copying the state.
+pub fn ambiance_mute_flags() -> Option<(bool, bool)> {
+    GLOBAL_AMBIANCE_PLAYER_STATE.get()?
+        .lock()
+        .ok()
+        .map(|state| (state.is_muted, state.silenced))
+}
 
 fn send_engine_command(command: AmbianceEngineCommand) {
     if let Some(tx_slot) = AMBIANCE_ENGINE_TX.get() {
@@ -339,6 +366,8 @@ pub struct AmbiancePlayerState {
     pub global_volume: f32, // 0.0 to 1.0 - global multiplier for all sounds
     pub is_muted: bool,
     pub is_playing: bool, // Global play/pause state for all ambiance sounds
+    /// The whole app is muted, see `set_ambiance_silenced`. Never saved.
+    pub silenced: bool,
 }
 
 impl Default for AmbiancePlayerState {
@@ -349,6 +378,7 @@ impl Default for AmbiancePlayerState {
             global_volume: 0.5,
             is_muted: false,
             is_playing: false, // Default to paused, user needs to click play to start
+            silenced: false,
         }
     }
 }
@@ -368,6 +398,7 @@ impl AmbiancePlayerState {
             global_volume: config.ambiance_global_volume,
             is_muted: config.ambiance_is_muted,
             is_playing: false, // Always start paused, don't persist play state
+            silenced: SILENCED.load(Ordering::SeqCst),
         }
     }
 
@@ -550,7 +581,7 @@ impl AmbiancePlayerState {
 
     /// Whether the active sounds should be heard right now.
     fn is_audible(&self) -> bool {
-        self.is_playing && !self.is_muted
+        self.is_playing && !self.is_muted && !self.silenced
     }
 
     /// Toggle a sound on/off, tell the engine, and save the change.
@@ -602,7 +633,7 @@ impl AmbiancePlayerState {
             self.active_sounds.insert(sound_id.clone(), clamped_volume);
 
             // Update audio player volume if sound is playing
-            if self.is_playing && !self.is_muted {
+            if self.is_audible() {
                 let _ = set_ambiance_sound_volume(
                     &sound_id,
                     effective_volume(clamped_volume, self.global_volume)
@@ -645,6 +676,14 @@ impl AmbiancePlayerState {
     fn toggle_play_pause_commands(&mut self) -> Vec<AmbianceEngineCommand> {
         let was_audible = self.is_audible();
         self.is_playing = !self.is_playing;
+        self.audibility_commands(was_audible)
+    }
+
+    /// The state change behind `set_ambiance_silenced`, see
+    /// `toggle_mute_commands`.
+    fn set_silenced_commands(&mut self, silenced: bool) -> Vec<AmbianceEngineCommand> {
+        let was_audible = self.is_audible();
+        self.silenced = silenced;
         self.audibility_commands(was_audible)
     }
 
@@ -853,5 +892,63 @@ mod tests {
 
         assert_eq!(state.toggle_play_pause_commands(), vec![]);
         assert!(state.is_playing);
+    }
+
+    #[test]
+    fn mood_is_heard_only_when_playing_unmuted_and_not_silenced() {
+        for playing in [false, true] {
+            for muted in [false, true] {
+                for silenced in [false, true] {
+                    let state = AmbiancePlayerState {
+                        is_playing: playing,
+                        is_muted: muted,
+                        silenced,
+                        ..AmbiancePlayerState::new()
+                    };
+                    assert_eq!(
+                        state.is_audible(),
+                        playing && !muted && !silenced,
+                        "playing {playing}, muted {muted}, silenced {silenced}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_global_mute_pauses_mood_and_lifting_it_plays_it_again() {
+        let mut state = playing_state();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+
+        assert_eq!(state.set_silenced_commands(true), vec![AmbianceEngineCommand::PauseAll]);
+        assert!(!state.is_muted, "a global mute must not become Mood's own mute");
+        assert_eq!(state.set_silenced_commands(true), vec![], "already silenced");
+        assert_eq!(state.set_silenced_commands(false), vec![play("rain", 0.4)]);
+        assert!(!state.is_muted);
+    }
+
+    #[test]
+    fn lifting_a_global_mute_keeps_moods_own_mute_and_pause() {
+        let mut muted = playing_state();
+        muted.active_sounds.insert("rain".to_string(), 0.5);
+        muted.is_muted = true;
+        assert_eq!(muted.set_silenced_commands(true), vec![]);
+        assert_eq!(muted.set_silenced_commands(false), vec![]);
+        assert!(muted.is_muted, "Mood's own mute is the user's and stays");
+
+        let mut paused = AmbiancePlayerState::new();
+        paused.active_sounds.insert("rain".to_string(), 0.5);
+        assert_eq!(paused.set_silenced_commands(true), vec![]);
+        assert_eq!(paused.set_silenced_commands(false), vec![]);
+    }
+
+    #[test]
+    fn play_and_new_sounds_wait_while_globally_muted() {
+        let mut state = AmbiancePlayerState::new();
+        state.active_sounds.insert("rain".to_string(), 0.5);
+        state.silenced = true;
+        assert_eq!(state.toggle_play_pause_commands(), vec![], "play while muted stays quiet");
+        assert_eq!(state.toggle_sound_commands("fire".to_string()), vec![]);
+        assert_eq!(state.toggle_mute_commands(), vec![], "Mood's own mute changes nothing audible");
     }
 }

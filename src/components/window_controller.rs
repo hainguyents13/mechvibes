@@ -226,6 +226,19 @@ pub fn WindowController() -> Element {
                             }
                         });
                     }
+                    TrayMessage::ToggleMoodMute => {
+                        // The same mute as the button on the Mood page: it
+                        // tells the Mood player and saves, and an open Mood
+                        // page picks the change up on its own.
+                        crate::state::ambiance::update_global_ambiance_player_state(|player| {
+                            player.toggle_mute();
+                        });
+                        let _ = with_tray(|tray| {
+                            if let Err(e) = tray.update_menu() {
+                                always_eprint!("❌ Failed to update tray menu: {}", e);
+                            }
+                        });
+                    }
                     TrayMessage::OpenGitHub => {
                         let url = "https://github.com/hainguyents13/mechvibes";
                         if let Err(e) = open::that(url) {

@@ -58,6 +58,7 @@ pub enum TrayMessage {
     Show,
     Exit,
     ToggleMute,
+    ToggleMoodMute,
     OpenGitHub,
     OpenDiscord,
     OpenWebsite,
@@ -296,6 +297,8 @@ pub struct TrayManager {
     /// between "Mute"/"Unmute"; holding the item lets the label stay fixed and
     /// the state show as a checkmark instead.
     mute_item: CheckMenuItem,
+    /// Mood's own mute, the same one as the button on the Mood page.
+    mood_mute_item: CheckMenuItem,
     icons: TrayIcons,
 }
 
@@ -324,6 +327,13 @@ impl TrayManager {
             muted,
             None
         );
+        let mood_mute_item = CheckMenuItem::with_id(
+            MenuId::new("toggle_mood_mute"),
+            "Mute Mood",
+            true,
+            config.ambiance_is_muted,
+            None
+        );
         let separator2 = PredefinedMenuItem::separator();
 
         // External links section
@@ -350,6 +360,7 @@ impl TrayManager {
                 &show_item,
                 &separator1,
                 &mute_item,
+                &mood_mute_item,
                 &separator2,
                 &github_item,
                 &discord_item,
@@ -360,10 +371,10 @@ impl TrayManager {
         )?;
 
         // macOS: show whether Accessibility and Input Monitoring are granted,
-        // just after the mute item and its separator. Inserted rather than listed
-        // above so the menu on Windows and Linux is built exactly as before, and
-        // placed relative to the mute item so it stays right if items are added
-        // above it.
+        // just after the sound items and their separator. Inserted rather than
+        // listed above so the menu on Windows and Linux is built exactly as
+        // before, and placed relative to the last sound item so it stays right
+        // if items are added above it.
         #[cfg(target_os = "macos")]
         {
             use crate::libs::permissions::{ self, ACCESSIBILITY_TAG, INPUT_MONITORING_TAG };
@@ -373,12 +384,12 @@ impl TrayManager {
             let status = permissions::current();
             let items = PermissionItems::new(status, ns_menu);
 
-            let mute_position = menu
+            let mood_mute_position = menu
                 .items()
                 .iter()
-                .position(|item| item.id() == mute_item.id())
-                .ok_or("the mute item is missing from the tray menu")?;
-            let first = mute_position + 2; // after the mute item and its separator
+                .position(|item| item.id() == mood_mute_item.id())
+                .ok_or("the Mood mute item is missing from the tray menu")?;
+            let first = mood_mute_position + 2; // after the last sound item and its separator
             menu.insert(&items.accessibility, first)?;
             menu.insert(&items.input_monitoring, first + 1)?;
             menu.insert(&PredefinedMenuItem::separator(), first + 2)?;
@@ -419,6 +430,7 @@ impl TrayManager {
         Ok(TrayManager {
             tray_icon,
             mute_item,
+            mood_mute_item,
             icons,
         })
     }
@@ -435,6 +447,9 @@ impl TrayManager {
         // Mutate the existing item instead of rebuilding the menu: the label is
         // fixed, only the checkmark moves.
         self.mute_item.set_checked(!enabled);
+        // Mood's mute is saved the moment it changes, from the tray or the
+        // Mood page, so the config is the source here too.
+        self.mood_mute_item.set_checked(config.ambiance_is_muted);
         self.tray_icon.set_icon(Some(self.icons.for_sound_enabled(enabled)))?;
 
         crate::always_print!("🔄 Tray updated: sounds {}", if enabled { "on" } else { "muted" });
@@ -493,6 +508,10 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
                 crate::always_print!("🔇 Tray menu: Toggle Mute clicked");
                 return Some(TrayMessage::ToggleMute);
             }
+            "toggle_mood_mute" => {
+                crate::always_print!("🔇 Tray menu: Mute Mood clicked");
+                return Some(TrayMessage::ToggleMoodMute);
+            }
             "github" => {
                 crate::always_print!("🐙 Tray menu: GitHub Repository clicked");
                 return Some(TrayMessage::OpenGitHub);
@@ -549,7 +568,7 @@ mod tests {
     #[cfg(target_os = "macos")]
     #[test]
     fn other_menu_items_are_only_queued() {
-        for id in ["toggle_mute", "github", "discord", "website", "exit"] {
+        for id in ["toggle_mute", "toggle_mood_mute", "github", "discord", "website", "exit"] {
             assert_eq!(route(id), (false, vec![id]), "{id} must reach the tray loop unchanged");
         }
     }
