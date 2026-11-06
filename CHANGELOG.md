@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Choose whether muting Mechvibes also mutes Mood.** A new "Mute Mood with your keyboard and mouse" switch in Settings > General. It is on by default, so muting Mechvibes quiets Mood too. Switch it off to keep the Mood sounds playing while your keyboard and mouse are muted, for example during a call. "Mute Mood" in the tray still mutes Mood on its own either way.
+
 ## [3.5.4] - 2026-11-06
 
 ### Added

@@ -54,22 +54,44 @@ static AMBIANCE_ENGINE_TX: std::sync::OnceLock<
 // Global ambiance player state
 static GLOBAL_AMBIANCE_PLAYER_STATE: std::sync::OnceLock<Arc<Mutex<AmbiancePlayerState>>> = std::sync::OnceLock::new();
 
-/// The latest `set_ambiance_silenced` value, so a player state built after it
-/// was sent still starts silenced.
-static SILENCED: AtomicBool = AtomicBool::new(false);
+/// The whole app is muted: the user's own mute (tray, Ctrl+Alt+M, the Home
+/// toggle) or the microphone mute. Set by the audio engine, see `set_app_muted`.
+static APP_MUTED: AtomicBool = AtomicBool::new(false);
 
-/// Silences Mood while the whole app is muted (the user's own mute, from the
-/// tray, Ctrl+Alt+M or the Home toggle, or the microphone mute), and lets it
-/// play again when that ends. The audio engine calls this, since it is the
-/// one place that sees every one of those.
+/// The user wants Mood muted along with the app (`mute_mood_with_sounds`).
+static MOOD_FOLLOWS_APP_MUTE: AtomicBool = AtomicBool::new(true);
+
+/// Whether Mood should be silent for an app-wide mute.
+fn mood_silenced(app_muted: bool, mood_follows: bool) -> bool {
+    app_muted && mood_follows
+}
+
+/// Tells Mood the whole app was muted or unmuted. The audio engine calls this,
+/// since it is the one place that sees every kind of mute.
+pub fn set_app_muted(muted: bool) {
+    APP_MUTED.store(muted, Ordering::SeqCst);
+    apply_silence();
+}
+
+/// Sets whether an app-wide mute also quiets Mood (Settings).
+pub fn set_mood_follows_mute(follows: bool) {
+    MOOD_FOLLOWS_APP_MUTE.store(follows, Ordering::SeqCst);
+    apply_silence();
+}
+
+/// Silences Mood or lets it play again, from the two flags above.
 ///
 /// Runtime only and separate from Mood's own mute: `ambiance_is_muted` is
 /// never written, so lifting it brings Mood back exactly as it was.
-pub fn set_ambiance_silenced(silenced: bool) {
-    SILENCED.store(silenced, Ordering::SeqCst);
+fn apply_silence() {
+    let silenced = current_silence();
     update_global_ambiance_player_state(|player| {
         send_engine_commands(player.set_silenced_commands(silenced));
     });
+}
+
+fn current_silence() -> bool {
+    mood_silenced(APP_MUTED.load(Ordering::SeqCst), MOOD_FOLLOWS_APP_MUTE.load(Ordering::SeqCst))
 }
 
 /// Mood's own mute and the global silence, read without copying the state.
@@ -154,6 +176,7 @@ fn open_stream(device_id: Option<&str>) -> Result<(OutputStream, OutputStreamHan
 pub fn initialize_global_ambiance_player() {
     let (tx, rx) = mpsc::channel::<AmbianceEngineCommand>();
     AMBIANCE_ENGINE_TX.get_or_init(|| Mutex::new(Some(tx)));
+    MOOD_FOLLOWS_APP_MUTE.store(crate::state::config_writer::current().mute_mood_with_sounds, Ordering::SeqCst);
 
     // Initialize global state
     let _state_ref = GLOBAL_AMBIANCE_PLAYER_STATE.get_or_init(|| {
@@ -366,7 +389,8 @@ pub struct AmbiancePlayerState {
     pub global_volume: f32, // 0.0 to 1.0 - global multiplier for all sounds
     pub is_muted: bool,
     pub is_playing: bool, // Global play/pause state for all ambiance sounds
-    /// The whole app is muted, see `set_ambiance_silenced`. Never saved.
+    /// The whole app is muted and Mood follows it, see `set_app_muted`.
+    /// Never saved.
     pub silenced: bool,
 }
 
@@ -398,7 +422,7 @@ impl AmbiancePlayerState {
             global_volume: config.ambiance_global_volume,
             is_muted: config.ambiance_is_muted,
             is_playing: false, // Always start paused, don't persist play state
-            silenced: SILENCED.load(Ordering::SeqCst),
+            silenced: current_silence(),
         }
     }
 
@@ -679,7 +703,7 @@ impl AmbiancePlayerState {
         self.audibility_commands(was_audible)
     }
 
-    /// The state change behind `set_ambiance_silenced`, see
+    /// The state change behind `apply_silence`, see
     /// `toggle_mute_commands`.
     fn set_silenced_commands(&mut self, silenced: bool) -> Vec<AmbianceEngineCommand> {
         let was_audible = self.is_audible();
@@ -913,6 +937,14 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn mood_goes_quiet_with_the_app_only_when_the_user_chose_so() {
+        assert!(mood_silenced(true, true));
+        assert!(!mood_silenced(true, false), "switched off in Settings: Mood keeps playing");
+        assert!(!mood_silenced(false, true));
+        assert!(!mood_silenced(false, false));
     }
 
     #[test]
