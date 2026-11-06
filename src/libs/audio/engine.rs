@@ -110,7 +110,6 @@ pub fn spawn_engine(
 
     // Both launch paths (window and headless) come through here, so the
     // microphone watcher starts with every engine.
-    #[cfg(target_os = "windows")]
     crate::libs::mic_activity::spawn_watcher(handle.clone());
 
     let _ = ENGINE_HANDLE.set(handle.clone());

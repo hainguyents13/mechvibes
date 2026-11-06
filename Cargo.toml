@@ -75,6 +75,10 @@ libc = "0.2"
 # not bundle system libraries. The "static" feature compiles libbz2 into the
 # binary instead. Same version zip already uses, so nothing new is added.
 bzip2 = { version = "0.5", features = ["static"] }
+# Microphone-in-use detection (src/libs/mic_activity.rs) talks to the
+# PulseAudio or PipeWire sound server. A pure Rust client, so neither the .deb
+# nor the AppImage needs libpulse.
+pulseaudio = "0.3"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"

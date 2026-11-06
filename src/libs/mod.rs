@@ -7,6 +7,8 @@ pub mod headless;
 pub mod input_device_manager;
 pub mod input_listener;
 pub mod input_manager;
+// Microphone-in-use mute, with a detector for each platform.
+pub mod mic_activity;
 pub mod protocol;
 pub mod routes;
 pub mod theme;
@@ -36,10 +38,6 @@ pub mod console_attach;
 pub mod input_worker;
 #[cfg(target_os = "windows")]
 pub mod input_worker_host;
-// Microphone-in-use mute. Linux and macOS have no detector yet, and Settings
-// hides the switch there.
-#[cfg(target_os = "windows")]
-pub mod mic_activity;
 #[cfg(target_os = "windows")]
 pub mod rawinput_listener;
 #[cfg(target_os = "windows")]
