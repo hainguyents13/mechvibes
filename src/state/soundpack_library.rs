@@ -90,6 +90,31 @@ pub fn is_new(seen: &[String], folder_path: &str) -> bool {
     !seen.iter().any(|id| id == folder_path)
 }
 
+/// Stars `folder_path`, or takes the star off when it has one.
+pub fn toggle_pin(pinned: &mut Vec<String>, folder_path: &str) {
+    match pinned.iter().position(|id| id == folder_path) {
+        Some(index) => {
+            pinned.remove(index);
+        }
+        None => pinned.push(folder_path.to_string()),
+    }
+}
+
+/// Whether `folder_path` is starred.
+pub fn is_pinned(pinned: &[String], folder_path: &str) -> bool {
+    pinned.iter().any(|id| id == folder_path)
+}
+
+/// Where a pack goes in a pack picker, smallest first: starred packs before
+/// the rest, then the most recently added, then by name.
+pub fn picker_order(
+    pinned: bool,
+    added_at: u64,
+    name: &str
+) -> (std::cmp::Reverse<bool>, std::cmp::Reverse<u64>, String) {
+    (std::cmp::Reverse(pinned), std::cmp::Reverse(added_at), name.to_lowercase())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -155,5 +180,32 @@ mod tests {
 
         // Idempotent: selecting the same pack again is not a config change.
         assert!(!mark_seen(&mut seen, "keyboard/one"));
+    }
+
+    #[test]
+    fn a_star_goes_on_and_comes_off_and_touches_no_other_pack() {
+        let mut pinned = vec!["keyboard/one".to_string()];
+
+        toggle_pin(&mut pinned, "keyboard/two");
+        assert!(is_pinned(&pinned, "keyboard/one"));
+        assert!(is_pinned(&pinned, "keyboard/two"));
+
+        toggle_pin(&mut pinned, "keyboard/one");
+        assert!(!is_pinned(&pinned, "keyboard/one"));
+        assert_eq!(pinned, ["keyboard/two"]);
+    }
+
+    #[test]
+    fn starred_packs_come_first_then_the_newest_then_by_name() {
+        let mut packs = vec![
+            ("Zeta", false, 300u64),
+            ("Old favorite", true, 100),
+            ("alpha", false, 200),
+            ("Beta", false, 200),
+            ("New favorite", true, 400),
+        ];
+        packs.sort_by_key(|(name, pinned, added)| picker_order(*pinned, *added, name));
+        let names: Vec<_> = packs.iter().map(|(name, ..)| *name).collect();
+        assert_eq!(names, ["New favorite", "Old favorite", "Zeta", "alpha", "Beta"]);
     }
 }

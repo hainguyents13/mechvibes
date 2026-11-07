@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Pin your favorite sound packs.** Open the keyboard or mouse pack list on Home and click the star next to a pack to keep it at the top of that list. Click the star again to unpin it. Handy when you have lots of packs and keep switching between a few.
+
 ## [3.5.5] - 2026-11-07
 
 ### Added

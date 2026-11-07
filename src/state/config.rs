@@ -141,6 +141,10 @@ pub struct AppConfig {
     /// Soundpacks whose "New" badge has been cleared by selecting them.
     #[serde(default)]
     pub soundpacks_seen: Vec<String>,
+    /// Soundpacks the user starred, by folder path. They come first in the
+    /// pack pickers on Home.
+    #[serde(default)]
+    pub pinned_soundpacks: Vec<String>,
     // Device settings
     pub selected_audio_device: Option<String>, // Selected audio output device
     pub enabled_keyboards: Vec<String>, // Enabled physical keyboards (by device instance ID)
@@ -319,6 +323,7 @@ impl AppConfig {
             && self.selected_audio_device == other.selected_audio_device
             && self.soundpack_added_at == other.soundpack_added_at
             && self.soundpacks_seen == other.soundpacks_seen
+            && self.pinned_soundpacks == other.pinned_soundpacks
             && self.enabled_keyboards == other.enabled_keyboards
             && self.enabled_mice == other.enabled_mice
             && self.theme == other.theme
@@ -502,6 +507,7 @@ impl Default for AppConfig {
             enable_mouse_sound: true, // Default mouse sounds enabled
             soundpack_added_at: HashMap::new(),
             soundpacks_seen: Vec::new(),
+            pinned_soundpacks: Vec::new(),
             selected_audio_device: None, // Default to system default audio device
             enabled_keyboards: Vec::new(), // Default to no keyboards enabled (all keyboards will work)
             enabled_mice: Vec::new(), // Default to no mice enabled (all mice will work)
@@ -659,6 +665,22 @@ mod tests {
         let mut toggled = restored.clone();
         toggled.mute_while_mic_in_use = true;
         assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before pinning loads with nothing pinned, and pinning a
+    /// pack is saved.
+    #[test]
+    fn pinned_soundpacks_start_empty_and_pinning_one_is_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("pinned_soundpacks");
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating pinned_soundpacks must deserialize, not reset");
+        assert!(restored.pinned_soundpacks.is_empty());
+
+        let mut pinned = restored.clone();
+        pinned.pinned_soundpacks.push("keyboard/one".to_string());
+        assert!(!pinned.data_equals(&restored), "pinning must mark the config dirty");
     }
 
     /// A config from before the choice keeps muting Mood with the app, as
@@ -1001,6 +1023,7 @@ mod tests {
             ("selected_audio_device", json!("output_name:0b3a976597860826")),
             ("soundpack_added_at", json!({ "keyboard/one": 1_700_000_000u64 })),
             ("soundpacks_seen", json!(["keyboard/one"])),
+            ("pinned_soundpacks", json!(["keyboard/one"])),
             ("enabled_keyboards", json!(["keyboard-1"])),
             ("enabled_mice", json!(["mouse-1"])),
             ("ambiance_active_sounds", json!({ "rain": 0.5 })),

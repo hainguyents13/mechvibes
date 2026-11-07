@@ -4,7 +4,7 @@ use crate::state::config::AppConfig;
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
 use futures_timer::Delay;
-use lucide_dioxus::{ Check, ChevronDown, Keyboard, Mouse, Search, Shuffle };
+use lucide_dioxus::{ Check, ChevronDown, Keyboard, Mouse, Search, Shuffle, Star };
 use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
@@ -116,7 +116,9 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
     // Reading this from the shared config signal is what makes the badge
     // vanish from every list at once: selecting a pack anywhere writes
     // `soundpacks_seen`, and each list re-renders off the same value.
-    let seen_soundpacks = use_memo(move || config().soundpacks_seen.clone()); // Filter soundpacks based on search query and type, then sort by last_modified
+    let seen_soundpacks = use_memo(move || config().soundpacks_seen.clone());
+    let pinned_soundpacks = use_memo(move || config().pinned_soundpacks.clone());
+    // Filter soundpacks based on search query and type, then sort them
     let filtered_soundpacks = use_memo(move || {
         let query = search_query().to_lowercase();
         let all_packs = soundpacks(); // Filter by type first
@@ -146,14 +148,17 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                 .collect()
         };
 
-        // Most recently added first. `soundpack_added_at` rather than
-        // `last_modified`, which is the folder's mtime and moves whenever a
-        // file inside the pack is edited. Packs with no timestamp sort last.
-        let added_at = config().soundpack_added_at;
-        filtered_packs.sort_by(|a, b| {
-            let a_added = added_at.get(&a.folder_path).copied().unwrap_or(0);
-            let b_added = added_at.get(&b.folder_path).copied().unwrap_or(0);
-            b_added.cmp(&a_added).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+        // Starred packs first, then the most recently added. `soundpack_added_at`
+        // rather than `last_modified`, which is the folder's mtime and moves
+        // whenever a file inside the pack is edited. Packs with no timestamp
+        // sort last.
+        let config = config();
+        filtered_packs.sort_by_key(|pack| {
+            crate::state::soundpack_library::picker_order(
+                crate::state::soundpack_library::is_pinned(&config.pinned_soundpacks, &pack.folder_path),
+                config.soundpack_added_at.get(&pack.folder_path).copied().unwrap_or(0),
+                &pack.name
+            )
         });
 
         filtered_packs
@@ -340,12 +345,16 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                   }
                 } else {
                   for pack in filtered_soundpacks.read().iter() {
-                    button {
+                    div {
                       key: "{pack.id}",
+                      class: "relative border-b border-base-300 last:border-b-0",
+                    button {
                       class: format!(
-                          "w-full px-4 rounded-none py-2 text-left btn btn-lg justify-start gap-4 border-b border-base-300 last:border-b-0 h-auto {}",
+                          "w-full px-4 rounded-none py-2 text-left btn btn-lg justify-start gap-4 h-auto {}",
                           if pack.folder_path == current() { "btn-disabled" } else { "btn-ghost" },
                       ),
+                      // Room for the star button over the row's right edge.
+                      style: "padding-right: 3rem;",
                       disabled: pack.folder_path == current(),
                       // Use folder_path for comparison
                       onclick: {
@@ -409,6 +418,40 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                           }
                         }
                       }
+                    }
+                    // Star: keeps the pack at the top of this list. A sibling
+                    // of the row button, so it works on the active pack too
+                    // and never selects the pack.
+                    {
+                        let pinned = crate::state::soundpack_library::is_pinned(
+                            &pinned_soundpacks(),
+                            &pack.folder_path,
+                        );
+                        let folder_path = pack.folder_path.clone();
+                        let update_config = update_config.clone();
+                        rsx! {
+                          button {
+                            class: format!(
+                                "absolute right-2 top-1/2 -translate-y-1/2 btn btn-ghost btn-sm btn-square {}",
+                                if pinned { "text-primary" } else { "text-base-content/40" },
+                            ),
+                            title: if pinned { "Unpin" } else { "Pin to the top" },
+                            onclick: move |evt: Event<MouseData>| {
+                                evt.stop_propagation();
+                                let folder_path = folder_path.clone();
+                                update_config(
+                                    Box::new(move |config| {
+                                        crate::state::soundpack_library::toggle_pin(
+                                            &mut config.pinned_soundpacks,
+                                            &folder_path,
+                                        );
+                                    }),
+                                );
+                            },
+                            Star { class: if pinned { "w-4 h-4 fill-primary" } else { "w-4 h-4" } }
+                          }
+                        }
+                    }
                     }
                   }
                 }
