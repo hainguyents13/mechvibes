@@ -90,29 +90,59 @@ pub fn is_new(seen: &[String], folder_path: &str) -> bool {
     !seen.iter().any(|id| id == folder_path)
 }
 
-/// Stars `folder_path`, or takes the star off when it has one.
-pub fn toggle_pin(pinned: &mut Vec<String>, folder_path: &str) {
-    match pinned.iter().position(|id| id == folder_path) {
-        Some(index) => {
-            pinned.remove(index);
+/// "keyboard" or "mouse", from a pack id such as "keyboard/cherrymx-red-abs".
+fn kind_of(folder_path: &str) -> &str {
+    folder_path.split('/').next().unwrap_or_default()
+}
+
+/// The ids of the packs that ship with the app, read once from the built-in
+/// soundpacks folder.
+pub fn builtin_pack_ids() -> &'static [String] {
+    static IDS: std::sync::OnceLock<Vec<String>> = std::sync::OnceLock::new();
+    IDS.get_or_init(|| {
+        let root = crate::state::paths::soundpacks::get_builtin_soundpacks_dir();
+        let mut ids = Vec::new();
+        for kind in ["keyboard", "mouse"] {
+            let Ok(entries) = std::fs::read_dir(root.join(kind)) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                if entry.path().is_dir() {
+                    ids.push(format!("{}/{}", kind, entry.file_name().to_string_lossy()));
+                }
+            }
         }
-        None => pinned.push(folder_path.to_string()),
+        ids
+    })
+}
+
+/// Whether `folder_path` is starred. A list (keyboard or mouse) with no star
+/// of its own counts its built-in packs as starred, so the pack list on Home
+/// is never empty.
+pub fn is_starred(stored: &[String], builtin: &[String], folder_path: &str) -> bool {
+    let kind = kind_of(folder_path);
+    let has_own_stars = stored.iter().any(|id| kind_of(id) == kind);
+    if has_own_stars {
+        stored.iter().any(|id| id == folder_path)
+    } else {
+        builtin.iter().any(|id| id == folder_path)
     }
 }
 
-/// Whether `folder_path` is starred.
-pub fn is_pinned(pinned: &[String], folder_path: &str) -> bool {
-    pinned.iter().any(|id| id == folder_path)
-}
-
-/// Where a pack goes in a pack picker, smallest first: starred packs before
-/// the rest, then the most recently added, then by name.
-pub fn picker_order(
-    pinned: bool,
-    added_at: u64,
-    name: &str
-) -> (std::cmp::Reverse<bool>, std::cmp::Reverse<u64>, String) {
-    (std::cmp::Reverse(pinned), std::cmp::Reverse(added_at), name.to_lowercase())
+/// Stars `folder_path`, or takes the star off when it has one. The first
+/// change to a list with no star of its own starts from its built-in packs,
+/// which were showing as starred.
+pub fn toggle_star(stored: &mut Vec<String>, builtin: &[String], folder_path: &str) {
+    let kind = kind_of(folder_path);
+    if !stored.iter().any(|id| kind_of(id) == kind) {
+        stored.extend(builtin.iter().filter(|id| kind_of(id) == kind).cloned());
+    }
+    match stored.iter().position(|id| id == folder_path) {
+        Some(index) => {
+            stored.remove(index);
+        }
+        None => stored.push(folder_path.to_string()),
+    }
 }
 
 #[cfg(test)]
@@ -182,30 +212,51 @@ mod tests {
         assert!(!mark_seen(&mut seen, "keyboard/one"));
     }
 
-    #[test]
-    fn a_star_goes_on_and_comes_off_and_touches_no_other_pack() {
-        let mut pinned = vec!["keyboard/one".to_string()];
-
-        toggle_pin(&mut pinned, "keyboard/two");
-        assert!(is_pinned(&pinned, "keyboard/one"));
-        assert!(is_pinned(&pinned, "keyboard/two"));
-
-        toggle_pin(&mut pinned, "keyboard/one");
-        assert!(!is_pinned(&pinned, "keyboard/one"));
-        assert_eq!(pinned, ["keyboard/two"]);
+    fn ids(list: &[&str]) -> Vec<String> {
+        list.iter().map(|id| id.to_string()).collect()
     }
 
     #[test]
-    fn starred_packs_come_first_then_the_newest_then_by_name() {
-        let mut packs = vec![
-            ("Zeta", false, 300u64),
-            ("Old favorite", true, 100),
-            ("alpha", false, 200),
-            ("Beta", false, 200),
-            ("New favorite", true, 400),
-        ];
-        packs.sort_by_key(|(name, pinned, added)| picker_order(*pinned, *added, name));
-        let names: Vec<_> = packs.iter().map(|(name, ..)| *name).collect();
-        assert_eq!(names, ["New favorite", "Old favorite", "Zeta", "alpha", "Beta"]);
+    fn with_no_stars_the_built_in_packs_are_starred() {
+        let builtin = ids(&["keyboard/red", "mouse/chat"]);
+        assert!(is_starred(&[], &builtin, "keyboard/red"));
+        assert!(is_starred(&[], &builtin, "mouse/chat"));
+        assert!(!is_starred(&[], &builtin, "keyboard/downloaded"));
+    }
+
+    #[test]
+    fn each_list_falls_back_on_its_own() {
+        // Starring a keyboard pack must not leave the mouse list empty.
+        let builtin = ids(&["keyboard/red", "mouse/chat"]);
+        let stored = ids(&["keyboard/downloaded"]);
+        assert!(is_starred(&stored, &builtin, "keyboard/downloaded"));
+        assert!(!is_starred(&stored, &builtin, "keyboard/red"), "keyboard has its own stars now");
+        assert!(is_starred(&stored, &builtin, "mouse/chat"), "mouse still has none of its own");
+    }
+
+    #[test]
+    fn the_first_star_keeps_the_built_in_ones_that_were_showing() {
+        let builtin = ids(&["keyboard/red", "keyboard/blue", "mouse/chat"]);
+        let mut stored = Vec::new();
+
+        toggle_star(&mut stored, &builtin, "keyboard/downloaded");
+        assert_eq!(stored, ids(&["keyboard/red", "keyboard/blue", "keyboard/downloaded"]));
+
+        // Taking a star off a built-in pack only removes that one.
+        let mut stored = Vec::new();
+        toggle_star(&mut stored, &builtin, "keyboard/red");
+        assert_eq!(stored, ids(&["keyboard/blue"]));
+        assert!(!is_starred(&stored, &builtin, "keyboard/red"));
+        assert!(is_starred(&stored, &builtin, "mouse/chat"), "the mouse list is untouched");
+    }
+
+    #[test]
+    fn a_star_comes_off_again() {
+        let builtin = ids(&["keyboard/red"]);
+        let mut stored = ids(&["keyboard/one", "keyboard/two"]);
+        toggle_star(&mut stored, &builtin, "keyboard/one");
+        assert_eq!(stored, ids(&["keyboard/two"]));
+        toggle_star(&mut stored, &builtin, "keyboard/one");
+        assert!(is_starred(&stored, &builtin, "keyboard/one"));
     }
 }

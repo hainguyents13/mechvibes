@@ -141,8 +141,9 @@ pub struct AppConfig {
     /// Soundpacks whose "New" badge has been cleared by selecting them.
     #[serde(default)]
     pub soundpacks_seen: Vec<String>,
-    /// Soundpacks the user starred, by folder path. They come first in the
-    /// pack pickers on Home.
+    /// Soundpacks the user starred, by folder path. Only starred packs are
+    /// listed in the pack pickers on Home; a type with none falls back on its
+    /// built-in packs (`soundpack_library::is_starred`).
     #[serde(default)]
     pub pinned_soundpacks: Vec<String>,
     // Device settings

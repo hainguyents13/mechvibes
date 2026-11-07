@@ -8,7 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
-- **Pin your favorite sound packs.** Open the keyboard or mouse pack list on Home and click the star next to a pack to keep it at the top of that list. Click the star again to unpin it. Handy when you have lots of packs and keep switching between a few.
+- **Star your favorite sound packs.** Each pack on the Sound packs page now has a star, and the pack lists on Home show only your starred packs, so switching between favorites stays quick however many packs you have. The packs that come with Mechvibes start out starred, so Home is never empty.
 
 ## [3.5.5] - 2026-11-07
 

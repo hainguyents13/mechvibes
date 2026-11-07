@@ -6,7 +6,7 @@ use crate::utils::config::use_config;
 use crate::utils::path::{ open_path, directory_exists };
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use lucide_dioxus::{ ArrowDownAZ, Clock, FolderOpen, Plus, RefreshCw, Trash };
+use lucide_dioxus::{ ArrowDownAZ, Clock, FolderOpen, Plus, RefreshCw, Star, Trash };
 use std::sync::Arc;
 
 use super::{ ConfirmDeleteModal, PackCover };
@@ -89,6 +89,7 @@ pub fn SoundpackTable(
     };
 
     let seen_soundpacks = config().soundpacks_seen.clone();
+    let pinned_soundpacks = config().pinned_soundpacks.clone();
     match sort_order() {
         SoundpackSort::Name => {
             filtered_soundpacks.sort_by(|a, b|
@@ -214,6 +215,11 @@ pub fn SoundpackTable(
                           &seen_soundpacks,
                           &pack.folder_path,
                       ),
+                      starred: crate::state::soundpack_library::is_starred(
+                          &pinned_soundpacks,
+                          crate::state::soundpack_library::builtin_pack_ids(),
+                          &pack.folder_path,
+                      ),
                       soundpack: pack,
                     }
                   }
@@ -227,8 +233,26 @@ pub fn SoundpackTable(
 }
 
 #[component]
-pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool) -> Element {
+pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bool) -> Element {
     let state_trigger = use_state_trigger();
+    let (_config, update_config) = use_config();
+
+    // A starred pack is listed in the pack picker on Home.
+    let on_toggle_star = {
+        let folder_path = soundpack.folder_path.clone();
+        move |_| {
+            let folder_path = folder_path.clone();
+            update_config(
+                Box::new(move |config| {
+                    crate::state::soundpack_library::toggle_star(
+                        &mut config.pinned_soundpacks,
+                        crate::state::soundpack_library::builtin_pack_ids(),
+                        &folder_path
+                    );
+                })
+            );
+        }
+    };
 
     // Handlers for button clicks
     let on_open_folder = {
@@ -324,6 +348,12 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool) -> Element 
         // Actions
         td {
           div { class: "flex items-center justify-end gap-1",
+            button {
+              class: if starred { "btn btn-ghost btn-xs text-primary" } else { "btn btn-ghost btn-xs text-base-content/40" },
+              title: if starred { "Remove from the Home list" } else { "Show on the Home list" },
+              onclick: on_toggle_star,
+              Star { class: if starred { "w-4 h-4 fill-primary" } else { "w-4 h-4" } }
+            }
             button {
               class: "btn btn-soft btn-xs",
               title: "Open soundpack folder",
