@@ -120,6 +120,9 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
     let filtered_soundpacks = use_memo(move || {
         let query = search_query().to_lowercase();
         let all_packs = soundpacks(); // Filter by type first
+        // Only the starred packs: the full list, with the stars, is on the
+        // Sound packs page.
+        let pinned = config().pinned_soundpacks;
         let type_filtered_packs: Vec<_> = all_packs
             .into_iter()
             .filter(|pack| {
@@ -129,6 +132,13 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                     SelectorType::Mouse =>
                         pack.soundpack_type == crate::state::soundpack::SoundpackType::Mouse,
                 }
+            })
+            .filter(|pack| {
+                crate::state::soundpack_library::is_starred(
+                    &pinned,
+                    crate::state::soundpack_library::builtin_pack_ids(),
+                    &pack.folder_path
+                )
             })
             .collect();
 
@@ -197,9 +207,10 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
             })
     });
 
-    // Packs of this type other than the active one — the pool the randomize
-    // button picks from
+    // The starred packs of this type other than the active one, the pool the
+    // randomize button picks from. Same packs as the list, whatever the search.
     let random_candidates = use_memo(move || {
+        let pinned = config().pinned_soundpacks;
         soundpacks()
             .into_iter()
             .filter(|pack| {
@@ -212,6 +223,13 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
             })
             .map(|pack| pack.folder_path)
             .filter(|path| *path != current())
+            .filter(|path| {
+                crate::state::soundpack_library::is_starred(
+                    &pinned,
+                    crate::state::soundpack_library::builtin_pack_ids(),
+                    path
+                )
+            })
             .collect::<Vec<_>>()
     });
 
@@ -412,6 +430,9 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                     }
                   }
                 }
+              }
+              div { class: "px-4 py-2 border-t border-base-300 text-xs text-base-content/50",
+                "Star more packs on the Sound packs page to list them here."
               }
             }
           }
