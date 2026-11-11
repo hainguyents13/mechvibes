@@ -445,15 +445,35 @@ fn play_segment(
 
     let mut segment_samples = samples[start_sample..end_sample].to_vec();
     apply_fade(&mut segment_samples, channels, sample_rate);
-    let segment = SamplesBuffer::new(channels, sample_rate, segment_samples);
-
-    if let Ok(sink) = Sink::try_new(stream_handle) {
-        sink.set_volume(volume);
-        sink.append(segment);
-
+    let (sink, queue) = prepare_segment_sink(segment_samples, channels, sample_rate, volume);
+    if stream_handle.play_raw(queue).is_ok() {
         manage_active_sinks(sinks, MAX_VOICES);
         sinks.push(sink);
     }
+}
+
+/// Expose the segment's format before the idle queue reaches rodio's mixer.
+/// rodio 0.20's empty Sink reports 44.1 kHz mono, which can make the mixer
+/// convert the first stereo samples as mono when a sound is appended.
+fn prepare_segment_sink(
+    samples: Vec<f32>,
+    channels: u16,
+    sample_rate: u32,
+    volume: f32,
+) -> (Sink, rodio::queue::SourcesQueueOutput<f32>) {
+    // Prime the queue with one silent frame, leaving every actual sample intact.
+    let mut padded = Vec::with_capacity(samples.len() + channels as usize);
+    padded.resize(channels as usize, 0.0);
+    padded.extend(samples);
+
+    let (sink, mut queue) = Sink::new_idle();
+    sink.set_volume(volume);
+    sink.append(SamplesBuffer::new(channels, sample_rate, padded));
+    for _ in 0..channels {
+        let _ = queue.next();
+    }
+
+    (sink, queue)
 }
 
 /// Applies a linear fade-in/fade-out to interleaved PCM samples in place.
@@ -759,6 +779,20 @@ fn app_muted_changed(sent: Option<bool>, muted: bool) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use rodio::source::UniformSourceIterator;
+
+    #[test]
+    fn a_stereo_segment_keeps_its_first_frame_after_an_idle_sink() {
+        // A new rodio 0.20 Sink initially advertises 44.1 kHz mono silence.
+        // The output mixer must see the segment's real format before reading it.
+        let samples = vec![0.25, -0.5, 0.75, -0.25, -0.125, 0.5];
+        let (_sink, queue) = prepare_segment_sink(samples.clone(), 2, 48_000, 1.0);
+        let rendered: Vec<f32> = UniformSourceIterator::new(queue, 2, 48_000)
+            .take(samples.len())
+            .collect();
+
+        assert_eq!(rendered, samples);
+    }
 
     /// The engine's own source, so the assertions below are checked against
     /// what actually ships rather than a description of it.
