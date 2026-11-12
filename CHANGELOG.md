@@ -4,6 +4,14 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **"Check for Updates" no longer fails with "HTTP 403 Forbidden" behind a VPN.** GitHub allows each internet address only 60 update checks an hour, and a VPN such as Cloudflare WARP, or a shared office or school network, puts many people behind one address, so the check failed for all of them. When that happens, Mechvibes now reads the latest version from the GitHub release page instead, and offers the update as usual.
+- **Key sounds keep their first moment.** A stereo key sound could start a few milliseconds distorted, as if it were mono, before playing normally. Thanks to [@kmch4n](https://github.com/kmch4n) for finding and fixing it (#191).
+- **Click an open card in Settings to close it.** Before, an open card only closed when you opened another one. Thanks to [@adnan-bhaldar](https://github.com/adnan-bhaldar) (#185).
+
 ## [3.5.6] - 2026-11-07
 
 ### Added

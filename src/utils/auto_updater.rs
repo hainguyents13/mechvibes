@@ -164,6 +164,40 @@ fn find_download_url_for(kind: InstallKind, assets: &[GitHubAsset]) -> Option<St
         .map(|asset| asset.browser_download_url.clone())
 }
 
+/// The tag at the end of a release page URL, such as `v3.5.6` from
+/// `https://github.com/owner/repo/releases/tag/v3.5.6`.
+fn tag_from_release_url(url: &str) -> Option<&str> {
+    let (_, tag) = url.split_once("/releases/tag/")?;
+    let tag = tag.split(['?', '#', '/']).next()?;
+    (!tag.is_empty()).then_some(tag)
+}
+
+/// The files of release `tag`, from the links in GitHub's `expanded_assets`
+/// page. Only links into this repository's own download folder for that tag
+/// count, so nothing else on the page can pose as an asset.
+fn assets_from_expanded_html(html: &str, tag: &str) -> Vec<GitHubAsset> {
+    let prefix = format!("/{}/{}/releases/download/{}/", REPO_OWNER, REPO_NAME, tag);
+    let mut assets: Vec<GitHubAsset> = Vec::new();
+    for link in html.split("href=\"").skip(1) {
+        let Some(path) = link.split('"').next() else {
+            continue;
+        };
+        let Some(name) = path.strip_prefix(&prefix) else {
+            continue;
+        };
+        if name.is_empty() || name.contains('/') || assets.iter().any(|a| a.name == name) {
+            continue;
+        }
+        assets.push(GitHubAsset {
+            name: name.to_string(),
+            browser_download_url: format!("https://github.com{}", path),
+            content_type: String::new(),
+            size: 0,
+        });
+    }
+    assets
+}
+
 pub struct AutoUpdater {
     pub current_version: String,
 }
@@ -175,12 +209,31 @@ impl AutoUpdater {
         }
     }
     pub async fn check_for_updates(&self) -> Result<UpdateInfo, UpdateError> {
+        match self.latest_release_from_api().await {
+            Ok(release) => self.update_info_for(&release),
+            Err(api_error) => {
+                // The API allows 60 requests an hour per IP address, and a VPN
+                // such as Cloudflare WARP or a shared office network puts many
+                // people behind one address, so it answers 403 long before any
+                // of them checks twice. The release pages have no such limit.
+                crate::always_print!(
+                    "Release API unavailable ({}), reading the release pages instead",
+                    api_error
+                );
+                self.latest_release_from_pages().await
+                    .map_err(|_| api_error)
+                    .and_then(|release| self.update_info_for(&release))
+            }
+        }
+    }
+
+    async fn latest_release_from_api(&self) -> Result<GitHubRelease, UpdateError> {
         let url = format!("https://api.github.com/repos/{}/{}/releases", REPO_OWNER, REPO_NAME);
 
         let client = reqwest::Client::new();
         let response = client
             .get(&url)
-            .header("User-Agent", format!("{}/{}", APP_NAME, self.current_version))
+            .header("User-Agent", self.user_agent())
             .send().await
             .map_err(|e| UpdateError::NetworkError(e.to_string()))?;
 
@@ -197,11 +250,65 @@ impl AutoUpdater {
         }
 
         // Find the latest release (excluding prereleases)
-        let latest_release = releases
-            .iter()
+        releases
+            .into_iter()
             .find(|release| !release.prerelease)
-            .ok_or(UpdateError::NotFound)?;
+            .ok_or(UpdateError::NotFound)
+    }
 
+    /// The latest release read from github.com itself rather than its API.
+    ///
+    /// `releases/latest` redirects to the newest release that is neither a
+    /// draft nor a prerelease, and `expanded_assets` lists that release's files.
+    /// Neither carries the notes or the date, which the API path has and the
+    /// update flow does not need.
+    async fn latest_release_from_pages(&self) -> Result<GitHubRelease, UpdateError> {
+        let client = reqwest::Client
+            ::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .user_agent(self.user_agent())
+            .build()
+            .map_err(|e| UpdateError::NetworkError(e.to_string()))?;
+        let network = |e: reqwest::Error| UpdateError::NetworkError(e.to_string());
+
+        let latest = client
+            .get(format!("https://github.com/{}/{}/releases/latest", REPO_OWNER, REPO_NAME))
+            .send().await
+            .map_err(network)?;
+        let location = latest
+            .headers()
+            .get(reqwest::header::LOCATION)
+            .and_then(|value| value.to_str().ok())
+            .ok_or(UpdateError::NotFound)?;
+        let tag = tag_from_release_url(location).ok_or(UpdateError::NotFound)?.to_string();
+
+        let assets_page = client
+            .get(
+                format!(
+                    "https://github.com/{}/{}/releases/expanded_assets/{}",
+                    REPO_OWNER,
+                    REPO_NAME,
+                    tag
+                )
+            )
+            .send().await
+            .map_err(network)?;
+        if !assets_page.status().is_success() {
+            return Err(UpdateError::NetworkError(format!("HTTP {}", assets_page.status())));
+        }
+        let html = assets_page.text().await.map_err(network)?;
+
+        Ok(GitHubRelease {
+            assets: assets_from_expanded_html(&html, &tag),
+            name: tag.clone(),
+            tag_name: tag,
+            body: String::new(),
+            published_at: String::new(),
+            prerelease: false,
+        })
+    }
+
+    fn update_info_for(&self, latest_release: &GitHubRelease) -> Result<UpdateInfo, UpdateError> {
         crate::always_print!(
             "Latest release: {} ({}), published at {}",
             latest_release.tag_name,
@@ -232,7 +339,9 @@ impl AutoUpdater {
             latest_version: latest_version.to_string(),
             update_available,
             download_url,
-            release_notes: Some(latest_release.body.clone()),
+            // Settings links to this, so it is the release page rather than the
+            // notes' markdown, as in `get_saved_update_info`.
+            release_notes: Some(AutoUpdater::releases_page_url(&latest_version.to_string())),
             published_at,
             is_prerelease: latest_release.prerelease,
         })
@@ -972,6 +1081,63 @@ mod tests {
         assert!(!is_upgrade("0.6.1", "not-a-version"));
         assert!(!is_upgrade("garbage", "0.7.0"));
         assert!(!is_upgrade("", ""));
+    }
+
+    #[test]
+    fn the_tag_is_read_from_the_latest_release_redirect() {
+        assert_eq!(
+            tag_from_release_url("https://github.com/hainguyents13/mechvibes/releases/tag/v3.5.6"),
+            Some("v3.5.6")
+        );
+        assert_eq!(tag_from_release_url("https://github.com/o/r/releases/tag/v1.0.0?x=1"), Some("v1.0.0"));
+        // A repository with no release redirects to the release list instead.
+        assert_eq!(tag_from_release_url("https://github.com/o/r/releases"), None);
+        assert_eq!(tag_from_release_url("https://github.com/o/r/releases/tag/"), None);
+    }
+
+    /// Lines as GitHub's `expanded_assets` page serves them, source archives
+    /// included.
+    const EXPANDED_ASSETS: &str =
+        r#"
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/mechvibes-3.5.6-macos-arm64.dmg" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/mechvibes-3.5.6-macos-x86_64.dmg" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/Mechvibes-3.5.6-Setup-x64.exe" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/mechvibes-3.5.6-x86_64.AppImage" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/mechvibes_3.5.6_amd64.deb" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/releases/download/v3.5.6/SHA256SUMS.txt" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/hainguyents13/mechvibes/archive/refs/tags/v3.5.6.zip" rel="nofollow" data-turbo="false" class="wb-break-all">
+          <a href="/someone-else/mechvibes/releases/download/v3.5.6/Evil-Setup-x64.exe" rel="nofollow">
+        "#;
+
+    #[test]
+    fn the_release_pages_give_each_platform_its_download() {
+        let assets = assets_from_expanded_html(EXPANDED_ASSETS, "v3.5.6");
+        let names: Vec<&str> = assets
+            .iter()
+            .map(|asset| asset.name.as_str())
+            .collect();
+        assert_eq!(
+            names,
+            [
+                "mechvibes-3.5.6-macos-arm64.dmg",
+                "mechvibes-3.5.6-macos-x86_64.dmg",
+                "Mechvibes-3.5.6-Setup-x64.exe",
+                "mechvibes-3.5.6-x86_64.AppImage",
+                "mechvibes_3.5.6_amd64.deb",
+                "SHA256SUMS.txt",
+            ]
+        );
+        assert_eq!(
+            find_download_url_for(InstallKind::Windows, &assets).as_deref(),
+            Some(
+                "https://github.com/hainguyents13/mechvibes/releases/download/v3.5.6/Mechvibes-3.5.6-Setup-x64.exe"
+            )
+        );
+    }
+
+    #[test]
+    fn links_to_another_tag_are_not_assets_of_this_release() {
+        assert!(assets_from_expanded_html(EXPANDED_ASSETS, "v3.5.5").is_empty());
     }
 
     #[test]
