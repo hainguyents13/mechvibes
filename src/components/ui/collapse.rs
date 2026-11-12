@@ -1,4 +1,10 @@
 use dioxus::prelude::*;
+use std::collections::HashMap;
+
+/// Which section is open in each accordion group (`group_name` -> title).
+/// `Some(None)` means the user closed everything; no entry means the group has
+/// not been touched yet, so each section falls back to its `default_open`.
+static OPEN_SECTIONS: GlobalSignal<HashMap<String, Option<String>>> = Signal::global(HashMap::new);
 
 #[derive(Props, Clone, PartialEq)]
 pub struct CollapseProps {
@@ -56,39 +62,37 @@ pub fn Collapse(props: CollapseProps) -> Element {
         props.class
     );
 
-    // Only tracked for lazy sections; eager ones render exactly as before.
-    let mut is_open = use_signal(|| props.default_open);
-    let render_children = should_render_children(props.lazy_children, is_open());
+    // Open/closed is owned here, not by the browser, so a click on the open
+    // section closes it and opening another still closes the previous one.
+    let group = props.group_name.clone();
+    let title = props.title.clone();
+
+    // Forget the group when this section goes away (e.g. leaving Settings), so
+    // coming back starts from `default_open` exactly as before.
+    let group_for_drop = group.clone();
+    use_drop(move || {
+        OPEN_SECTIONS.write().remove(&group_for_drop);
+    });
+    let is_open = match OPEN_SECTIONS.read().get(&group) {
+        Some(open) => open.as_deref() == Some(title.as_str()),
+        None => props.default_open,
+    };
+    let render_children = should_render_children(props.lazy_children, is_open);
 
     rsx! {
         div { class: "{container_class}",
             input {
-                r#type: "radio",
-                name: "{props.group_name}",
-                checked: props.default_open,
-                // The radio drives the CSS either way. For a lazy section we
-                // additionally mirror its state into a signal so the content
-                // can be mounted and unmounted with it. `onchange` fires only
-                // when this input becomes the selected one; the sibling that
-                // gets deselected is not notified, so collapsing is handled by
-                // `onclick` on the title below.
-                onchange: move |_| {
-                    if props.lazy_children {
-                        is_open.set(true);
-                    }
+                // A checkbox, not a radio: a checked radio cannot be unchecked
+                // by clicking it. One-open-at-a-time is enforced by the shared
+                // state above, and DaisyUI styles checkbox collapses the same.
+                r#type: "checkbox",
+                checked: is_open,
+                onclick: move |_| {
+                    let next = if is_open { None } else { Some(title.clone()) };
+                    OPEN_SECTIONS.write().insert(group.clone(), next);
                 },
             }
-            div {
-                class: "{props.title_class}",
-                // Clicking the title of the section that is already open
-                // collapses it, and the radio reports no change for that. Track
-                // it here so the content unmounts rather than lingering.
-                onclick: move |_| {
-                    if props.lazy_children {
-                        let open = is_open();
-                        is_open.set(!open);
-                    }
-                },
+            div { class: "{props.title_class}",
                 span { class: "flex items-center gap-2",
                     "{props.title}"
                     if props.show_indicator {
