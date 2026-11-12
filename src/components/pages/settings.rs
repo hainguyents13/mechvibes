@@ -31,6 +31,7 @@ pub fn SettingsPage() -> Element {
     let auto_start = use_memo(move || config().auto_start);
     let start_minimized = use_memo(move || config().start_minimized);
     let start_hidden = use_memo(move || config().start_hidden);
+    let floating_dock = use_memo(move || config().floating_dock);
     let mute_while_mic_in_use = use_memo(move || config().mute_while_mic_in_use);
     let mute_mood_with_sounds = use_memo(move || config().mute_mood_with_sounds);
     let enable_telemetry = use_memo(move || config().enable_telemetry);
@@ -240,6 +241,25 @@ pub fn SettingsPage() -> Element {
                           update_config(
                               Box::new(move |config| {
                                   config.start_hidden = new_value;
+                              }),
+                          );
+                      }
+                  },
+                }
+                // Floating dock: the bottom bar as a pill
+                Toggler {
+                  title: "Floating dock".to_string(),
+                  description: Some(
+                      "Show the bottom bar as a floating pill instead of a full-width bar."
+                          .to_string(),
+                  ),
+                  checked: floating_dock(),
+                  on_change: {
+                      let update_config = update_config.clone();
+                      move |new_value: bool| {
+                          update_config(
+                              Box::new(move |config| {
+                                  config.floating_dock = new_value;
                               }),
                           );
                       }
