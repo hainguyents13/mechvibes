@@ -4,7 +4,11 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [3.5.7] - 2026-11-12
+
+### Added
+
+- **A floating dock.** A new "Floating dock" switch in Settings > General turns the bar at the bottom into a rounded pill that floats above the window's edge. It is off by default, so nothing changes until you switch it on. Thanks to [@adnan-bhaldar](https://github.com/adnan-bhaldar) (#186).
 
 ### Fixed
 
