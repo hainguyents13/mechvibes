@@ -15,17 +15,32 @@ use super::Language;
 pub struct Strings {
     /// Words shared by several screens.
     pub common: catalog::CommonStrings,
+    /// The dock's labels.
+    pub nav: catalog::NavStrings,
+    /// The Settings page.
+    pub settings: catalog::SettingsStrings,
 }
 
-const STRINGS_EN: Strings = Strings { common: catalog::common::EN };
-const STRINGS_ZH: Strings = Strings { common: catalog::common::ZH };
-const STRINGS_ES: Strings = Strings { common: catalog::common::ES };
+const STRINGS_EN: Strings = Strings {
+    common: catalog::common::EN,
+    nav: catalog::nav::EN,
+    settings: catalog::settings::EN,
+};
+const STRINGS_ZH: Strings = Strings {
+    common: catalog::common::ZH,
+    nav: catalog::nav::ZH,
+    settings: catalog::settings::ZH,
+};
+const STRINGS_ES: Strings = Strings {
+    common: catalog::common::ES,
+    nav: catalog::nav::ES,
+    settings: catalog::settings::ES,
+};
 
 /// The catalog for `language`.
 ///
 /// The match is exhaustive on purpose: adding a variant to [`Language`] stops
 /// compiling here until its catalog is listed.
-#[allow(dead_code)] // reachable from `i18n::use_strings` once the config carries the language
 pub(super) fn for_language(language: Language) -> &'static Strings {
     match language {
         Language::En => &STRINGS_EN,

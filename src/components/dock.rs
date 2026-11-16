@@ -6,6 +6,10 @@ use lucide_dioxus::{ House, Music, Palette, Settings, CloudSunRain };
 pub fn Dock() -> Element {
     let route = use_route::<crate::libs::routes::Route>();
     let (config, _) = crate::utils::config::use_config();
+    // Reads the config signal, so choosing a language in Settings re-renders
+    // this dock with the new labels - that is the on-screen proof the strings
+    // are reactive. Not memoized: a `use_memo` would freeze the first language.
+    let strings = crate::i18n::use_strings();
     let floating = config().floating_dock;
 
     rsx! {
@@ -29,7 +33,7 @@ pub fn Dock() -> Element {
               crate::libs::routes::navigate("/");
           },
           House { class: "w-5 h-5" }
-          span { class: "dock-label mt-1", "Home" }
+          span { class: "dock-label mt-1", "{strings.nav.home}" }
         }
         // Button Soundpacks
         button {
@@ -38,7 +42,7 @@ pub fn Dock() -> Element {
               crate::libs::routes::navigate("/soundpacks");
           },
           Music { class: "w-5 h-5" }
-          span { class: "dock-label mt-1", "Sound packs" }
+          span { class: "dock-label mt-1", "{strings.nav.soundpacks}" }
         }
         // Button Customize
         button {
@@ -47,7 +51,7 @@ pub fn Dock() -> Element {
               crate::libs::routes::navigate("/customize");
           },
           Palette { class: "w-5 h-5" }
-          span { class: "dock-label mt-1", "Customize" }
+          span { class: "dock-label mt-1", "{strings.nav.customize}" }
         }
         // Button Mood
         button {
@@ -56,7 +60,7 @@ pub fn Dock() -> Element {
               crate::libs::routes::navigate("/mood");
           },
           CloudSunRain { class: "w-5 h-5" }
-          span { class: "dock-label mt-1", "Mood" }
+          span { class: "dock-label mt-1", "{strings.nav.mood}" }
         }
         // Button Settings
         button {
@@ -65,7 +69,7 @@ pub fn Dock() -> Element {
               crate::libs::routes::navigate("/settings");
           },
           Settings { class: "w-5 h-5" }
-          span { class: "dock-label mt-1", "Settings" }
+          span { class: "dock-label mt-1", "{strings.nav.settings}" }
         }
       }
     }

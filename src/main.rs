@@ -2,9 +2,6 @@
 #![allow(non_snake_case)]
 
 mod components;
-// The catalog lands before its call sites; the accessors that read it are
-// wired to the components in the same slice as the Settings selector.
-#[allow(dead_code)]
 mod i18n;
 mod libs;
 mod state;

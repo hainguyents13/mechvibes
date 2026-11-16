@@ -105,11 +105,49 @@ pub fn resolve(preferred: Option<Language>) -> Language {
 
 /// The system language, falling back to English when the OS names one the app
 /// does not speak.
+///
+/// **Detected once and remembered.** [`use_language`] runs in the body of every
+/// component that reads a string, so "detect on every call" would mean a platform
+/// call (`sys-locale` asks the UI-language API on Windows and `NSLocale` on
+/// macOS) plus three environment reads per render. Caching also keeps the answer
+/// stable: the app must not switch language halfway through a screen because the
+/// OS setting changed underneath it.
 pub fn system_language() -> Language {
-    detect::system_locale()
-        .as_deref()
-        .and_then(Language::from_bcp47)
-        .unwrap_or(Language::En)
+    static DETECTED: std::sync::OnceLock<Language> = std::sync::OnceLock::new();
+
+    *DETECTED.get_or_init(|| {
+        detect::system_locale()
+            .as_deref()
+            .and_then(Language::from_bcp47)
+            .unwrap_or(Language::En)
+    })
+}
+
+/// The language the UI is being drawn in.
+///
+/// Reads the config signal through [`crate::utils::config::use_config`], so a
+/// component that calls this is subscribed to the language and re-renders when
+/// the choice changes. That read is the whole reactivity story: there is no
+/// global language variable, and nothing has to be invalidated by hand.
+///
+/// **Do not memoize a translated value.** A `use_memo` recomputes only when a
+/// signal read *inside* its closure changes; a value captured from here would
+/// keep the first language until the component unmounted.
+pub fn use_language() -> Language {
+    // Cheap on purpose: `use_config` is one context read plus the updater
+    // closure factory, with no effect and no I/O of its own.
+    let (config, _) = crate::utils::config::use_config();
+    resolve(config().language)
+}
+
+/// The catalog for the language the UI is being drawn in.
+///
+/// Hands out a `&'static Strings`, so nothing is allocated per render, and reads
+/// the config signal on the way in, so the calling component re-renders on a
+/// language change. See [`use_language`] for why this must not be wrapped in a
+/// `use_memo`.
+pub fn use_strings() -> &'static Strings {
+    use_language().strings()
 }
 
 /// Fills a catalog template's `{}` placeholders, in order.

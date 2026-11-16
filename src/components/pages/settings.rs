@@ -1,6 +1,7 @@
 use crate::components::customize::look_editor::{ use_look_editor, Card };
 use crate::components::ui::{ Collapse, PageHeader, Toggler };
 use crate::components::device_selector::AudioOutputSelector;
+use crate::i18n::{ Language, use_strings };
 use crate::libs::AudioContext;
 use crate::libs::theme::{ use_theme, BuiltInTheme, Theme };
 use crate::libs::tray_service::request_tray_update;
@@ -16,10 +17,33 @@ use std::sync::Arc;
 /// Where the app's icon lives while its window is hidden.
 const TRAY_NAME: &str = if cfg!(target_os = "macos") { "menu bar" } else { "tray" };
 
+// The flags shown next to each language's name.
+//
+// SVG artwork embedded as assets, like the fonts in `components/header.rs`, and
+// never emoji: Windows does not render a regional-indicator pair as a flag, so
+// an emoji flag degrades to the two letters and S4 stops holding on the platform
+// where most people run the app.
+const US_FLAG: Asset = asset!("/assets/flags/us.svg");
+const CN_FLAG: Asset = asset!("/assets/flags/cn.svg");
+const ES_FLAG: Asset = asset!("/assets/flags/es.svg");
+
+/// The flag for `language`.
+fn flag_for(language: Language) -> Asset {
+    match language {
+        Language::En => US_FLAG,
+        Language::Zh => CN_FLAG,
+        Language::Es => ES_FLAG,
+    }
+}
+
 #[component]
 pub fn SettingsPage() -> Element {
     // Use shared config hook
     let (config, update_config) = use_config();
+    // The language section is the only translated part of this page so far.
+    // `use_strings` reads the config signal, so choosing a language re-renders
+    // the page with the new copy.
+    let strings = use_strings();
     let look_editor = use_look_editor();
 
     // Mute/volume changes must reach the audio engine thread, which caches
@@ -75,6 +99,73 @@ pub fn SettingsPage() -> Element {
             content_class: "collapse-content text-sm",
             children: rsx! {
               div { class: "{crate::utils::spacing::SECTION_SPACING_LG}",
+                // Language. First row of General on purpose: it is the setting
+                // that changes every label on the page, so it should be the one
+                // you find without opening anything else.
+                div { class: "space-y-2",
+                  div { class: "text-sm font-medium text-base-content",
+                    "{strings.settings.language_section_title}"
+                  }
+                  div { class: "bg-base-100 px-4 py-3 rounded-box space-y-2",
+                    // "System" is not a fourth language: it stores `None`, which
+                    // means "follow the OS" (see `i18n::resolve`). It gets no
+                    // flag (S6), only an invisible separator of the flag's
+                    // width, so its label starts on the same x as the other
+                    // three.
+                    label { class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
+                      input {
+                        r#type: "radio",
+                        name: "app-language",
+                        class: "radio radio-xs radio-primary",
+                        checked: config().language.is_none(),
+                        onchange: {
+                            let update_config = update_config.clone();
+                            move |_| {
+                                update_config(Box::new(|config| { config.language = None; }));
+                                // The tray menu lives outside the Dioxus tree, so
+                                // it is re-labelled once per choice here instead
+                                // of on every render.
+                                request_tray_update();
+                            }
+                        },
+                      }
+                      // The invisible separator: same width as a flag.
+                      div { class: "w-5" }
+                      span { class: "text-xs font-medium", "{strings.settings.language_system}" }
+                    }
+                    for language in Language::ALL {
+                      label {
+                        key: "{language.tag()}",
+                        class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
+                        input {
+                          r#type: "radio",
+                          name: "app-language",
+                          class: "radio radio-xs radio-primary",
+                          checked: config().language == Some(language),
+                          onchange: {
+                              let update_config = update_config.clone();
+                              move |_| {
+                                  update_config(
+                                      Box::new(move |config| { config.language = Some(language); }),
+                                  );
+                                  request_tray_update();
+                              }
+                          },
+                        }
+                        img {
+                          src: flag_for(language),
+                          class: "w-5 h-auto",
+                          alt: "{language.native_label()}",
+                        }
+                        // A language's name is never translated: someone who
+                        // reads only Chinese has to find their own language in
+                        // the list, and "Chinese" written in English does not
+                        // help them. `Language::native_label` is the source.
+                        span { class: "text-xs font-medium", "{language.native_label()}" }
+                      }
+                    }
+                  }
+                }
                 // "Enable all sounds" lives on the Home page now, next to the
                 // volume sliders it affects.
                 // Volume Boost

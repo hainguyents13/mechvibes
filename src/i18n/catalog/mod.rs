@@ -53,6 +53,10 @@ macro_rules! zone {
 
         /// Every key with its three translations, as
         /// `(key, english, chinese, spanish)`.
+        ///
+        /// Test-only: nothing renders from these, they exist so the invariants in
+        /// `catalog` can check every language without reflection.
+        #[cfg(test)]
         pub(super) const ENTRIES: &[(&str, &str, &str, &str)] = &[
             $( (stringify!($key), $en, $zh, $es), )+
         ];
@@ -60,13 +64,21 @@ macro_rules! zone {
 }
 
 pub mod common;
+pub mod nav;
+pub mod settings;
 
 pub use common::CommonStrings;
+pub use nav::NavStrings;
+pub use settings::SettingsStrings;
 
 /// Every zone's `ENTRIES` with its name, so the invariants cover the whole
 /// catalog and a failure names where the entry lives.
 #[cfg(test)]
-pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[("common", common::ENTRIES)];
+pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[
+    ("common", common::ENTRIES),
+    ("nav", nav::ENTRIES),
+    ("settings", settings::ENTRIES),
+];
 
 /// Keys whose translation is legitimately identical to the English one.
 ///
