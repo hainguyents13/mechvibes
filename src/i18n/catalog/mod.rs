@@ -1,0 +1,187 @@
+//! The catalogs, one module per zone of the UI.
+//!
+//! A zone is a group of screens that share vocabulary and are edited together:
+//! `settings`, `soundpacks`, `tray` and so on. Each zone file holds the struct
+//! every language fills, the three `const`s that fill it, and `ENTRIES`, which
+//! lists every key with its three translations so the invariants below can check
+//! them without reflection.
+//!
+//! Zones exist so that two people (or two agents) can translate different parts
+//! of the app at the same time without touching the same file.
+
+/// Declares one catalog zone.
+///
+/// ```ignore
+/// zone! {
+///     /// Words shared by several screens.
+///     CommonStrings {
+///         cancel: "Cancel", "取消", "Cancelar",
+///         close: "Close", "关闭", "Cerrar",
+///     }
+/// }
+/// ```
+///
+/// One line per key, one column per language, always in the same order:
+/// English, Chinese, Spanish. The struct, the three `const`s and `ENTRIES` all
+/// come from that single list, so a language cannot be missing a key: a key
+/// added to the list without a column is a macro arity error, and a key present
+/// in the struct but absent from a `const` cannot happen by construction.
+///
+/// **Count-dependent text uses two keys with the `_one` / `_other` suffix**, and
+/// call sites go through [`crate::i18n::plural`]. Two keys rather than a tuple
+/// keeps this list flat, and the call site names both, so neither can be
+/// forgotten.
+///
+/// **Adding a language** means one more column per zone file (about ten files).
+/// That is mechanical and the compiler names every entry that is missing; it is
+/// the price of seeing all translations of a key on one line while writing them.
+macro_rules! zone {
+    (
+        $( #[$meta:meta] )*
+        $ty:ident {
+            $( $key:ident : $en:literal , $zh:literal , $es:literal ),+ $(,)?
+        }
+    ) => {
+        $( #[$meta] )*
+        pub struct $ty {
+            $( pub $key: &'static str, )+
+        }
+
+        pub(crate) const EN: $ty = $ty { $( $key: $en, )+ };
+        pub(crate) const ZH: $ty = $ty { $( $key: $zh, )+ };
+        pub(crate) const ES: $ty = $ty { $( $key: $es, )+ };
+
+        /// Every key with its three translations, as
+        /// `(key, english, chinese, spanish)`.
+        pub(super) const ENTRIES: &[(&str, &str, &str, &str)] = &[
+            $( (stringify!($key), $en, $zh, $es), )+
+        ];
+    };
+}
+
+pub mod common;
+
+pub use common::CommonStrings;
+
+/// Every zone's `ENTRIES` with its name, so the invariants cover the whole
+/// catalog and a failure names where the entry lives.
+#[cfg(test)]
+pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[("common", common::ENTRIES)];
+
+/// Keys whose translation is legitimately identical to the English one.
+///
+/// This is not a way to silence a failure. It is for text that has no
+/// translation *in principle* (a product name, a key combination) or whose
+/// correct translation happens to coincide in that language. Each entry needs a
+/// reason on the same line, so the next reader can judge it.
+#[cfg(test)]
+pub(super) const IDENTICAL_IS_INTENTIONAL: &[(&str, &str)] = &[
+    // Spanish spells it the same; German (Fehler) and French (Erreur) do not, so
+    // it has to be in the catalog rather than inlined at the call site.
+    ("error", "es: `Error` is also the correct Spanish word"),
+];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::i18n::Language;
+
+    fn is_allowlisted(key: &str) -> bool {
+        IDENTICAL_IS_INTENTIONAL.iter().any(|(allowed, _)| *allowed == key)
+    }
+
+    #[test]
+    fn the_catalog_is_not_empty() {
+        let total: usize = ZONES.iter().map(|(_, entries)| entries.len()).sum();
+        assert!(total > 0, "the catalog has no entries at all");
+    }
+
+    #[test]
+    fn no_translation_is_blank() {
+        for (zone, entries) in ZONES {
+            for (key, en, zh, es) in *entries {
+                for (language, value) in [("en", en), ("zh", zh), ("es", es)] {
+                    assert!(
+                        !value.trim().is_empty(),
+                        "{zone}.{key} is blank in {language}; every language needs a value"
+                    );
+                }
+            }
+        }
+    }
+
+    /// A trailing space inside a catalog value is invisible in review and gets
+    /// eaten by editors, so the separator belongs at the call site, not here.
+    #[test]
+    fn no_translation_has_surrounding_whitespace() {
+        for (zone, entries) in ZONES {
+            for (key, en, zh, es) in *entries {
+                for (language, value) in [("en", en), ("zh", zh), ("es", es)] {
+                    assert!(
+                        value.trim() == *value,
+                        "{zone}.{key} has surrounding whitespace in {language}; \
+                         move the spacing to the call site"
+                    );
+                }
+            }
+        }
+    }
+
+    /// `fill` walks the placeholders in order, so a translation that drops or
+    /// reorders one silently loses or misplaces information.
+    #[test]
+    fn every_translation_keeps_the_english_placeholders() {
+        for (zone, entries) in ZONES {
+            for (key, en, zh, es) in *entries {
+                let expected = en.matches("{}").count();
+                for (language, value) in [("zh", zh), ("es", es)] {
+                    assert_eq!(
+                        value.matches("{}").count(),
+                        expected,
+                        "{zone}.{key} has a different number of `{{}}` placeholders in {language} \
+                         than in English ({value:?} vs {en:?})"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_translation_differs_from_the_base_language() {
+        for (zone, entries) in ZONES {
+            for (key, en, zh, es) in *entries {
+                if is_allowlisted(key) {
+                    continue;
+                }
+                for (language, value) in [("zh", zh), ("es", es)] {
+                    assert_ne!(
+                        value, en,
+                        "{zone}.{key} is identical to the English text in {language}. Either \
+                         translate it, or add `(\"{key}\", \"why\")` to IDENTICAL_IS_INTENTIONAL \
+                         as a reviewed decision."
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_allowlist_has_no_stale_entries() {
+        let keys: Vec<&str> = ZONES
+            .iter()
+            .flat_map(|(_, entries)| entries.iter().map(|(key, ..)| *key))
+            .collect();
+        for (key, reason) in IDENTICAL_IS_INTENTIONAL {
+            assert!(keys.contains(key), "IDENTICAL_IS_INTENTIONAL names `{key}`, which is not a catalog key");
+            assert!(!reason.trim().is_empty(), "`{key}` needs a reason in IDENTICAL_IS_INTENTIONAL");
+        }
+    }
+
+    #[test]
+    fn every_language_resolves_to_a_catalog() {
+        for language in Language::ALL {
+            let strings = language.strings();
+            assert!(!strings.common.loading.is_empty());
+        }
+    }
+}
