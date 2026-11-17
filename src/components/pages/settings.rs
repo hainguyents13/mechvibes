@@ -114,73 +114,6 @@ pub fn SettingsPage() -> Element {
             content_class: "collapse-content text-sm",
             children: rsx! {
               div { class: "{crate::utils::spacing::SECTION_SPACING_LG}",
-                // Language. First row of General on purpose: it is the setting
-                // that changes every label on the page, so it should be the one
-                // you find without opening anything else.
-                div { class: "space-y-2",
-                  div { class: "text-sm font-medium text-base-content",
-                    "{strings.settings.language_section_title}"
-                  }
-                  div { class: "bg-base-100 px-4 py-3 rounded-box space-y-2",
-                    // "System" is not a fourth language: it stores `None`, which
-                    // means "follow the OS" (see `i18n::resolve`). It gets no
-                    // flag (S6), only an invisible separator of the flag's
-                    // width, so its label starts on the same x as the other
-                    // three.
-                    label { class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
-                      input {
-                        r#type: "radio",
-                        name: "app-language",
-                        class: "radio radio-xs radio-primary",
-                        checked: config().language.is_none(),
-                        onchange: {
-                            let update_config = update_config.clone();
-                            move |_| {
-                                update_config(Box::new(|config| { config.language = None; }));
-                                // The tray menu lives outside the Dioxus tree, so
-                                // it is re-labelled once per choice here instead
-                                // of on every render.
-                                request_tray_update();
-                            }
-                        },
-                      }
-                      // The invisible separator: same width as a flag.
-                      div { class: "w-5" }
-                      span { class: "text-xs font-medium", "{strings.settings.language_system}" }
-                    }
-                    for language in Language::ALL {
-                      label {
-                        key: "{language.tag()}",
-                        class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
-                        input {
-                          r#type: "radio",
-                          name: "app-language",
-                          class: "radio radio-xs radio-primary",
-                          checked: config().language == Some(language),
-                          onchange: {
-                              let update_config = update_config.clone();
-                              move |_| {
-                                  update_config(
-                                      Box::new(move |config| { config.language = Some(language); }),
-                                  );
-                                  request_tray_update();
-                              }
-                          },
-                        }
-                        img {
-                          src: flag_for(language),
-                          class: "w-5 h-auto",
-                          alt: "{language.native_label()}",
-                        }
-                        // A language's name is never translated: someone who
-                        // reads only Chinese has to find their own language in
-                        // the list, and "Chinese" written in English does not
-                        // help them. `Language::native_label` is the source.
-                        span { class: "text-xs font-medium", "{language.native_label()}" }
-                      }
-                    }
-                  }
-                }
                 // "Enable all sounds" lives on the Home page now, next to the
                 // volume sliders it affects.
                 // Volume Boost
@@ -364,6 +297,73 @@ pub fn SettingsPage() -> Element {
                           );
                       }
                   },
+                }
+                // Language. Last row of General on purpose: it changes every
+                // label on the page, so it sits after the settings people
+                // actually come here for instead of in front of them.
+                div { class: "space-y-2",
+                  div { class: "text-sm font-medium text-base-content",
+                    "{strings.settings.language_section_title}"
+                  }
+                  div { class: "bg-base-100 px-4 py-3 rounded-box space-y-2",
+                    // "System" is not a fourth language: it stores `None`, which
+                    // means "follow the OS" (see `i18n::resolve`). It gets no
+                    // flag (S6), only an invisible separator of the flag's
+                    // width, so its label starts on the same x as the other
+                    // three.
+                    label { class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
+                      input {
+                        r#type: "radio",
+                        name: "app-language",
+                        class: "radio radio-xs radio-primary",
+                        checked: config().language.is_none(),
+                        onchange: {
+                            let update_config = update_config.clone();
+                            move |_| {
+                                update_config(Box::new(|config| { config.language = None; }));
+                                // The tray menu lives outside the Dioxus tree, so
+                                // it is re-labelled once per choice here instead
+                                // of on every render.
+                                request_tray_update();
+                            }
+                        },
+                      }
+                      // The invisible separator: same width as a flag.
+                      div { class: "w-5" }
+                      span { class: "text-xs font-medium", "{strings.settings.language_system}" }
+                    }
+                    for language in Language::ALL {
+                      label {
+                        key: "{language.tag()}",
+                        class: "flex items-center gap-3 rounded-lg hover:bg-base-200 cursor-pointer",
+                        input {
+                          r#type: "radio",
+                          name: "app-language",
+                          class: "radio radio-xs radio-primary",
+                          checked: config().language == Some(language),
+                          onchange: {
+                              let update_config = update_config.clone();
+                              move |_| {
+                                  update_config(
+                                      Box::new(move |config| { config.language = Some(language); }),
+                                  );
+                                  request_tray_update();
+                              }
+                          },
+                        }
+                        img {
+                          src: flag_for(language),
+                          class: "w-5 h-auto",
+                          alt: "{language.native_label()}",
+                        }
+                        // A language's name is never translated: someone who
+                        // reads only Chinese has to find their own language in
+                        // the list, and "Chinese" written in English does not
+                        // help them. `Language::native_label` is the source.
+                        span { class: "text-xs font-medium", "{language.native_label()}" }
+                      }
+                    }
+                  }
                 }
               }
             },
