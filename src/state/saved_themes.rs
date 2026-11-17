@@ -92,8 +92,9 @@ impl ReadOnly {
     /// What the user is told, once, when the list is loaded, in the language
     /// `errors` carries.
     ///
-    /// The caller resolves the language and passes the `errors` zone: this
-    /// module never reads the config to word a notice.
+    /// `ui_message` itself never reads the config: the caller resolves the
+    /// language (`current_errors` for the sites that word a refusal, the
+    /// component for the dialog) and passes the `errors` zone.
     pub fn ui_message(self, errors: &ErrorStrings) -> String {
         match self {
             ReadOnly::CouldNotRead => notice::saved_themes_read_only(errors),
@@ -101,9 +102,11 @@ impl ReadOnly {
         }
     }
 
-    /// The English sentence, for the callers that only carry it as a reason
-    /// (`look_editor`, `theme_share`), the same rule a `Display` follows. The
-    /// notice the load reports goes through [`ReadOnly::ui_message`].
+    /// The stable English sentence, for the one boundary that carries the
+    /// reason and has no catalog in hand: [`SavedThemes::apply_at`], which is
+    /// private and only reached after [`apply`] has already refused. Every path
+    /// a user can reach words the refusal through [`ReadOnly::ui_message`]
+    /// instead, the same rule a `Display` follows.
     pub fn message(self) -> &'static str {
         match self {
             ReadOnly::CouldNotRead =>
@@ -264,6 +267,9 @@ impl SavedThemes {
     /// was written. Refuses without calling `mutate` while read-only, and puts
     /// the list back as it was when the result cannot be saved.
     fn apply_at(&mut self, path: &Path, mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, String> {
+        // `apply` refuses before this, so no user reaches this sentence: it
+        // stays English (the English column) rather than take the config lock
+        // while this list's lock is held.
         if let Some(read_only) = self.read_only {
             return Err(read_only.message().to_string());
         }
@@ -505,7 +511,10 @@ pub fn apply(mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, String> {
         let mut store = authority();
         // Already said once at load; saying it on every edit would only nag.
         if let Some(read_only) = store.read_only {
-            return Err(read_only.message().to_string());
+            // Released first: the catalog is read from the config, and no lock
+            // is held while the other one is taken.
+            drop(store);
+            return Err(read_only.ui_message(current_errors()));
         }
         store.apply_at(&paths::data::saved_themes_json(), mutate)
     };

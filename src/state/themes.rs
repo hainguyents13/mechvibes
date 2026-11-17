@@ -52,39 +52,8 @@ pub enum ThemesLoad {
     ReadOnly(String),
 }
 
-impl ThemesLoad {
-    /// The sentence to report for this outcome, in the language `errors`
-    /// carries, or `None` when nothing needs saying.
-    ///
-    /// The failure itself is `Debug`/log material (it names the path and the OS
-    /// error, in English, and is the same in every language); what the user
-    /// reads comes from the catalog here. The caller resolves the language and
-    /// passes the `errors` zone: this module never reads the config, so it can
-    /// run during startup before there is a window.
-    ///
-    /// Unused until the two report calls in [`ThemesConfig::load`] pass a
-    /// catalog; they cannot yet, because the site that loads the list has none
-    /// and resolving one there would mean reading the config inside this layer.
-    #[allow(dead_code)]
-    pub fn ui_message(&self, errors: &ErrorStrings) -> Option<String> {
-        match self {
-            ThemesLoad::Fresh | ThemesLoad::Loaded => None,
-            ThemesLoad::KeptAside(copy) =>
-                Some(fill(errors.colors_list_damaged, &[&copy.display()])),
-            ThemesLoad::ReadOnly(_) => Some(errors.colors_list_read_only.to_string()),
-        }
-    }
-}
-
 /// Set when the list could not be read at startup, so every save refuses.
 static READ_ONLY: AtomicBool = AtomicBool::new(false);
-/// [The catalog's sentence](crate::i18n::catalog::ErrorStrings::colors_list_read_only),
-/// kept as a constant because the places that still show it (the notice below
-/// and the `String` the save returns) are outside this slice and have no
-/// catalog in hand. `the_read_only_sentence_matches_the_catalog` keeps the two
-/// from drifting apart.
-const READ_ONLY_ERROR: &str =
-    "Could not read your colors list, so nothing in it was changed. Restart Mechvibes to try again.";
 
 /// Why a change to the colors list was refused or not written.
 ///
@@ -139,7 +108,12 @@ impl ThemesConfig {
     /// The colors list from disk. Never writes over a file it could not read:
     /// a damaged one is moved aside first, and one that cannot be read at all
     /// (locked, no permission) makes the list read-only for this session.
-    pub fn load() -> Self {
+    ///
+    /// `errors` is the `errors` zone of the language in effect, so the two
+    /// notices this can report are worded from the catalog. The load runs
+    /// before the window exists, so whoever owns the `Lazy` resolves the zone
+    /// (see `utils::theme`); this module never reads the config itself.
+    pub fn load(errors: &ErrorStrings) -> Self {
         let themes_path = paths::data::themes_json();
 
         // Ensure data directory exists
@@ -174,13 +148,14 @@ impl ThemesConfig {
                 crate::always_eprint!("   The damaged themes.json was kept at: {}", copy.display());
                 notice::report(
                     NoticeKind::Error,
-                    format!("Your colors list was damaged. A copy was kept at {}.", copy.display()),
+                    notice::colors_list_damaged(errors, &copy),
                     Some(NoticeAction::ShowFile(copy))
                 );
             }
             // Saved colors are missing from the screen this session, so say
             // why now rather than only at the next save.
-            ThemesLoad::ReadOnly(_) => notice::report(NoticeKind::Error, READ_ONLY_ERROR, None),
+            ThemesLoad::ReadOnly(_) =>
+                notice::report(NoticeKind::Error, notice::colors_list_read_only(errors), None),
             ThemesLoad::Fresh | ThemesLoad::Loaded => {}
         }
         config
@@ -368,16 +343,15 @@ impl ThemesConfig {
 mod tests {
     use super::*;
 
-    /// The constant the notice and the save error still use has to stay the
-    /// catalog's sentence, or the two drift apart and the user reads one of
-    /// each depending on which path reported.
+    /// The description a read-only save gives has to stay the catalog's English
+    /// sentence, or the log and the notice drift apart and the user reads one
+    /// of each depending on which path reported.
     #[test]
     fn the_read_only_sentence_matches_the_catalog() {
         assert_eq!(
-            READ_ONLY_ERROR,
+            ThemesError::ReadOnly.to_string(),
             crate::i18n::Language::En.strings().errors.colors_list_read_only
         );
-        assert_eq!(ThemesError::ReadOnly.to_string(), READ_ONLY_ERROR);
     }
 
     /// The descriptions are the contract: the log reads the same in every
@@ -449,25 +423,26 @@ mod tests {
         );
     }
 
-    /// The two notices the load can report, in all three languages, plus the
-    /// outcomes that report nothing.
+    /// The two notices the load can report, in all three languages. The
+    /// outcomes that say nothing report nothing: `load` simply calls no
+    /// builder for them.
     #[test]
     fn a_load_outcome_is_worded_from_the_catalog() {
         use crate::i18n::Language;
 
         let copy = PathBuf::from("/tmp/themes.json.corrupt");
-        let damaged = ThemesLoad::KeptAside(copy.clone());
         assert_eq!(
-            damaged.ui_message(&Language::En.strings().errors),
-            Some("Your colors list was damaged. A copy was kept at /tmp/themes.json.corrupt.".to_string())
+            notice::colors_list_damaged(&Language::En.strings().errors, &copy),
+            "Your colors list was damaged. A copy was kept at /tmp/themes.json.corrupt."
         );
         assert_eq!(
-            ThemesLoad::ReadOnly("could not read it".to_string())
-                .ui_message(&Language::Zh.strings().errors),
-            Some("无法读取你的颜色列表，因此其中的内容未被更改。请重启 Mechvibes 再试一次。".to_string())
+            notice::colors_list_read_only(&Language::Zh.strings().errors),
+            "无法读取你的颜色列表，因此其中的内容未被更改。请重启 Mechvibes 再试一次。"
         );
-        assert_eq!(ThemesLoad::Fresh.ui_message(&Language::Es.strings().errors), None);
-        assert_eq!(ThemesLoad::Loaded.ui_message(&Language::Es.strings().errors), None);
+        assert_eq!(
+            notice::colors_list_read_only(&Language::Es.strings().errors),
+            "No se pudo leer tu lista de colores, así que no se cambió nada en ella. Reinicia Mechvibes para volver a intentarlo."
+        );
     }
 
     #[test]

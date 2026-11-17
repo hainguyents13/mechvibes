@@ -7,7 +7,7 @@ use std::rc::Rc;
 use std::sync::{ Arc, Mutex, MutexGuard };
 
 static THEMES_CONFIG: Lazy<Arc<Mutex<ThemesConfig>>> = Lazy::new(||
-    Arc::new(Mutex::new(ThemesConfig::load()))
+    Arc::new(Mutex::new(ThemesConfig::load(current_errors())))
 );
 
 /// Global signal to trigger refresh of all theme components
@@ -22,10 +22,10 @@ pub type UpdateThemes = Rc<
 
 /// The catalog for the language the app is set to right now.
 ///
-/// These notices are reported from a save, not from a render, so the choice is
-/// read as the message is raised. Nothing below the UI resolves a language
-/// itself: `ui_message` and the notice builders take the `errors` zone, and the
-/// caller passes it.
+/// The load notices and the save notices are reported from a save or a start,
+/// not from a render, so the choice is read as the message is raised. Nothing
+/// below the UI resolves a language itself: `load`, `ui_message` and the notice
+/// builders take the `errors` zone, and the caller passes it.
 fn current_errors() -> &'static ErrorStrings {
     &crate::i18n::resolve(crate::state::config_writer::current().language).strings().errors
 }

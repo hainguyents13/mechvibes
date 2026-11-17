@@ -7,6 +7,7 @@
 //! loses a look. What saving does is in `utils::theme_library`.
 
 use crate::components::customize::strings_now;
+use crate::i18n::catalog::ErrorStrings;
 use crate::i18n::fill;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
@@ -224,11 +225,19 @@ pub fn duplicate(card: &Card) -> Result<(), String> {
 fn refuse_while_read_only() -> Result<(), String> {
     match saved_themes::current().read_only {
         Some(read_only) => {
-            notice::report(NoticeKind::Error, read_only.message(), None);
-            Err(read_only.message().to_string())
+            let sentence = read_only.ui_message(current_errors());
+            notice::report(NoticeKind::Error, sentence.clone(), None);
+            Err(sentence)
         }
         None => Ok(()),
     }
+}
+
+/// The `errors` zone for the language the app is set to right now. The refusal
+/// above is raised from a click, not a render, so the choice is read as the
+/// message is raised.
+fn current_errors() -> &'static ErrorStrings {
+    &crate::i18n::resolve(config_writer::current().language).strings().errors
 }
 
 /// The card the look on screen is, once an edit still waiting is saved.

@@ -74,9 +74,9 @@ pub fn report(kind: NoticeKind, text: impl Into<String>, action: Option<NoticeAc
 // passes the `errors` zone in.
 //
 // A failure that carries its own type is worded by that type's `ui_message`
-// from the same catalog (`ThemesLoad`, `ReadOnly`, `ThemesError`), so the
-// sentence lives in exactly one place. The builders below are for the notices
-// no typed error carries.
+// from the same catalog (`ReadOnly`, `ThemesError`), so the sentence lives in
+// exactly one place. The builders below are for the notices no typed error
+// carries.
 
 /// A change that could not be written. `cause` is the save error's description.
 ///
@@ -94,18 +94,14 @@ pub fn could_not_save_your_theme(errors: &ErrorStrings, cause: impl Display) -> 
 
 /// A colors list that was damaged and moved aside, and where the copy went.
 ///
-/// Replaces the literal in `state::themes`'s load, which this slice leaves to
-/// the typed outcome: `ThemesLoad::ui_message` words it from the same key.
-#[allow(dead_code)] // reported by `state::themes`'s load, outside this slice
+/// Reported by `state::themes::ThemesConfig::load`.
 pub fn colors_list_damaged(errors: &ErrorStrings, copy: &Path) -> String {
     fill(errors.colors_list_damaged, &[&copy.display()])
 }
 
 /// A colors list that could not be read at all this session.
 ///
-/// Replaces `state::themes`'s `READ_ONLY_ERROR`; see [`colors_list_damaged`] for
-/// why the site is not migrated here.
-#[allow(dead_code)] // see above
+/// Reported by `state::themes::ThemesConfig::load`.
 pub fn colors_list_read_only(errors: &ErrorStrings) -> String {
     fill(errors.colors_list_read_only, &[])
 }

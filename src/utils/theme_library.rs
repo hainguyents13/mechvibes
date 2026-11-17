@@ -15,6 +15,7 @@
 //! the same library theme again updates its card, and importing the same
 //! file again reuses its card (`add_installed`).
 
+use crate::i18n::catalog::ErrorStrings;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::config_writer;
@@ -438,6 +439,15 @@ pub struct Installed {
     pub card: String,
 }
 
+/// The `errors` zone for the language the app is set to right now.
+///
+/// Installing is raised by a click, not a render, so the choice is read as the
+/// failure is worded. Called once `save_list` has returned, so the saved themes
+/// list's lock is not held here.
+fn current_errors() -> &'static ErrorStrings {
+    &crate::i18n::resolve(config_writer::current().language).strings().errors
+}
+
 /// The colors, then the card, of a theme whose images are installed already:
 /// `full` holds every part, pointed at the installed images, and `written`
 /// are the image files that install made. The card holds every part, so
@@ -473,7 +483,7 @@ pub fn add_installed(
     save_list(&mut |store| {
         card = Some(upsert_installed(store, &full, source, Utc::now()));
     })?;
-    let card = card.ok_or_else(|| "Could not save the theme.".to_string())?;
+    let card = card.ok_or_else(|| current_errors().could_not_save_the_theme.to_string())?;
 
     let mut shown = full;
     shown.keep_parts(parts);

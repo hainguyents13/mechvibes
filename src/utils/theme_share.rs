@@ -8,6 +8,8 @@
 //! by their bytes and stored under names this app picks. A shared file can
 //! change how the app looks, and nothing else.
 
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
 use crate::state::themes::ThemesConfig;
@@ -518,11 +520,20 @@ pub fn share_target(chosen: &Path) -> Result<(PathBuf, String), String> {
     Ok((path, name))
 }
 
+/// The `errors` zone for the language the app is set to right now.
+///
+/// Share is raised by a click and the write runs on a blocking thread, so there
+/// is no catalog in hand here: the choice is read as the failure is worded. No
+/// other lock is held at this point, so reading the config is safe.
+fn current_errors() -> &'static ErrorStrings {
+    &crate::i18n::resolve(crate::state::config_writer::current().language).strings().errors
+}
+
 /// Write the look to `path` as a `.mvtheme`, its images cut down first. Slow
 /// for a large wallpaper, so call it off the UI thread.
 pub fn save(theme: &SharedTheme, path: &Path) -> Result<(), String> {
     let bytes = to_bytes(&shrink_images(theme))?;
-    std::fs::write(path, bytes).map_err(|e| format!("Could not save the file: {}", e))
+    std::fs::write(path, bytes).map_err(|e| fill(current_errors().could_not_save_the_file, &[&e]))
 }
 
 /// The look with its images cut down to what the app can show, so a shared

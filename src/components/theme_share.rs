@@ -44,7 +44,8 @@ pub async fn put_on(
 ) -> Result<String, String> {
     look_editor::save_look_on_screen()?;
     if let Some(read_only) = saved_themes::current().read_only {
-        return Err(read_only.message().to_string());
+        // The import dialog shows this as the reason it stopped.
+        return Err(read_only.ui_message(&current_strings().errors));
     }
     let (full, written) = tokio::task
         ::spawn_blocking(move || theme_share::install_images(&mut theme).map(|written| (theme, written))).await
