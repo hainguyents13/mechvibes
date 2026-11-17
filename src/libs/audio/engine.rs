@@ -62,7 +62,10 @@ pub enum UiEvent {
     DeviceSwitched(Result<String, String>),
     PackLoaded {
         is_keyboard: bool,
-        result: Result<String, String>,
+        /// Typed, so the screen that words it reads the catalog instead of an
+        /// English description chosen on the engine thread. The log keeps
+        /// `Display`, which is the same sentence in every language.
+        result: Result<String, super::soundpack_loader::SoundpackLoadError>,
     },
 }
 
@@ -628,7 +631,7 @@ fn handle_command(state: &mut EngineState, event_tx: &Sender<UiEvent>, command: 
             let result = crate::libs::trace::time(
                 crate::libs::trace::Point::PackLoad,
                 &soundpack_id,
-                || super::soundpack_loader::load_keyboard_pack_into_engine(
+                || super::soundpack_loader::load_keyboard_pack_into_engine_typed(
                     state,
                     &soundpack_id,
                     update_cache_on_error
@@ -640,7 +643,7 @@ fn handle_command(state: &mut EngineState, event_tx: &Sender<UiEvent>, command: 
             let result = crate::libs::trace::time(
                 crate::libs::trace::Point::PackLoad,
                 &soundpack_id,
-                || super::soundpack_loader::load_mouse_pack_into_engine(
+                || super::soundpack_loader::load_mouse_pack_into_engine_typed(
                     state,
                     &soundpack_id,
                     update_cache_on_error
@@ -676,7 +679,7 @@ fn run_engine(
     // Load the configured soundpacks once at startup.
     let config = crate::state::config_writer::current();
     if !config.keyboard_soundpack.is_empty() {
-        let result = super::soundpack_loader::load_keyboard_pack_into_engine(
+        let result = super::soundpack_loader::load_keyboard_pack_into_engine_typed(
             &mut state,
             &config.keyboard_soundpack,
             false
@@ -684,7 +687,7 @@ fn run_engine(
         let _ = event_tx.send(UiEvent::PackLoaded { is_keyboard: true, result });
     }
     if !config.mouse_soundpack.is_empty() {
-        let result = super::soundpack_loader::load_mouse_pack_into_engine(
+        let result = super::soundpack_loader::load_mouse_pack_into_engine_typed(
             &mut state,
             &config.mouse_soundpack,
             false

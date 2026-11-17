@@ -70,67 +70,63 @@ pub fn report(kind: NoticeKind, text: impl Into<String>, action: Option<NoticeAc
 // the language in effect: **this module never reads the config**, so it stays
 // usable from the audio thread and from a startup path that runs before the
 // window exists. The caller resolves the language (a component through
-// `use_strings()`, anything else through `Language::strings()`) and passes the
-// `errors` zone in.
+// `use_strings()`, anything else through `i18n::resolve(config.language)`) and
+// passes the `errors` zone in.
 //
-// Still called with English literals at the sites named on each function: the
-// notice queue holds a `String`, so the text has to be worded where it is
-// reported, and those sites are outside the slice that added these builders.
-// The literal to replace is named on each one.
+// A failure that carries its own type is worded by that type's `ui_message`
+// from the same catalog (`ThemesLoad`, `ReadOnly`, `ThemesError`), so the
+// sentence lives in exactly one place. The builders below are for the notices
+// no typed error carries.
 
 /// A change that could not be written. `cause` is the save error's description.
 ///
-/// Replaces `format!("Could not save your changes. {}", e)` in
-/// `state::config_writer` and `utils::theme`.
-#[allow(dead_code)] // call sites still pass the literal; see the note above
+/// Reported by `state::config_writer` and `utils::theme`.
 pub fn could_not_save_your_changes(errors: &ErrorStrings, cause: impl Display) -> String {
     fill(errors.could_not_save_your_changes, &[&cause])
 }
 
 /// A saved theme that could not be written. `cause` is the save error.
 ///
-/// Replaces the literal in `state::saved_themes`.
-#[allow(dead_code)] // see the note above
+/// Reported by `state::saved_themes`.
 pub fn could_not_save_your_theme(errors: &ErrorStrings, cause: impl Display) -> String {
     fill(errors.could_not_save_your_theme, &[&cause])
 }
 
 /// A colors list that was damaged and moved aside, and where the copy went.
 ///
-/// Replaces the literal in `state::themes`'s load.
-#[allow(dead_code)] // see the note above
+/// Replaces the literal in `state::themes`'s load, which this slice leaves to
+/// the typed outcome: `ThemesLoad::ui_message` words it from the same key.
+#[allow(dead_code)] // reported by `state::themes`'s load, outside this slice
 pub fn colors_list_damaged(errors: &ErrorStrings, copy: &Path) -> String {
     fill(errors.colors_list_damaged, &[&copy.display()])
 }
 
 /// A colors list that could not be read at all this session.
 ///
-/// Replaces `state::themes`'s `READ_ONLY_ERROR` and the notice it reports.
-#[allow(dead_code)] // see the note above
+/// Replaces `state::themes`'s `READ_ONLY_ERROR`; see [`colors_list_damaged`] for
+/// why the site is not migrated here.
+#[allow(dead_code)] // see above
 pub fn colors_list_read_only(errors: &ErrorStrings) -> String {
     fill(errors.colors_list_read_only, &[])
 }
 
 /// A saved-themes list that was damaged and moved aside.
 ///
-/// Replaces the literal in `state::saved_themes`'s load.
-#[allow(dead_code)] // see the note above
+/// Reported by `state::saved_themes`'s load.
 pub fn saved_themes_damaged(errors: &ErrorStrings, copy: &Path) -> String {
     fill(errors.saved_themes_damaged, &[&copy.display()])
 }
 
 /// A saved-themes list that could not be written this session.
 ///
-/// Replaces `state::saved_themes::ReadOnly::CouldNotRead`'s message.
-#[allow(dead_code)] // see the note above
+/// Reported by `state::saved_themes::ReadOnly::ui_message`.
 pub fn saved_themes_read_only(errors: &ErrorStrings) -> String {
     fill(errors.saved_themes_read_only, &[])
 }
 
 /// A saved-themes list written by a newer Mechvibes.
 ///
-/// Replaces `state::saved_themes::ReadOnly::MadeByNewerApp`'s message.
-#[allow(dead_code)] // see the note above
+/// Reported by `state::saved_themes::ReadOnly::ui_message`.
 pub fn saved_themes_from_newer_app(errors: &ErrorStrings) -> String {
     fill(errors.saved_themes_from_newer_app, &[])
 }

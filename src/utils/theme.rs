@@ -1,4 +1,5 @@
-use crate::state::themes::ThemesConfig;
+use crate::i18n::catalog::ErrorStrings;
+use crate::state::themes::{ ThemesConfig, ThemesError };
 use crate::utils::notice::{ self, NoticeKind };
 use dioxus::prelude::*;
 use once_cell::sync::Lazy;
@@ -12,9 +13,22 @@ static THEMES_CONFIG: Lazy<Arc<Mutex<ThemesConfig>>> = Lazy::new(||
 /// Global signal to trigger refresh of all theme components
 static REFRESH_TRIGGER: GlobalSignal<u32> = Signal::global(|| 0);
 
-/// Changes the colors list and saves it. Gives the save error back, after
-/// putting the list in memory back as it was and telling the user.
-pub type UpdateThemes = Rc<dyn Fn(Box<dyn FnOnce(&mut ThemesConfig)>) -> Result<(), String>>;
+/// Changes the colors list and saves it. Gives the save error back - typed, so
+/// the caller words it from the catalog - after putting the list in memory back
+/// as it was and telling the user.
+pub type UpdateThemes = Rc<
+    dyn Fn(Box<dyn FnOnce(&mut ThemesConfig)>) -> Result<(), ThemesError>
+>;
+
+/// The catalog for the language the app is set to right now.
+///
+/// These notices are reported from a save, not from a render, so the choice is
+/// read as the message is raised. Nothing below the UI resolves a language
+/// itself: `ui_message` and the notice builders take the `errors` zone, and the
+/// caller passes it.
+fn current_errors() -> &'static ErrorStrings {
+    &crate::i18n::resolve(crate::state::config_writer::current().language).strings().errors
+}
 
 /// The shared list. A lock left poisoned by a panic still holds a whole
 /// list, so it is used rather than taking the window down with it.
@@ -35,10 +49,14 @@ pub fn use_themes() -> (Signal<ThemesConfig>, UpdateThemes) {
     });
 
     let update_themes: UpdateThemes = Rc::new(|updater: Box<dyn FnOnce(&mut ThemesConfig)>| {
-        let saved = apply_and_save(&mut themes_config(), updater, ThemesConfig::save);
+        let saved = apply_and_save(&mut themes_config(), updater, ThemesConfig::save_typed);
         if let Err(e) = &saved {
             crate::always_eprint!("❌ Failed to save themes: {}", e);
-            notice::report(NoticeKind::Error, format!("Could not save your changes. {}", e), None);
+            notice::report(
+                NoticeKind::Error,
+                notice::could_not_save_your_changes(current_errors(), e),
+                None
+            );
             return saved;
         }
         // Trigger refresh of all components using themes
@@ -56,8 +74,8 @@ pub fn use_themes() -> (Signal<ThemesConfig>, UpdateThemes) {
 fn apply_and_save(
     themes: &mut ThemesConfig,
     mutate: impl FnOnce(&mut ThemesConfig),
-    save: impl FnOnce(&ThemesConfig) -> Result<(), String>
-) -> Result<(), String> {
+    save: impl FnOnce(&ThemesConfig) -> Result<(), ThemesError>
+) -> Result<(), ThemesError> {
     let before = themes.clone();
     mutate(themes);
     save(themes).inspect_err(|_| {
@@ -85,11 +103,18 @@ pub fn change_themes_config<R>(mutate: impl FnOnce(&mut ThemesConfig) -> R) -> R
     let before = themes.clone();
     let result = mutate(&mut themes);
     if *themes != before {
-        if let Err(e) = themes.save() {
+        if let Err(e) = themes.save_typed() {
             *themes = before;
+            // Released first: the catalog is read from the config, and no lock
+            // is held while the other one is taken.
+            drop(themes);
             crate::always_eprint!("❌ Failed to save themes: {}", e);
-            notice::report(NoticeKind::Error, format!("Could not save your changes. {}", e), None);
-            return Err(e);
+            notice::report(
+                NoticeKind::Error,
+                notice::could_not_save_your_changes(current_errors(), &e),
+                None
+            );
+            return Err(e.to_string());
         }
     }
     Ok(result)
@@ -105,14 +130,15 @@ mod tests {
         themes.import_theme("Night", "--color-primary: red;").unwrap();
         let before = themes.clone();
 
+        let failure = ThemesError::NameTaken;
         let result = apply_and_save(
             &mut themes,
             |themes| {
                 themes.import_theme("Day", "--color-primary: blue;").unwrap();
             },
-            |_| Err("the disk is full".to_string())
+            |_| Err(failure.clone())
         );
-        assert_eq!(result, Err("the disk is full".to_string()));
+        assert_eq!(result, Err(failure));
         assert_eq!(themes, before);
 
         let result = apply_and_save(

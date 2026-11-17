@@ -61,6 +61,27 @@ fn notify_input_filter_changed() {
     crate::libs::input_worker_host::notify_config_changed();
 }
 
+/// Why a device list could not be produced.
+///
+/// Kept typed rather than as words: the sentence around it is read from the
+/// catalog where it is drawn, so a language change reaches the message and a
+/// `use_memo` cannot freeze it.
+#[derive(Clone, PartialEq)]
+enum LoadFailure {
+    Audio(crate::libs::device_manager::DeviceError),
+    Input(crate::libs::input_device_manager::InputDeviceError),
+}
+
+impl LoadFailure {
+    /// The cause of the failure, in the language `errors` carries.
+    fn ui_message(&self, errors: &crate::i18n::catalog::ErrorStrings) -> String {
+        match self {
+            LoadFailure::Audio(e) => e.ui_message(errors),
+            LoadFailure::Input(e) => e.ui_message(errors).to_string(),
+        }
+    }
+}
+
 #[derive(Props, Clone, PartialEq)]
 pub struct DeviceSelectorProps {
     device_type: DeviceType,
@@ -96,7 +117,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
     let input_devices = use_signal(|| Vec::<InputDeviceInfo>::new());
     let is_loading = use_signal(|| false);
     let has_loaded = use_signal(|| false); // Track if devices have been loaded at least once
-    let error_message = use_signal(String::new);
+    let error_message = use_signal(|| None::<LoadFailure>);
     let device_status = use_signal(|| std::collections::HashMap::<String, bool>::new());
 
     // Get current selected/enabled devices
@@ -135,12 +156,12 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
             spawn(async move {
                 crate::always_print!("📋 [DeviceSelector] Loading devices...");
                 is_loading.set(true);
-                error_message.set(String::new());
+                error_message.set(None);
 
                 match device_type {
                     DeviceType::AudioOutput => {
                         // Use cached audio devices to avoid enumeration interference
-                        match DeviceManager::get_cached_output_devices() {
+                        match DeviceManager::get_cached_output_devices_typed() {
                             Ok(device_list) => {
                                 crate::always_print!("✅ [DeviceSelector] Loaded {} cached audio devices", device_list.len());
                                 audio_devices.set(device_list);
@@ -149,10 +170,10 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             }
                             Err(e) => {
                                 crate::always_print!("❌ [DeviceSelector] Failed to load cached devices: {}", e);
-                                // Only the reason is stored. The sentence around
-                                // it is read from the catalog where it is drawn,
-                                // so a `use_memo` cannot freeze it.
-                                error_message.set(e);
+                                // Only the typed failure is stored. The sentence
+                                // around it is read from the catalog where it is
+                                // drawn, so a `use_memo` cannot freeze it.
+                                error_message.set(Some(LoadFailure::Audio(e)));
                                 mark_devices_enumerated();
                                 has_loaded.set(true);
                             }
@@ -160,7 +181,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                     }
                     DeviceType::Keyboard | DeviceType::Mouse => {
                         // Input devices don't interfere with audio, load fresh
-                        match InputDeviceManager::get_devices() {
+                        match InputDeviceManager::get_devices_typed() {
                             Ok(device_list) => {
                                 crate::always_print!("✅ [DeviceSelector] Loaded {} input devices", device_list.len());
                                 store_input_devices(&device_list);
@@ -170,7 +191,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             }
                             Err(e) => {
                                 crate::always_print!("❌ [DeviceSelector] Failed to load input devices: {}", e);
-                                error_message.set(e);
+                                error_message.set(Some(LoadFailure::Input(e)));
                                 mark_devices_enumerated();
                                 has_loaded.set(true);
                             }
@@ -194,7 +215,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                 match device_type {
                     DeviceType::AudioOutput => {
                         // Refresh audio device cache
-                        match DeviceManager::refresh_cache() {
+                        match DeviceManager::refresh_cache_typed() {
                             Ok(_) => {
                                 crate::always_print!("✅ [DeviceSelector] Audio cache refreshed successfully");
                                 // Reload from refreshed cache
@@ -236,7 +257,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                 DeviceType::AudioOutput => {
                     // Reading the cache is a plain clone; it only enumerates
                     // if this is the first read of the session.
-                    if let Ok(device_list) = DeviceManager::get_cached_output_devices() {
+                    if let Ok(device_list) = DeviceManager::get_cached_output_devices_typed() {
                         audio_devices.set(device_list);
                         mark_devices_enumerated();
                         has_loaded.set(true);
@@ -622,14 +643,14 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
             }
 
             // Error message
-            if !error_message().is_empty() {
+            if let Some(failure) = error_message() {
                 div { class: "text-xs text-error mt-2",
                     {crate::i18n::fill(
                         match props.device_type {
                             DeviceType::AudioOutput => strings.devices.load_audio_failed,
                             DeviceType::Keyboard | DeviceType::Mouse => strings.devices.load_input_failed,
                         },
-                        &[&error_message()],
+                        &[&failure.ui_message(&strings.errors)],
                     )}
                 }
             }

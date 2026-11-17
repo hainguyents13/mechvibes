@@ -162,14 +162,8 @@ impl DeviceManager {
 
     /// Get all available audio output devices.
     ///
-    /// Kept in its `String` shape because `DeviceSelector` still stores the
-    /// reason and words the sentence where it draws it. Delegates to
-    /// [`DeviceManager::get_output_devices_typed`], so nothing is duplicated;
-    /// the selector migrates by calling that one.
-    pub fn get_output_devices(&self) -> Result<Vec<DeviceInfo>, String> {
-        self.get_output_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// The failure is typed so the screen words it from the catalog with
+    /// [`DeviceError::ui_message`]; the log prints it through `Display`.
     pub fn get_output_devices_typed(&self) -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("🔍 [DeviceManager] Starting audio output device enumeration...");
         let mut devices = Vec::new();
@@ -253,12 +247,8 @@ impl DeviceManager {
 
     /// Get all available audio input devices.
     ///
-    /// The input half of [`DeviceManager::get_output_devices`], kept in the same
-    /// `String` shape for the same reason.
-    pub fn get_input_devices(&self) -> Result<Vec<DeviceInfo>, String> {
-        self.get_input_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// The input half of [`DeviceManager::get_output_devices_typed`], with the
+    /// same typed failure.
     pub fn get_input_devices_typed(&self) -> Result<Vec<DeviceInfo>, DeviceError> {
         let mut devices = Vec::new();
         let default_device = self.host.default_input_device();
@@ -324,7 +314,7 @@ impl DeviceManager {
 
     /// Get device by ID for output devices.
     ///
-    /// The output half of [`DeviceManager::get_output_devices`]. The audio
+    /// The output half of [`DeviceManager::get_output_devices_typed`]. The audio
     /// engine calls this one: it only prints the failure, so it takes the typed
     /// error and formats it as it is.
     pub fn get_output_device_by_id(&self, device_id: &str) -> Result<Option<Device>, DeviceError> {
@@ -501,12 +491,7 @@ impl DeviceManager {
 
     /// Get cached output devices (no enumeration - instant).
     ///
-    /// Kept in its `String` shape because `DeviceSelector` stores the reason;
-    /// delegates to [`DeviceManager::get_cached_output_devices_typed`].
-    pub fn get_cached_output_devices() -> Result<Vec<DeviceInfo>, String> {
-        Self::get_cached_output_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// The failure is typed so the screen words it from the catalog.
     pub fn get_cached_output_devices_typed() -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("📋 [DeviceCache] Returning cached output devices...");
         if let Some(cache) = CACHED_OUTPUT_DEVICES.get() {
@@ -529,14 +514,10 @@ impl DeviceManager {
     }
 
     /// Get cached input devices (no enumeration - instant)
-    /// The input half of [`DeviceManager::get_cached_output_devices`].
-    pub fn get_cached_input_devices() -> Result<Vec<DeviceInfo>, String> {
-        Self::get_cached_input_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// The input half of [`DeviceManager::get_cached_output_devices_typed`].
+    ///
     /// No caller: nothing in the window reads the input cache (input devices are
-    /// listed fresh). Kept beside the output pair so the two stay symmetrical,
-    /// and allowed for the same reason its `String` twin is.
+    /// listed fresh). Kept beside the output pair so the two stay symmetrical.
     #[allow(dead_code)]
     pub fn get_cached_input_devices_typed() -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("📋 [DeviceCache] Returning cached input devices...");
@@ -560,12 +541,7 @@ impl DeviceManager {
     }
 
     /// Force refresh cache (re-enumerate and update)
-    /// Kept in its `String` shape because `DeviceSelector` only logs this one;
-    /// delegates to [`DeviceManager::refresh_cache_typed`].
-    pub fn refresh_cache() -> Result<(), String> {
-        Self::refresh_cache_typed().map_err(|e| e.to_string())
-    }
-
+    /// The failure is typed, as the output and input lists are.
     pub fn refresh_cache_typed() -> Result<(), DeviceError> {
         crate::always_print!("🔄 [DeviceCache] Force refreshing device cache...");
         let manager = DeviceManager::new();

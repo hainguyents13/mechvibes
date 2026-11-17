@@ -96,18 +96,16 @@ const READ_ONLY_ERROR: &str =
 pub enum ThemesError {
     /// The list could not be read at startup, so nothing may be written over it.
     ReadOnly,
-    /// The folder the list lives in could not be created. The `String` is the
-    /// OS description.
-    DataDirectory(String),
+    /// The folder the list lives in could not be created.
+    DataDirectory(path::DirectoryError),
     /// The name offered for a new or edited entry is blank.
     NameRequired,
     /// Another entry already uses that name.
     NameTaken,
     /// No entry has that id.
     NotFound,
-    /// The file could not be written. The `String` is the storage layer's own
-    /// description, which owns its wording.
-    Storage(String),
+    /// The file could not be written.
+    Storage(data::WriteJsonError),
 }
 
 impl ThemesError {
@@ -119,12 +117,12 @@ impl ThemesError {
         match self {
             ThemesError::ReadOnly => errors.colors_list_read_only.to_string(),
             ThemesError::DataDirectory(cause) =>
-                fill(errors.data_directory_unavailable, &[cause]),
+                fill(errors.data_directory_unavailable, &[&cause.ui_message(errors)]),
             ThemesError::NameRequired => errors.theme_name_required.to_string(),
             ThemesError::NameTaken => errors.theme_name_taken.to_string(),
             ThemesError::NotFound => errors.theme_not_found.to_string(),
-            // Already a whole sentence from the storage helper, which owns it.
-            ThemesError::Storage(description) => description.clone(),
+            // The storage helper words its own cause from the same catalog.
+            ThemesError::Storage(cause) => cause.ui_message(errors),
         }
     }
 }
@@ -161,7 +159,7 @@ impl ThemesConfig {
             }
             ThemesLoad::Fresh | ThemesLoad::KeptAside(_) => {
                 crate::always_print!("📝 Creating new themes configuration");
-                if let Err(e) = config.save_at(&themes_path, false) {
+                if let Err(e) = config.save_at_typed(&themes_path, false) {
                     crate::always_eprint!("❌ Failed to create initial themes.json: {}", e);
                 }
             }
@@ -216,21 +214,10 @@ impl ThemesConfig {
         }
     }
 
-    /// Kept in its `String` shape because `utils::theme`'s `UpdateThemes` still
-    /// hands out `Result<(), String>`. Delegates to [`ThemesConfig::save_typed`],
-    /// so the wording is not duplicated; the screen migrates by calling that one.
-    pub fn save(&self) -> Result<(), String> {
-        self.save_typed().map_err(|e| e.to_string())
-    }
-
-    /// The same save as [`ThemesConfig::save`], with the failure typed so the
+    /// Save the list where the app keeps it, with the failure typed so the
     /// screen can word it from the catalog.
     pub fn save_typed(&self) -> Result<(), ThemesError> {
         self.save_at_typed(&paths::data::themes_json(), READ_ONLY.load(Ordering::Acquire))
-    }
-
-    fn save_at(&self, themes_path: &Path, read_only: bool) -> Result<(), String> {
-        self.save_at_typed(themes_path, read_only).map_err(|e| e.to_string())
     }
 
     fn save_at_typed(&self, themes_path: &Path, read_only: bool) -> Result<(), ThemesError> {
@@ -240,31 +227,18 @@ impl ThemesConfig {
 
         // Ensure the data directory exists
         if let Some(parent) = themes_path.parent() {
-            path::ensure_directory_exists(parent)
-                .map_err(|e| ThemesError::DataDirectory(e.to_string()))?;
+            path::ensure_directory_exists_typed(parent).map_err(ThemesError::DataDirectory)?;
         }
 
         // Atomic, so a failed write leaves the old list rather than half of one.
-        data::save_json_to_file_atomically(self, themes_path)
-            .map_err(ThemesError::Storage)?;
+        data::save_json_to_file_atomically_typed(self, themes_path).map_err(ThemesError::Storage)?;
         crate::always_print!("💾 Saved themes configuration to {}", themes_path.display());
         Ok(())
     }
 
-    /// Kept in its `String` shape for `colors_editor_modal`, whose outcome slot
-    /// is typed `Result<String, String>`. Delegates to
-    /// [`ThemesConfig::add_theme_typed`].
-    pub fn add_theme(
-        &mut self,
-        name: String,
-        description: String,
-        css: String,
-    ) -> Result<String, String> {
-        self.add_theme_typed(name, description, css).map_err(|e| e.to_string())
-    }
-
-    /// The same add as [`ThemesConfig::add_theme`], with the failure typed so
-    /// the screen can word it from the catalog.
+    /// Add a theme. The `String` returned is its id.
+    ///
+    /// The failure is typed so the screen can word it from the catalog.
     pub fn add_theme_typed(
         &mut self,
         name: String,
@@ -300,20 +274,8 @@ impl ThemesConfig {
 
         Ok(id)
     }
-    /// Kept in its `String` shape for the same reason as
-    /// [`ThemesConfig::add_theme`]; delegates to
-    /// [`ThemesConfig::update_theme_typed`].
-    pub fn update_theme(
-        &mut self,
-        id: &str,
-        name: String,
-        description: String,
-        css: String,
-    ) -> Result<(), String> {
-        self.update_theme_typed(id, name, description, css).map_err(|e| e.to_string())
-    }
-
-    /// The same edit as [`ThemesConfig::update_theme`], with the failure typed.
+    /// Change an entry. The failure is typed so the screen can word it from the
+    /// catalog.
     pub fn update_theme_typed(
         &mut self,
         id: &str,
@@ -344,8 +306,8 @@ impl ThemesConfig {
         }
     }
 
-    /// Kept in its `String` shape for the same reason as
-    /// [`ThemesConfig::add_theme`]; delegates to
+    /// Kept in its `String` shape for the callers outside this slice that only
+    /// report it as a reason (`customize::colors_tab`); delegates to
     /// [`ThemesConfig::delete_theme_typed`].
     pub fn delete_theme(&mut self, id: &str) -> Result<(), String> {
         self.delete_theme_typed(id).map_err(|e| e.to_string())
@@ -375,7 +337,7 @@ impl ThemesConfig {
             unique = format!("{} ({})", name, number);
             number += 1;
         }
-        self.add_theme(unique, String::new(), css.to_string())
+        self.add_theme_typed(unique, String::new(), css.to_string()).map_err(|e| e.to_string())
     }
 
     /// The id of colors whose CSS is exactly `css`, the newest when there are
@@ -424,13 +386,21 @@ mod tests {
     fn a_description_is_english_whatever_language_the_catalog_is_in() {
         use crate::i18n::Language;
 
+        let directory = path::DirectoryError {
+            path: PathBuf::from("/x"),
+            cause: "denied".to_string(),
+        };
+        let storage = data::WriteJsonError::WriteFile {
+            path: PathBuf::from("/x/themes.json.7.tmp"),
+            cause: "no space left on device".to_string(),
+        };
         let failures = [
             ThemesError::ReadOnly,
-            ThemesError::DataDirectory("denied".to_string()),
+            ThemesError::DataDirectory(directory.clone()),
             ThemesError::NameRequired,
             ThemesError::NameTaken,
             ThemesError::NotFound,
-            ThemesError::Storage("no space left on device".to_string()),
+            ThemesError::Storage(storage.clone()),
         ];
         for failure in &failures {
             let english = failure.to_string();
@@ -455,13 +425,23 @@ mod tests {
         );
         assert_eq!(ThemesError::NotFound.to_string(), "Theme not found");
         assert_eq!(
-            ThemesError::DataDirectory("denied".to_string()).to_string(),
-            "Failed to create data directory: denied"
+            ThemesError::DataDirectory(directory.clone()).to_string(),
+            "Failed to create data directory: Failed to create directory '/x': denied"
         );
-        // The storage layer owns its sentence, so it passes through unchanged.
+        // The storage helper owns its sentence, and English is unchanged by it
+        // moving into the catalog.
         assert_eq!(
-            ThemesError::Storage("no space left on device".to_string()).to_string(),
-            "no space left on device"
+            ThemesError::Storage(storage.clone()).to_string(),
+            "Failed to write file '/x/themes.json.7.tmp': no space left on device"
+        );
+        // What the user reads does follow the language, cause included.
+        assert_eq!(
+            ThemesError::Storage(storage).ui_message(&Language::Es.strings().errors),
+            "No se pudo escribir el archivo '/x/themes.json.7.tmp': no space left on device"
+        );
+        assert_eq!(
+            ThemesError::DataDirectory(directory).ui_message(&Language::Zh.strings().errors),
+            "无法创建数据目录：无法创建目录 '/x'：denied"
         );
         assert_eq!(
             ThemesError::NameTaken.ui_message(&Language::Es.strings().errors),
@@ -557,7 +537,7 @@ mod tests {
 
         let mut themes = themes;
         themes.import_theme("Night", "--color-primary: red;").unwrap();
-        themes.save_at(&path, false).unwrap();
+        themes.save_at_typed(&path, false).unwrap();
         assert_eq!(ThemesConfig::load_from(&path), (themes, ThemesLoad::Loaded));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -592,7 +572,7 @@ mod tests {
 
         // While read-only, a save refuses and writes nothing.
         let file = dir.join("other.json");
-        assert_eq!(ThemesConfig::default().save_at(&file, true), Err(READ_ONLY_ERROR.to_string()));
+        assert_eq!(ThemesConfig::default().save_at_typed(&file, true), Err(ThemesError::ReadOnly));
         assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

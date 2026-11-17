@@ -138,7 +138,9 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
                 }
             };
 
-            // What the list said about the change, such as a name in use.
+            // What the list said about the change, such as a name in use. It
+            // stays typed, so the sentence is read from the catalog when the
+            // dialog draws it rather than memoized here.
             let outcome = Rc::new(RefCell::new(Ok(String::new())));
             let saved = update_themes(
                 Box::new({
@@ -147,9 +149,12 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
                     let CleanColors { name, css, .. } = clean.clone();
                     move |themes: &mut ThemesConfig| {
                         *outcome.borrow_mut() = match &editor {
-                            ColorsEditor::New => themes.add_theme(name, String::new(), css),
+                            ColorsEditor::New =>
+                                themes.add_theme_typed(name, String::new(), css),
                             ColorsEditor::Edit(id) =>
-                                themes.update_theme(id, name, String::new(), css).map(|()| id.clone()),
+                                themes
+                                    .update_theme_typed(id, name, String::new(), css)
+                                    .map(|()| id.clone()),
                         };
                     }
                 })
@@ -157,7 +162,7 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
             let saved_id = match saved.and_then(|()| outcome.replace(Ok(String::new()))) {
                 Ok(id) => id,
                 Err(e) => {
-                    error.set(e);
+                    error.set(e.ui_message(&strings.errors));
                     return;
                 }
             };

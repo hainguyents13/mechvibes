@@ -1,6 +1,7 @@
 //! Text that reaches the screen from outside the component tree: the notice
-//! templates, the messages the audio and device layers surface, and the failures
-//! adding a sound to Mood can raise.
+//! templates, the messages the audio and device layers surface, the failures
+//! adding a sound to Mood can raise, the storage helpers' causes, and the toasts
+//! a theme file's save reports.
 //!
 //! The layers that produce these failures have no catalog in hand — a sound
 //! pack load runs on the engine thread, a device list comes from `cpal`, and a
@@ -83,5 +84,26 @@ zone! {
         // has nothing printable in its name. Stored in config as it is, so the
         // module reads the English column at add time (see `mood_sounds`).
         mood_sound_fallback_name: "My sound", "我的音效", "Mi sonido",
+
+        // ----- The storage helpers behind a save (`utils::path`, `utils::data`) -----
+        // `{}` is the folder and the OS cause. The same sentence the path helper
+        // has always produced, so a caller that only prints it reads it unchanged.
+        directory_create_failed: "Failed to create directory '{}': {}", "无法创建目录 '{}'：{}", "No se pudo crear el directorio '{}': {}",
+        // The four ways writing a JSON file can fail; `{}` is the path and the
+        // OS or `serde_json` cause, as the sentence needs it.
+        json_serialize_failed: "Failed to serialize data: {}", "无法序列化数据：{}", "No se pudieron serializar los datos: {}",
+        file_write_failed: "Failed to write file '{}': {}", "无法写入文件 '{}'：{}", "No se pudo escribir el archivo '{}': {}",
+        file_replace_failed: "Failed to replace file '{}': {}", "无法替换文件 '{}'：{}", "No se pudo reemplazar el archivo '{}': {}",
+
+        // ----- Sharing a theme file (`components::theme_share`) -----
+        // These are raised by a click rather than a render, so the module that
+        // raises them reads the choice as the file is saved or imported.
+        nothing_to_undo: "Nothing to undo. The look changed since.", "没有可撤销的操作。外观已经改变。", "No hay nada que deshacer. La apariencia cambió desde entonces.",
+        saving_stopped_unexpectedly: "Saving stopped unexpectedly.", "保存意外中断。", "El guardado se detuvo inesperadamente.",
+        importing_stopped_unexpectedly: "Importing stopped unexpectedly.", "导入意外中断。", "La importación se detuvo inesperadamente.",
+        theme_file_saved: "Saved. Your friend can double-click the file to use it.", "已保存。对方双击该文件即可使用。", "Guardado. Tu amigo puede hacer doble clic en el archivo para usarlo.",
+        // `{}` is the OS cause of a write to the `.mvtheme` file.
+        could_not_save_the_file: "Could not save the file: {}", "无法保存该文件：{}", "No se pudo guardar el archivo: {}",
+        could_not_save_the_theme: "Could not save the theme.", "无法保存该主题。", "No se pudo guardar el tema.",
     }
 }

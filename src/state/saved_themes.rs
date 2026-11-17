@@ -10,6 +10,7 @@
 //! empty list: one that cannot be read, or that a newer Mechvibes wrote, is
 //! never written over this session.
 
+use crate::i18n::catalog::ErrorStrings;
 use crate::state::config::{ preserve_corrupt_config, LogoCustomization, BackgroundCustomization, Preserved };
 use crate::state::paths;
 use crate::utils::data;
@@ -88,13 +89,27 @@ pub enum ReadOnly {
 }
 
 impl ReadOnly {
-    /// What the user is told, once, when the list is loaded.
+    /// What the user is told, once, when the list is loaded, in the language
+    /// `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone: this
+    /// module never reads the config to word a notice.
+    pub fn ui_message(self, errors: &ErrorStrings) -> String {
+        match self {
+            ReadOnly::CouldNotRead => notice::saved_themes_read_only(errors),
+            ReadOnly::MadeByNewerApp => notice::saved_themes_from_newer_app(errors),
+        }
+    }
+
+    /// The English sentence, for the callers that only carry it as a reason
+    /// (`look_editor`, `theme_share`), the same rule a `Display` follows. The
+    /// notice the load reports goes through [`ReadOnly::ui_message`].
     pub fn message(self) -> &'static str {
         match self {
             ReadOnly::CouldNotRead =>
-                "Could not open your saved themes, so theme changes will not be saved for now. Restart Mechvibes to try again.",
+                crate::i18n::Language::En.strings().errors.saved_themes_read_only,
             ReadOnly::MadeByNewerApp =>
-                "Your saved themes come from a newer Mechvibes. Update Mechvibes to change them.",
+                crate::i18n::Language::En.strings().errors.saved_themes_from_newer_app,
         }
     }
 }
@@ -444,6 +459,17 @@ fn authority() -> MutexGuard<'static, SavedThemes> {
         .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
+/// The catalog for the language the app is set to right now.
+///
+/// The notices below are reported while the list is loaded or written, not
+/// while it is drawn, so there is no catalog in hand. Nothing below the UI
+/// resolves a language itself: the sentence comes from the `errors` zone the
+/// config points at. No path reachable from `config_writer::apply` may call
+/// into this module, or the two locks could be taken in opposite orders.
+fn current_errors() -> &'static ErrorStrings {
+    &crate::i18n::resolve(crate::state::config_writer::current().language).strings().errors
+}
+
 /// Read the list from disk and tell the user, once, when something is wrong
 /// with it. The notices wait in the queue until the window is up.
 fn load() -> SavedThemes {
@@ -453,12 +479,12 @@ fn load() -> SavedThemes {
         crate::always_eprint!("   The damaged saved_themes.json was kept at: {}", copy.display());
         notice::report(
             NoticeKind::Error,
-            format!("Your saved themes were damaged. A copy was kept at {}.", copy.display()),
+            notice::saved_themes_damaged(current_errors(), copy),
             Some(NoticeAction::ShowFile(copy.clone()))
         );
     }
     if let Some(read_only) = store.read_only {
-        notice::report(NoticeKind::Error, read_only.message(), None);
+        notice::report(NoticeKind::Error, read_only.ui_message(current_errors()), None);
     }
     store
 }
@@ -490,7 +516,11 @@ pub fn apply(mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, String> {
         Ok(false) => {}
         Err(e) => {
             crate::always_eprint!("❌ Failed to save saved_themes.json: {}", e);
-            notice::report(NoticeKind::Error, format!("Could not save your theme. {}", e), None);
+            notice::report(
+                NoticeKind::Error,
+                notice::could_not_save_your_theme(current_errors(), e),
+                None
+            );
         }
     }
     result

@@ -862,22 +862,10 @@ fn create_mouse_mappings(
 /// Mirrors `load_keyboard_soundpack_optimized` but writes to `EngineState`
 /// fields instead of an `&AudioContext`, since the engine thread owns its
 /// data as plain fields rather than `Arc<Mutex<...>>`.
-/// Kept in its `String` shape for the engine's `UiEvent::PackLoaded`, which
-/// still carries `Result<String, String>`. Delegates to
-/// [`load_keyboard_pack_into_engine_typed`], so the wording is not duplicated:
-/// the screen can migrate by calling the typed one and mapping its error.
-pub(super) fn load_keyboard_pack_into_engine(
-    state: &mut EngineState,
-    soundpack_id: &str,
-    update_cache_on_error: bool
-) -> Result<String, String> {
-    load_keyboard_pack_into_engine_typed(state, soundpack_id, update_cache_on_error).map_err(|e|
-        e.to_string()
-    )
-}
-
-/// The same load as [`load_keyboard_pack_into_engine`], with the failure typed
-/// so the screen can word it from the catalog.
+///
+/// The failure is typed and travels to the screen inside
+/// `UiEvent::PackLoaded`; the log and the on-disk cache print it through
+/// `Display`, which is the same English sentence in every language.
 pub(super) fn load_keyboard_pack_into_engine_typed(
     state: &mut EngineState,
     soundpack_id: &str,
@@ -940,20 +928,7 @@ fn load_keyboard_pack_into_engine_inner(
 }
 
 /// Loads a mouse soundpack directly into engine-owned state (Phase 3).
-/// See `load_keyboard_pack_into_engine` for the rationale.
-/// The mouse half of [`load_keyboard_pack_into_engine`], kept in the same
-/// `String` shape for the same reason.
-pub(super) fn load_mouse_pack_into_engine(
-    state: &mut EngineState,
-    soundpack_id: &str,
-    update_cache_on_error: bool
-) -> Result<String, String> {
-    load_mouse_pack_into_engine_typed(state, soundpack_id, update_cache_on_error).map_err(|e|
-        e.to_string()
-    )
-}
-
-/// The mouse half of [`load_keyboard_pack_into_engine_typed`].
+/// See `load_keyboard_pack_into_engine_typed` for the rationale.
 pub(super) fn load_mouse_pack_into_engine_typed(
     state: &mut EngineState,
     soundpack_id: &str,

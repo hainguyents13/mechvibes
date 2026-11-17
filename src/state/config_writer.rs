@@ -108,10 +108,13 @@ pub fn apply(mutate: impl FnOnce(&mut AppConfig)) -> bool {
             if let Err(e) = guard.save() {
                 crate::always_eprint!("❌ [config] Failed to save config: {}", e);
                 // The change stays in memory for this session, but the user
-                // has to know it will not be there next time.
+                // has to know it will not be there next time. The language is
+                // read from the config already in hand, so reporting a failed
+                // write never needs a second read of it.
+                let errors = &crate::i18n::resolve(guard.language).strings().errors;
                 crate::utils::notice::report(
                     crate::utils::notice::NoticeKind::Error,
-                    format!("Could not save your changes. {}", e),
+                    crate::utils::notice::could_not_save_your_changes(errors, e),
                     None
                 );
             }

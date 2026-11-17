@@ -357,15 +357,16 @@ fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
                   let source = handle.path().to_path_buf();
 
                   // Copying a long music file takes a moment, so it runs off
-                  // the window's thread.
+                  // the window's thread. The failure comes back typed, and the
+                  // sentence the user reads is worded here from the catalog.
                   adding.set(true);
                   let added = tokio::task
-                      ::spawn_blocking(move || crate::utils::mood_sounds::add(&source)).await
-                      .unwrap_or_else(|e| Err(fill(strings.mood.add_failed, &[&e])));
+                      ::spawn_blocking(move || crate::utils::mood_sounds::add_typed(&source))
+                      .await;
                   adding.set(false);
 
                   match added {
-                      Ok(sound) => {
+                      Ok(Ok(sound)) => {
                           let mut is_new = false;
                           update_global_ambiance_player_state(|player| {
                               is_new = player.add_custom_sound(sound);
@@ -375,9 +376,17 @@ fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
                           }
                           refresh_trigger.set(refresh_trigger() + 1);
                       }
-                      Err(e) => {
+                      Ok(Err(e)) => {
+                          // The log keeps the stable English description.
                           crate::always_eprint!("Failed to add a Mood sound: {}", e);
-                          notice::report(NoticeKind::Error, e, None);
+                          notice::report(NoticeKind::Error, e.ui_message(&strings.errors), None);
+                      }
+                      Err(e) => {
+                          // The copying task itself stopped; there is no typed
+                          // failure to word, so the page says so in its own words.
+                          let message = fill(strings.mood.add_failed, &[&e]);
+                          crate::always_eprint!("Failed to add a Mood sound: {}", message);
+                          notice::report(NoticeKind::Error, message, None);
                       }
                   }
               });

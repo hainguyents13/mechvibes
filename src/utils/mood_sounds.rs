@@ -34,9 +34,9 @@ const MAX_NAME_CHARS: usize = 60;
 pub enum MoodSoundError {
     /// The extension is not one the player decodes.
     UnsupportedFile,
-    /// The Mood sounds folder could not be created. The description comes from
-    /// `utils::path::ensure_directory_exists`, which has no catalog entry yet.
-    Directory(String),
+    /// The Mood sounds folder could not be created. The path helper that owns
+    /// the sentence words it from the same catalog.
+    Directory(crate::utils::path::DirectoryError),
     /// The picked file could not be read.
     FileOpen(String),
     /// Reading it stopped halfway.
@@ -59,9 +59,8 @@ impl MoodSoundError {
     pub fn ui_message(&self, errors: &ErrorStrings) -> String {
         match self {
             MoodSoundError::UnsupportedFile => errors.mood_sound_pick_supported_file.to_string(),
-            // Already a whole sentence from the path helper, which owns its
-            // wording. Passed through until that helper grows a catalog entry.
-            MoodSoundError::Directory(description) => description.clone(),
+            // The folder's own sentence, which the path helper words.
+            MoodSoundError::Directory(cause) => cause.ui_message(errors),
             MoodSoundError::FileOpen(cause) => fill(errors.mood_sound_open_failed, &[cause]),
             MoodSoundError::FileRead(cause) => fill(errors.mood_sound_read_failed, &[cause]),
             MoodSoundError::SaveFailed(cause) => fill(errors.mood_sound_save_failed, &[cause]),
@@ -82,16 +81,8 @@ impl std::fmt::Display for MoodSoundError {
 
 /// Copy `source` into the Mood sounds folder and describe it for the list.
 ///
-/// Kept in its `String` shape because the Mood page's task hands one straight to
-/// the notice channel (`components::pages::mood`). Delegates to
-/// [`add_typed`], so the wording is not duplicated; the page migrates by calling
-/// that one and wording the failure with [`MoodSoundError::ui_message`].
-pub fn add(source: &Path) -> Result<CustomMoodSound, String> {
-    add_typed(source).map_err(|e| e.to_string())
-}
-
-/// The same add as [`add`], with the failure typed so the screen can word it
-/// from the catalog.
+/// The failure is typed so the screen can word it from the catalog with
+/// [`MoodSoundError::ui_message`].
 pub fn add_typed(source: &Path) -> Result<CustomMoodSound, MoodSoundError> {
     add_in(&crate::state::paths::data::mood_sounds_dir(), source)
 }
@@ -106,10 +97,10 @@ pub fn remove(file_name: &str) {
     remove_in(&crate::state::paths::data::mood_sounds_dir(), file_name);
 }
 
-/// `add` into `dir`.
+/// [`add_typed`] into `dir`.
 pub(crate) fn add_in(dir: &Path, source: &Path) -> Result<CustomMoodSound, MoodSoundError> {
     let extension = supported_extension(source).ok_or(MoodSoundError::UnsupportedFile)?;
-    crate::utils::path::ensure_directory_exists(dir).map_err(MoodSoundError::Directory)?;
+    crate::utils::path::ensure_directory_exists_typed(dir).map_err(MoodSoundError::Directory)?;
 
     // Copy and hash in one pass, so a long music file is read only once.
     let partial = dir.join(format!("sound-{}.partial", uuid::Uuid::new_v4().simple()));
@@ -373,7 +364,10 @@ mod tests {
 
         let failures = [
             MoodSoundError::UnsupportedFile,
-            MoodSoundError::Directory("Failed to create directory '/x': denied".to_string()),
+            MoodSoundError::Directory(crate::utils::path::DirectoryError {
+                path: PathBuf::from("/x"),
+                cause: "denied".to_string(),
+            }),
             MoodSoundError::FileOpen("no such file".to_string()),
             MoodSoundError::FileRead("interrupted".to_string()),
             MoodSoundError::SaveFailed("disk full".to_string()),

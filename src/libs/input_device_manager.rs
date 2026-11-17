@@ -101,14 +101,7 @@ impl InputDeviceManager {
         }
     }
 
-    /// Enumerate all input devices.
-    ///
-    /// Kept in its `String` shape for the callers outside the window that only
-    /// log it; delegates to [`InputDeviceManager::enumerate_devices_typed`].
-    pub fn enumerate_devices(&mut self) -> Result<(), String> {
-        self.enumerate_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// Enumerate all input devices, with the failure typed.
     pub fn enumerate_devices_typed(&mut self) -> Result<(), InputDeviceError> {
         #[cfg(windows)]
         {
@@ -180,7 +173,7 @@ impl InputDeviceManager {
     }
 
     /// Computes the same `id` (hash of the Raw Input device name) that
-    /// `enumerate_devices`/`get_devices` produce for a `HANDLE`, so a live
+    /// `enumerate_devices_typed`/`get_devices_typed` produce for a `HANDLE`, so a live
     /// `WM_INPUT`'s `RAWINPUT.header.hDevice` can be matched against
     /// `AppConfig.enabled_keyboards`/`enabled_mice` without re-implementing
     /// the lookup. Used by `rawinput_listener.rs`'s per-device filtering.
@@ -528,14 +521,10 @@ impl InputDeviceManager {
             .collect()
     }
 
-    /// Static method to get all input devices (keyboards + mice)
-    /// Kept in its `String` shape because `DeviceSelector` still stores the
-    /// reason and words the sentence where it draws it. Delegates to
-    /// [`InputDeviceManager::get_devices_typed`], so nothing is duplicated.
-    pub fn get_devices() -> Result<Vec<InputDeviceInfo>, String> {
-        Self::get_devices_typed().map_err(|e| e.to_string())
-    }
-
+    /// Static method to get all input devices (keyboards + mice).
+    ///
+    /// The failure is typed so the screen words it from the catalog with
+    /// [`InputDeviceError::ui_message`]; the log prints it through `Display`.
     pub fn get_devices_typed() -> Result<Vec<InputDeviceInfo>, InputDeviceError> {
         let mut manager = InputDeviceManager::new();
         manager.enumerate_devices_typed()?;

@@ -48,7 +48,7 @@ pub async fn put_on(
     }
     let (full, written) = tokio::task
         ::spawn_blocking(move || theme_share::install_images(&mut theme).map(|written| (theme, written))).await
-        .unwrap_or_else(|_| Err("Importing stopped unexpectedly.".to_string()))?;
+        .unwrap_or_else(|_| Err(current_strings().errors.importing_stopped_unexpectedly.to_string()))?;
 
     let installed = theme_library::add_installed(
         full,
@@ -100,7 +100,13 @@ fn add_colors(update_themes: &UpdateThemes, colors: &SharedColors, name: &str) -
         })
     );
     let chosen = chosen.borrow_mut().take();
-    saved.and_then(|()| chosen.unwrap_or_else(|| Err("Could not save the theme.".to_string())))
+    // The reason the write failed keeps its own sentence; the missing answer
+    // below is the case where the change went in but named no colors.
+    saved.map_err(|e| e.to_string()).and_then(|()|
+        chosen.unwrap_or_else(||
+            Err(current_strings().errors.could_not_save_the_theme.to_string())
+        )
+    )
 }
 
 /// Go back to the look from before the last theme was put on, if nothing has
@@ -129,7 +135,11 @@ pub fn undo_look(
             true
         }
         None => {
-            notice::report(NoticeKind::Info, "Nothing to undo. The look changed since.", None);
+            notice::report(
+                NoticeKind::Info,
+                current_strings().errors.nothing_to_undo,
+                None
+            );
             false
         }
     }
@@ -170,16 +180,26 @@ fn file_name_for(name: &str) -> String {
         .collect()
 }
 
+/// The catalog for the language the app is set to right now.
+///
+/// The dialogs below open from a click, not from a render, so they read the
+/// choice as they open. A `strings` captured while the button was built would
+/// still be in the language the app had before the last change.
+fn current_strings() -> &'static crate::i18n::Strings {
+    crate::i18n::resolve(crate::state::config_writer::current().language).strings()
+}
+
 /// Ask where to save, suggesting a file named `name`, then write it. A
 /// gathered theme takes the name the user gives the file. A toast says how
 /// it went and, once saved, offers to show the file.
 async fn share(name: &str, shared: Shared) {
+    let strings = current_strings();
     let suggested = format!("{}.{}", file_name_for(name), FILE_EXTENSION);
     let Some(handle) = rfd::AsyncFileDialog
         ::new()
-        .add_filter("Mechvibes theme", &[FILE_EXTENSION])
+        .add_filter(strings.tray.dialog_theme_files, &[FILE_EXTENSION])
         .set_file_name(&suggested)
-        .set_title("Save theme")
+        .set_title(strings.tray.dialog_save_theme)
         .save_file().await else {
         return;
     };
@@ -198,24 +218,27 @@ async fn share(name: &str, shared: Shared) {
                     let path = path.clone();
                     tokio::task
                         ::spawn_blocking(move || theme_share::save(&theme, &path)).await
-                        .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
+                        .unwrap_or_else(|_| Err(strings.errors.saving_stopped_unexpectedly.to_string()))
                 }
                 Err(e) => Err(e),
             }
         Shared::File(bytes) => {
             let path = path.clone();
+            let errors = &strings.errors;
             tokio::task
                 ::spawn_blocking(move || {
-                    std::fs::write(&path, bytes).map_err(|e| format!("Could not save the file: {}", e))
+                    std::fs::write(&path, bytes).map_err(|e|
+                        crate::i18n::fill(errors.could_not_save_the_file, &[&e])
+                    )
                 }).await
-                .unwrap_or_else(|_| Err("Saving stopped unexpectedly.".to_string()))
+                .unwrap_or_else(|_| Err(strings.errors.saving_stopped_unexpectedly.to_string()))
         }
     };
     match result {
         Ok(()) =>
             notice::report(
                 NoticeKind::Info,
-                "Saved. Your friend can double-click the file to use it.",
+                strings.errors.theme_file_saved,
                 Some(NoticeAction::ShowFile(path))
             ),
         Err(e) => notice::report(NoticeKind::Error, e, None),
@@ -225,11 +248,12 @@ async fn share(name: &str, shared: Shared) {
 /// Let the user pick a theme file and hand it to the import dialog at the
 /// root, which reads it and asks.
 pub async fn pick_theme_file() {
+    let strings = current_strings();
     if
         let Some(handle) = rfd::AsyncFileDialog
             ::new()
-            .add_filter("Mechvibes theme", &[FILE_EXTENSION])
-            .set_title("Import theme")
+            .add_filter(strings.tray.dialog_theme_files, &[FILE_EXTENSION])
+            .set_title(strings.tray.dialog_import_theme)
             .pick_file().await
     {
         crate::utils::deep_link::deliver_theme_file(handle.path().to_path_buf());
