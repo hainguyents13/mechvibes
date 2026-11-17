@@ -8,7 +8,7 @@
 //! by their bytes and stored under names this app picks. A shared file can
 //! change how the app looks, and nothing else.
 
-use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::catalog::{ CustomizeStrings, ErrorStrings };
 use crate::i18n::fill;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::{ AppConfig, BackgroundCustomization, LogoCustomization };
@@ -76,20 +76,33 @@ pub struct SharedTheme {
 impl SharedTheme {
     /// The colours' name as the import dialog shows it.
     pub fn colors_label(&self) -> String {
+        self.colors_label_in(current_customize())
+    }
+
+    /// `colors_label` with the catalog in hand, for a caller that already
+    /// resolved it (see `checklist`, which is given the config).
+    fn colors_label_in(&self, strings: &CustomizeStrings) -> String {
         match &self.colors {
+            // A built-in theme's name is a DaisyUI identifier, not copy: it is
+            // the same word in a shared file, in the CSS the app ships and on
+            // every language's screen.
             SharedColors::BuiltIn(theme) => format!("{:?}", theme),
-            SharedColors::Custom { .. } => "Custom colors".to_string(),
+            SharedColors::Custom { .. } => strings.custom_colors.to_string(),
         }
     }
 
     /// What the look brings for the logo, as the import dialog shows it, or
     /// `None` when it leaves the logo out.
     pub fn logo_label(&self) -> Option<&'static str> {
+        self.logo_label_in(current_customize())
+    }
+
+    fn logo_label_in(&self, strings: &CustomizeStrings) -> Option<&'static str> {
         self.logo.as_ref().map(|logo| {
             if logo.use_background_image || logo.use_muted_background_image {
-                "Logo with images"
+                strings.logo_with_images
             } else {
-                "Logo style"
+                strings.logo_style
             }
         })
     }
@@ -97,9 +110,13 @@ impl SharedTheme {
     /// What the look brings for the background, as the import dialog shows
     /// it, or `None` when it leaves the background out.
     pub fn background_label(&self) -> Option<&'static str> {
+        self.background_label_in(current_customize())
+    }
+
+    fn background_label_in(&self, strings: &CustomizeStrings) -> Option<&'static str> {
         self.background
             .as_ref()
-            .map(|background| if background.use_image { "Background image" } else { "Background color" })
+            .map(|background| if background.use_image { strings.background_image } else { strings.background_color })
     }
 
     /// Give the look another name, tidied the way a name from a file is.
@@ -327,41 +344,59 @@ pub struct PartRow {
     /// The theme brings this part. A line without it cannot be ticked.
     pub in_theme: bool,
     /// What ticking it does to the user's own part, when that is worth saying.
+    /// A `&'static str` still holds a catalog value: the catalogs are `const`.
     pub note: Option<&'static str>,
 }
 
 /// The checklist the import dialog shows for `theme`, one line per part,
 /// read from the theme itself so what is listed is what gets put on. `config`
 /// says which of the user's own parts are on, and so get replaced.
+///
+/// The words come from the catalog `config` names, so the lines are in the
+/// language the rest of the screen is in, read from the same config the dialog
+/// is drawn with rather than from the global one.
 pub fn checklist(theme: &SharedTheme, config: &AppConfig) -> [PartRow; 3] {
+    let strings = customize_for(config);
     let row = |part: Part, name: &str, label: Option<&str>, yours_on: bool, replaces: &'static str| PartRow {
         part,
         label: label.unwrap_or(name).to_string(),
         in_theme: label.is_some(),
         note: match label {
             Some(_) => yours_on.then_some(replaces),
-            None => Some("Not in this theme. Yours stays as it is."),
+            None => Some(strings.import_not_in_theme),
         },
     };
     [
         PartRow {
             part: Part::Colors,
-            label: format!("Colors: {}", theme.colors_label()),
+            label: fill(strings.import_colors_line, &[&theme.colors_label_in(strings)]),
             in_theme: true,
             note: None,
         },
-        row(Part::Logo, "Logo", theme.logo_label(), config.enable_logo_customization, "Replaces your logo"),
+        // The part's own name is the word its tab carries, so it is that key
+        // rather than a second key spelling the same word.
+        row(
+            Part::Logo,
+            strings.tab_logo,
+            theme.logo_label_in(strings),
+            config.enable_logo_customization,
+            strings.import_replaces_logo
+        ),
         row(
             Part::Background,
-            "Background",
-            theme.background_label(),
+            strings.tab_background,
+            theme.background_label_in(strings),
             config.enable_background_customization,
-            "Replaces your background"
+            strings.import_replaces_background
         ),
     ]
 }
 
 /// The name a share starts with: the custom theme's name, or the built-in one.
+///
+/// **A name is stored in `config.json` and in shared files, so it is data, not
+/// copy**: `"My theme"` and `"My Dark theme"` are written as they are in every
+/// language, like `DEFAULT_NAME`.
 pub fn default_name(config: &AppConfig, themes: &ThemesConfig) -> String {
     match &config.theme {
         Theme::Custom(id) =>
@@ -379,11 +414,11 @@ pub fn default_name(config: &AppConfig, themes: &ThemesConfig) -> String {
 /// wherever they are set, a web address included, so the file works without
 /// the internet and without the person who made it.
 pub async fn gather(name: &str, look: &Look) -> Result<SharedTheme, String> {
-    let name = clean_name(name).ok_or_else(|| "Give the theme a name first.".to_string())?;
+    let name = clean_name(name).ok_or_else(|| current_errors().share_theme_name_required.to_string())?;
     let colors = match &look.colors {
         LookColors::Known(colors) => colors.clone(),
         LookColors::Missing(_) => {
-            return Err("The selected theme is missing. Pick a theme and try again.".to_string());
+            return Err(current_errors().share_theme_missing.to_string());
         }
     };
 
@@ -438,7 +473,7 @@ async fn gather_image(
     };
     let bytes = load_image(value).await?;
     let extension = image_extension(&bytes).ok_or_else(||
-        format!("'{}' is not a PNG, JPEG, GIF, WebP or BMP image.", value)
+        fill(current_errors().share_image_not_an_image, &[&value])
     )?;
     let file_name = format!("{}.{}", stem, extension);
     images.insert(file_name.clone(), bytes);
@@ -450,7 +485,7 @@ async fn gather_image(
 async fn load_image(value: &str) -> Result<Vec<u8>, String> {
     if let Some(file_name) = value.strip_prefix("/custom-images/") {
         if !is_portable_name(file_name) {
-            return Err(format!("Could not read the image '{}'.", value));
+            return Err(fill(current_errors().share_image_unreadable, &[&value]));
         }
         let path = crate::state::paths::data::custom_images_dir().join(file_name);
         return read_image_file(&path);
@@ -464,20 +499,20 @@ async fn load_image(value: &str) -> Result<Vec<u8>, String> {
 fn read_image_file(path: &Path) -> Result<Vec<u8>, String> {
     let file = std::fs::File
         ::open(path)
-        .map_err(|_| format!("Could not read the image '{}'. Pick it again and retry.", path.display()))?;
+        .map_err(|_| fill(current_errors().share_image_unreadable_retry, &[&path.display()]))?;
     let mut bytes = Vec::new();
     file
         .take(MAX_IMAGE_BYTES + 1)
         .read_to_end(&mut bytes)
-        .map_err(|e| format!("Could not read the image '{}': {}", path.display(), e))?;
+        .map_err(|e| fill(current_errors().share_image_unreadable_cause, &[&path.display(), &e]))?;
     if (bytes.len() as u64) > MAX_IMAGE_BYTES {
-        return Err(format!("The image '{}' is larger than 10 MB. Use a smaller one.", path.display()));
+        return Err(fill(current_errors().share_image_too_large, &[&path.display()]));
     }
     Ok(bytes)
 }
 
 async fn download_image(url: &str) -> Result<Vec<u8>, String> {
-    let failed = || format!("Could not download the image {}. Check your connection, or pick the image from your computer.", url);
+    let failed = || fill(current_errors().share_image_download_failed, &[&url]);
     let mut response = crate::utils::library_client
         ::client()?
         .get(url)
@@ -490,7 +525,7 @@ async fn download_image(url: &str) -> Result<Vec<u8>, String> {
     while let Some(chunk) = response.chunk().await.map_err(|_| failed())? {
         bytes.extend_from_slice(&chunk);
         if (bytes.len() as u64) > MAX_IMAGE_BYTES {
-            return Err(format!("The image {} is larger than 10 MB. Use a smaller one.", url));
+            return Err(fill(current_errors().share_image_url_too_large, &[&url]));
         }
     }
     Ok(bytes)
@@ -515,7 +550,9 @@ pub fn share_target(chosen: &Path) -> Result<(PathBuf, String), String> {
     path.push(format!(".{}", FILE_EXTENSION));
     let path = PathBuf::from(path);
     if path.symlink_metadata().is_ok() {
-        return Err(format!("There is already a file called \"{}.{}\". Share again and pick another name.", name, FILE_EXTENSION));
+        return Err(
+            fill(current_errors().share_file_exists, &[&name, &FILE_EXTENSION])
+        );
     }
     Ok((path, name))
 }
@@ -527,6 +564,21 @@ pub fn share_target(chosen: &Path) -> Result<(PathBuf, String), String> {
 /// other lock is held at this point, so reading the config is safe.
 fn current_errors() -> &'static ErrorStrings {
     &crate::i18n::resolve(crate::state::config_writer::current().language).strings().errors
+}
+
+/// The `customize` zone for the language the app is set to right now.
+///
+/// The import dialog asks this module what a theme brings for each part, so the
+/// words for those parts are read here rather than passed in. A caller that
+/// already holds the config (see [`checklist`]) goes through [`customize_for`]
+/// instead of reading the global one.
+fn current_customize() -> &'static CustomizeStrings {
+    customize_for(&crate::state::config_writer::current())
+}
+
+/// The `customize` zone for the language `config` names.
+fn customize_for(config: &AppConfig) -> &'static CustomizeStrings {
+    &crate::i18n::resolve(config.language).strings().customize
 }
 
 /// Write the look to `path` as a `.mvtheme`, its images cut down first. Slow
@@ -783,16 +835,20 @@ pub(crate) fn manifest_json(theme: &SharedTheme) -> Result<Vec<u8>, String> {
         logo: theme.logo.as_ref().map(LogoV1::from_config),
         background: theme.background.as_ref().map(BackgroundV1::from_config),
     };
-    serde_json::to_vec_pretty(&manifest).map_err(|e| format!("Could not write the theme: {}", e))
+    serde_json::to_vec_pretty(&manifest).map_err(could_not_write_the_theme)
+}
+
+fn could_not_write_the_theme(e: impl std::fmt::Display) -> String {
+    fill(current_errors().could_not_write_the_theme, &[&e])
 }
 
 fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let json = manifest_json(theme)?;
 
-    let failed = |e: zip::result::ZipError| format!("Could not write the theme: {}", e);
     let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
-    zip.start_file(MANIFEST_NAME, zip::write::SimpleFileOptions::default()).map_err(failed)?;
-    zip.write_all(&json).map_err(|e| format!("Could not write the theme: {}", e))?;
+    zip.start_file(MANIFEST_NAME, zip::write::SimpleFileOptions::default())
+        .map_err(could_not_write_the_theme)?;
+    zip.write_all(&json).map_err(could_not_write_the_theme)?;
     // Images are compressed already; deflating them again only costs time.
     let stored = zip::write::SimpleFileOptions
         ::default()
@@ -800,10 +856,10 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
     let mut names: Vec<&String> = theme.images.keys().collect();
     names.sort();
     for name in names {
-        zip.start_file(name.as_str(), stored).map_err(failed)?;
-        zip.write_all(&theme.images[name]).map_err(|e| format!("Could not write the theme: {}", e))?;
+        zip.start_file(name.as_str(), stored).map_err(could_not_write_the_theme)?;
+        zip.write_all(&theme.images[name]).map_err(could_not_write_the_theme)?;
     }
-    Ok(zip.finish().map_err(failed)?.into_inner())
+    Ok(zip.finish().map_err(could_not_write_the_theme)?.into_inner())
 }
 
 // ===== Importing =====
@@ -817,20 +873,22 @@ fn to_bytes(theme: &SharedTheme) -> Result<Vec<u8>, String> {
 /// at most one byte past the limit is read, so a file that keeps growing is
 /// refused rather than read without end.
 pub fn open(path: &Path) -> Result<SharedTheme, String> {
-    let failed = |e: std::io::Error| format!("Could not open the file: {}", e);
+    // The same sentence a Mood sound's picker shows for the file it could not
+    // open: one key, two pickers.
+    let failed = |e: std::io::Error| fill(current_errors().mood_sound_open_failed, &[&e]);
     if !std::fs::metadata(path).map_err(failed)?.is_file() {
-        return Err("This is not a Mechvibes theme file.".to_string());
+        return Err(current_errors().theme_file_not_a_theme.to_string());
     }
     let file = std::fs::File::open(path).map_err(failed)?;
     if !file.metadata().map_err(failed)?.is_file() {
-        return Err("This is not a Mechvibes theme file.".to_string());
+        return Err(current_errors().theme_file_not_a_theme.to_string());
     }
     let mut bytes = Vec::new();
     file.take(MAX_FILE_BYTES + 1)
         .read_to_end(&mut bytes)
         .map_err(failed)?;
     if (bytes.len() as u64) > MAX_FILE_BYTES {
-        return Err("This theme file is too large.".to_string());
+        return Err(current_errors().theme_file_too_large.to_string());
     }
     from_bytes(&bytes)
 }
@@ -839,9 +897,10 @@ pub fn open(path: &Path) -> Result<SharedTheme, String> {
 /// the theme library. Same checks as `open`.
 pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
     if (bytes.len() as u64) > MAX_FILE_BYTES {
-        return Err("This theme file is too large.".to_string());
+        return Err(current_errors().theme_file_too_large.to_string());
     }
-    let not_a_theme = || "This is not a Mechvibes theme file.".to_string();
+    let not_a_theme = || current_errors().theme_file_not_a_theme.to_string();
+    let damaged = || current_errors().theme_file_damaged.to_string();
     let mut archive = zip::ZipArchive::new(Cursor::new(bytes)).map_err(|_| not_a_theme())?;
     let manifest = read_entry(&mut archive, MANIFEST_NAME, MAX_MANIFEST_BYTES)?.ok_or_else(not_a_theme)?;
     let format = serde_json
@@ -851,21 +910,19 @@ pub fn from_bytes(bytes: &[u8]) -> Result<SharedTheme, String> {
         .and_then(serde_json::Value::as_u64)
         .ok_or_else(not_a_theme)?;
     if format > (FORMAT as u64) {
-        return Err("This theme was made with a newer Mechvibes. Update the app to use it.".to_string());
+        return Err(current_errors().theme_file_from_newer_app.to_string());
     }
-    let manifest: ManifestV1 = serde_json
-        ::from_slice(&manifest)
-        .map_err(|_| "This theme file is damaged.".to_string())?;
+    let manifest: ManifestV1 = serde_json::from_slice(&manifest).map_err(|_| damaged())?;
 
-    let name = clean_name(&manifest.name).ok_or_else(|| "This theme file is damaged.".to_string())?;
+    let name = clean_name(&manifest.name).ok_or_else(damaged)?;
     let author = manifest.author.as_deref().and_then(clean_name);
     let description = manifest.description.as_deref().and_then(clean_description);
-    let colors = match manifest.colors.into_shared().ok_or_else(|| "This theme file is damaged.".to_string())? {
+    let colors = match manifest.colors.into_shared().ok_or_else(damaged)? {
         SharedColors::BuiltIn(theme) => SharedColors::BuiltIn(theme),
         SharedColors::Custom { css } => {
             let css = safe_theme_css(&css);
             if css.is_empty() {
-                return Err("This theme has no colors this app can use.".to_string());
+                return Err(current_errors().theme_file_no_colors.to_string());
             }
             SharedColors::Custom { css }
         }
@@ -917,7 +974,7 @@ fn open_image<R: Read + std::io::Seek>(
     let Some(name) = name else {
         return Ok(None);
     };
-    let damaged = || "This theme file is damaged: an image is missing or unreadable.".to_string();
+    let damaged = || current_errors().theme_file_image_damaged.to_string();
     if !is_portable_name(&name) || name == MANIFEST_NAME {
         return Err(damaged());
     }
@@ -942,16 +999,16 @@ fn read_entry<R: Read + std::io::Seek>(
             return Ok(None);
         }
         Err(_) => {
-            return Err("This theme file is damaged.".to_string());
+            return Err(current_errors().theme_file_damaged.to_string());
         }
     };
     let mut bytes = Vec::new();
     entry
         .take(limit + 1)
         .read_to_end(&mut bytes)
-        .map_err(|_| "This theme file is damaged.".to_string())?;
+        .map_err(|_| current_errors().theme_file_damaged.to_string())?;
     if (bytes.len() as u64) > limit {
-        return Err("This theme file is too large.".to_string());
+        return Err(current_errors().theme_file_too_large.to_string());
     }
     Ok(Some(bytes))
 }
@@ -988,7 +1045,7 @@ pub(crate) fn install_images_in(
             }
             Err(e) => {
                 remove_images(&created);
-                return Err(format!("Could not save the theme's images. {}", e));
+                return Err(fill(current_errors().could_not_save_theme_images, &[&e]));
             }
         }
     }
@@ -1141,13 +1198,23 @@ pub fn safe_css_value(value: &str) -> Option<String> {
 
 /// A colour from a shared file. Configs from before the defaults became theme
 /// variables can hold an empty colour, which means the default.
+///
+/// The failure is worded here, from the catalog: this is only reached while a
+/// file is read or a share is gathered, with no lock held. A caller that runs
+/// under one (see `safe_color_value`) gets the check without the sentence.
 pub(crate) fn safe_color(value: &str, default: String) -> Result<String, String> {
+    safe_color_value(value, default)
+        .ok_or_else(|| current_errors().theme_file_color_unusable.to_string())
+}
+
+/// The value `safe_color` keeps, without wording the failure: for a caller that
+/// only needs to know whether a colour can be used (a saved theme's check, which
+/// runs under the saved themes list's lock, where the catalog cannot be read).
+pub(crate) fn safe_color_value(value: &str, default: String) -> Option<String> {
     if value.trim().is_empty() {
-        return Ok(default);
+        return Some(default);
     }
-    safe_css_value(value)
-        .filter(|value| is_one_value(value))
-        .ok_or_else(|| "This theme file has a color this app cannot use.".to_string())
+    safe_css_value(value).filter(|value| is_one_value(value))
 }
 
 /// Whether `value` is one value rather than a list or several: no comma or
@@ -1361,6 +1428,7 @@ fn plain_number(text: &str) -> Option<f64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
 
     const PNG: &[u8] = b"\x89PNG\r\n\x1a\nrest-of-a-png";
     const JPEG: &[u8] = b"\xff\xd8\xff\xe0rest-of-a-jpeg";
@@ -1386,6 +1454,20 @@ mod tests {
                 ("background.jpg".to_string(), JPEG.to_vec()),
             ]),
         }
+    }
+
+    /// The sentences this module words its failures with, in the language the
+    /// app is set to right now: the same lookup `current_errors` does, so an
+    /// assertion holds whatever language the host config names. The English
+    /// column of each key is pinned in `i18n::catalog::errors`.
+    fn errors() -> &'static ErrorStrings {
+        current_errors()
+    }
+
+    /// The `customize` strings for `config`: the ones `checklist` reads out of
+    /// the config it is given.
+    fn customize(config: &AppConfig) -> &'static CustomizeStrings {
+        customize_for(config)
     }
 
     fn zip_with(entries: &[(&str, &[u8])]) -> Vec<u8> {
@@ -1617,7 +1699,7 @@ mod tests {
     #[test]
     fn an_unknown_built_in_name_is_damaged() {
         let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Neon"}}"#;
-        assert_eq!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).unwrap_err(), "This theme file is damaged.");
+        assert_eq!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).unwrap_err(), errors().theme_file_damaged);
         let manifest = br#"{"format": 1, "name": "x", "colors": {"built_in": "Synthwave"}}"#;
         assert!(from_bytes(&zip_with(&[(MANIFEST_NAME, manifest)])).is_ok());
     }
@@ -1647,25 +1729,25 @@ mod tests {
     #[test]
     fn a_file_from_a_newer_layout_asks_for_an_update() {
         let bytes = zip_with(&[(MANIFEST_NAME, br#"{"format": 2, "name": "x"}"#)]);
-        assert!(from_bytes(&bytes).unwrap_err().contains("newer Mechvibes"));
+        assert_eq!(from_bytes(&bytes).unwrap_err(), errors().theme_file_from_newer_app);
     }
 
     #[test]
     fn a_file_that_is_not_a_theme_is_refused() {
-        assert!(from_bytes(b"not a zip").unwrap_err().contains("not a Mechvibes theme"));
+        assert_eq!(from_bytes(b"not a zip").unwrap_err(), errors().theme_file_not_a_theme);
         let bytes = zip_with(&[("config.json", b"{}")]);
-        assert!(from_bytes(&bytes).unwrap_err().contains("not a Mechvibes theme"));
+        assert_eq!(from_bytes(&bytes).unwrap_err(), errors().theme_file_not_a_theme);
     }
 
     #[test]
     fn an_image_that_is_missing_or_not_an_image_is_refused() {
         let mut theme = look();
         theme.images.remove("background.jpg");
-        assert!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err().contains("image"));
+        assert_eq!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(), errors().theme_file_image_damaged);
 
         let mut theme = look();
         theme.images.insert("background.jpg".to_string(), b"<svg onload=alert(1)>".to_vec());
-        assert!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err().contains("image"));
+        assert_eq!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(), errors().theme_file_image_damaged);
     }
 
     #[test]
@@ -1679,7 +1761,7 @@ mod tests {
     fn a_colour_that_could_load_something_is_refused() {
         let mut theme = look();
         theme.logo.as_mut().unwrap().border_color = "red; background: url(https://example.com/x)".to_string();
-        assert!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err().contains("color"));
+        assert_eq!(from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(), errors().theme_file_color_unusable);
     }
 
     #[test]
@@ -1798,6 +1880,22 @@ mod tests {
         assert_eq!(safe_theme_css("--color-base-content: red !important;"), "");
     }
 
+    /// The saved themes list checks colors under its own lock, where the catalog
+    /// cannot be read: it asks for the answer, never for the sentence.
+    #[test]
+    fn a_colour_can_be_checked_without_wording_a_failure() {
+        assert_eq!(safe_color_value(" ", "red".to_string()), Some("red".to_string()));
+        assert_eq!(
+            safe_color_value(" oklch(55% 0.3 240) ", "red".to_string()).as_deref(),
+            Some("oklch(55% 0.3 240)")
+        );
+        assert_eq!(safe_color_value("red, blue", "red".to_string()), None);
+        assert_eq!(
+            safe_color("red, blue", "red".to_string()).unwrap_err(),
+            errors().theme_file_color_unusable
+        );
+    }
+
     #[test]
     fn a_colour_is_one_colour_not_a_list() {
         let list = "red, 0 0 0 100vmax rgb(0 0 0)";
@@ -1812,7 +1910,7 @@ mod tests {
         theme.logo.as_mut().unwrap().shadow_color = list.to_string();
         assert_eq!(
             from_bytes(&to_bytes(&theme).unwrap()).unwrap_err(),
-            "This theme file has a color this app cannot use."
+            errors().theme_file_color_unusable
         );
         let mut theme = look();
         theme.background.as_mut().unwrap().background_color = list.to_string();
@@ -2312,19 +2410,21 @@ mod tests {
     /// what will be put on rather than what the library page said.
     #[test]
     fn what_a_theme_holds_is_read_from_the_file() {
+        let words = current_customize();
         let theme = look();
-        assert_eq!(theme.colors_label(), "Custom colors");
-        assert_eq!(theme.logo_label(), Some("Logo with images"));
-        assert_eq!(theme.background_label(), Some("Background image"));
+        assert_eq!(theme.colors_label(), words.custom_colors);
+        assert_eq!(theme.logo_label(), Some(words.logo_with_images));
+        assert_eq!(theme.background_label(), Some(words.background_image));
 
         let mut theme = SharedTheme { colors: SharedColors::BuiltIn(BuiltInTheme::Synthwave), background: None, ..look() };
         theme.logo.as_mut().unwrap().use_background_image = false;
+        // A DaisyUI name is an identifier, not copy: the same in every language.
         assert_eq!(theme.colors_label(), "Synthwave");
-        assert_eq!(theme.logo_label(), Some("Logo style"));
+        assert_eq!(theme.logo_label(), Some(words.logo_style));
         assert_eq!(theme.background_label(), None);
 
         theme.background = Some(BackgroundCustomization { use_image: false, ..look().background.unwrap() });
-        assert_eq!(theme.background_label(), Some("Background color"));
+        assert_eq!(theme.background_label(), Some(words.background_color));
     }
 
     #[test]
@@ -2332,16 +2432,43 @@ mod tests {
         let theme = look();
         let mut config = AppConfig::default();
         config.enable_logo_customization = true;
+        let words = customize(&config);
         let [colors, logo, background] = checklist(&theme, &config);
-        assert_eq!((colors.part, colors.label.as_str(), colors.note), (Part::Colors, "Colors: Custom colors", None));
-        assert_eq!((logo.part, logo.label.as_str(), logo.note), (Part::Logo, "Logo with images", Some("Replaces your logo")));
-        assert_eq!((background.part, background.label.as_str(), background.note), (Part::Background, "Background image", None));
+        let colors_label = fill(words.import_colors_line, &[&words.custom_colors]);
+        assert_eq!(
+            (colors.part, colors.label.as_str(), colors.note),
+            (Part::Colors, colors_label.as_str(), None)
+        );
+        assert_eq!((logo.part, logo.label.as_str(), logo.note), (Part::Logo, words.logo_with_images, Some(words.import_replaces_logo)));
+        assert_eq!((background.part, background.label.as_str(), background.note), (Part::Background, words.background_image, None));
 
         config.enable_logo_customization = false;
         config.enable_background_customization = true;
         let [_, logo, background] = checklist(&theme, &config);
         assert_eq!(logo.note, None);
-        assert_eq!(background.note, Some("Replaces your background"));
+        assert_eq!(background.note, Some(words.import_replaces_background));
+    }
+
+    /// The line the dialog shows is read from the config the dialog is drawn
+    /// with, not from the global one: the same theme listed in a Spanish
+    /// config is listed in Spanish, down to the sentence about a part the
+    /// theme leaves out.
+    #[test]
+    fn the_checklist_is_in_the_language_its_config_names() {
+        for language in Language::ALL {
+            let config = AppConfig {
+                language: Some(language),
+                enable_background_customization: true,
+                ..AppConfig::default()
+            };
+            let words = &language.strings().customize;
+            let [colors, logo, background] = checklist(&SharedTheme { logo: None, ..look() }, &config);
+            assert_eq!(colors.label, fill(words.import_colors_line, &[&words.custom_colors]), "{language:?}");
+            assert_eq!(logo.label, words.tab_logo, "{language:?}");
+            assert_eq!(logo.note, Some(words.import_not_in_theme), "{language:?}");
+            assert_eq!(background.label, words.background_image, "{language:?}");
+            assert_eq!(background.note, Some(words.import_replaces_background), "{language:?}");
+        }
     }
 
     #[test]
@@ -2350,10 +2477,11 @@ mod tests {
         // has none. The checklist only ever reads the file.
         let dir = temp_dir("library");
         let mut theme = SharedTheme { logo: None, ..look() };
+        let words = customize(&my_config());
         let [_, logo, _] = checklist(&theme, &my_config());
-        assert_eq!(logo.label, "Logo");
+        assert_eq!(logo.label, words.tab_logo);
         assert!(!logo.in_theme);
-        assert_eq!(logo.note, Some("Not in this theme. Yours stays as it is."));
+        assert_eq!(logo.note, Some(words.import_not_in_theme));
 
         theme.keep_parts(ImportParts::ALL);
         let created = install_images_in(&mut theme, &dir, &owned_list(&dir)).unwrap();
@@ -2368,7 +2496,7 @@ mod tests {
         // The library said there is no logo (`has_logo: false`), but the file
         // has one: the dialog lists the file's logo, which is what gets put on.
         let [_, logo, _] = checklist(&look(), &AppConfig::default());
-        assert_eq!(logo.label, "Logo with images");
+        assert_eq!(logo.label, words.logo_with_images);
         assert!(logo.in_theme);
         assert_eq!(logo.note, None);
     }
@@ -2418,7 +2546,7 @@ mod tests {
         let look = Look::from_config(&config, &ThemesConfig::default());
         assert_eq!(
             gather("Mine", &look).await.unwrap_err(),
-            "The selected theme is missing. Pick a theme and try again."
+            errors().share_theme_missing
         );
 
         config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
@@ -2433,6 +2561,8 @@ mod tests {
         let id = themes.import_theme("Night", "--color-primary: red;").unwrap();
         let mut config = my_config();
 
+        // A name is written into the file and into `config.json`, so it is data
+        // rather than copy: the same bytes in every language, like `My theme`.
         config.theme = Theme::BuiltIn(BuiltInTheme::Dark);
         assert_eq!(default_name(&config, &themes), "My Dark theme");
         config.theme = Theme::Custom(id);
@@ -2525,7 +2655,7 @@ mod tests {
         let dir = temp_dir("folder");
         let folder = dir.join("looks-like-a.mvtheme");
         std::fs::create_dir_all(&folder).unwrap();
-        assert_eq!(open(&folder).unwrap_err(), "This is not a Mechvibes theme file.");
+        assert_eq!(open(&folder).unwrap_err(), errors().theme_file_not_a_theme);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2536,7 +2666,7 @@ mod tests {
         let pipe = dir.join("cool.mvtheme");
         let made = std::process::Command::new("mkfifo").arg(&pipe).status().unwrap();
         assert!(made.success());
-        assert_eq!(open(&pipe).unwrap_err(), "This is not a Mechvibes theme file.");
+        assert_eq!(open(&pipe).unwrap_err(), errors().theme_file_not_a_theme);
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2550,7 +2680,13 @@ mod tests {
             share_target(&dir.join("Neon v1.2")).unwrap(),
             (dir.join("Neon v1.2.mvtheme"), "Neon v1.2".to_string())
         );
-        assert!(share_target(&dir.join("notes")).is_err(), "the dialog never asked about notes.mvtheme");
+        // The sentence the save dialog's choice is refused with.
+        let refused = share_target(&dir.join("notes")).unwrap_err();
+        assert_eq!(
+            refused,
+            fill(errors().share_file_exists, &[&"notes".to_string(), &FILE_EXTENSION]),
+            "the dialog never asked about notes.mvtheme"
+        );
         // A name the dialog showed with its extension was already asked about.
         assert_eq!(
             share_target(&dir.join("notes.mvtheme")).unwrap(),
@@ -2566,7 +2702,7 @@ mod tests {
         let dir = temp_dir("large");
         let path = dir.join("large.mvtheme");
         std::fs::File::create(&path).unwrap().set_len(MAX_FILE_BYTES * 4).unwrap();
-        assert_eq!(open(&path).unwrap_err(), "This theme file is too large.");
+        assert_eq!(open(&path).unwrap_err(), errors().theme_file_too_large);
 
         let theme = look();
         let path = dir.join("fine.mvtheme");

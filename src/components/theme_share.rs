@@ -101,13 +101,16 @@ fn add_colors(update_themes: &UpdateThemes, colors: &SharedColors, name: &str) -
         })
     );
     let chosen = chosen.borrow_mut().take();
-    // The reason the write failed keeps its own sentence; the missing answer
-    // below is the case where the change went in but named no colors.
-    saved.map_err(|e| e.to_string()).and_then(|()|
-        chosen.unwrap_or_else(||
-            Err(current_strings().errors.could_not_save_the_theme.to_string())
+    // The reason the write failed keeps its own sentence, in the user's
+    // language: `ThemesError` carries the cause, not the wording. The missing
+    // answer below is the case where the change went in but named no colors.
+    saved
+        .map_err(|e| e.ui_message(&current_strings().errors))
+        .and_then(|()|
+            chosen.unwrap_or_else(||
+                Err(current_strings().errors.could_not_save_the_theme.to_string())
+            )
         )
-    )
 }
 
 /// Go back to the look from before the last theme was put on, if nothing has

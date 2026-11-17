@@ -11,13 +11,14 @@
 //! never written over this session.
 
 use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::config::{ preserve_corrupt_config, LogoCustomization, BackgroundCustomization, Preserved };
 use crate::state::paths;
 use crate::utils::data;
 use crate::utils::deep_link::is_theme_id;
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
 use crate::utils::soundpack_validator::is_portable_name;
-use crate::utils::theme_share::{ clean_name, safe_color, safe_theme_css, Look, LookColors, SharedColors };
+use crate::utils::theme_share::{ clean_name, safe_color_value, safe_theme_css, Look, LookColors, SharedColors };
 use chrono::{ DateTime, Utc };
 use serde::{ Deserialize, Serialize };
 use serde_json::{ Map, Value };
@@ -101,19 +102,50 @@ impl ReadOnly {
             ReadOnly::MadeByNewerApp => notice::saved_themes_from_newer_app(errors),
         }
     }
+}
 
-    /// The stable English sentence, for the one boundary that carries the
-    /// reason and has no catalog in hand: [`SavedThemes::apply_at`], which is
-    /// private and only reached after [`apply`] has already refused. Every path
-    /// a user can reach words the refusal through [`ReadOnly::ui_message`]
-    /// instead, the same rule a `Display` follows.
-    pub fn message(self) -> &'static str {
+/// Why a change to the list could not be written: the cause, not the sentence.
+///
+/// The list is written under its own lock, and the catalog may not be read
+/// while that lock is held (see `current_errors`). So the causes travel typed,
+/// and [`apply`] words them once the lock is released — the same split a
+/// `Display` follows: [`WriteFailure::to_string`] is always the English
+/// description, and [`WriteFailure::ui_message`] follows the catalog.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum WriteFailure {
+    /// Nothing may be written this session. Only reached from `apply_at`
+    /// directly; `apply` refuses before it with the same sentence.
+    ReadOnly(ReadOnly),
+    /// The theme's colors clean to nothing this app can draw.
+    NoColorsLeft,
+    /// A color or an image the list cannot store.
+    UnusableValue,
+    /// `serde_json` could not turn an entry into a value. The `String` is the
+    /// cause.
+    NotJson(String),
+    /// The file itself.
+    Storage(data::WriteJsonError),
+}
+
+impl WriteFailure {
+    /// The sentence for this cause in the language `errors` carries.
+    fn ui_message(&self, errors: &ErrorStrings) -> String {
         match self {
-            ReadOnly::CouldNotRead =>
-                crate::i18n::Language::En.strings().errors.saved_themes_read_only,
-            ReadOnly::MadeByNewerApp =>
-                crate::i18n::Language::En.strings().errors.saved_themes_from_newer_app,
+            WriteFailure::ReadOnly(read_only) => read_only.ui_message(errors),
+            WriteFailure::NoColorsLeft => errors.theme_colors_unusable.to_string(),
+            WriteFailure::UnusableValue => errors.theme_value_unusable.to_string(),
+            WriteFailure::NotJson(cause) => fill(errors.could_not_write_the_theme, &[cause]),
+            // The storage helper words its own cause from the same catalog.
+            WriteFailure::Storage(cause) => cause.ui_message(errors),
         }
+    }
+}
+
+impl std::fmt::Display for WriteFailure {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
     }
 }
 
@@ -266,12 +298,13 @@ impl SavedThemes {
     /// Run `mutate` and write the result to `path`. Returns whether anything
     /// was written. Refuses without calling `mutate` while read-only, and puts
     /// the list back as it was when the result cannot be saved.
-    fn apply_at(&mut self, path: &Path, mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, String> {
-        // `apply` refuses before this, so no user reaches this sentence: it
-        // stays English (the English column) rather than take the config lock
-        // while this list's lock is held.
+    ///
+    /// The failures come back as causes: wording one takes the config lock,
+    /// which must not happen while this list's lock is held. [`apply`] words
+    /// them after releasing it.
+    fn apply_at(&mut self, path: &Path, mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, WriteFailure> {
         if let Some(read_only) = self.read_only {
-            return Err(read_only.message().to_string());
+            return Err(WriteFailure::ReadOnly(read_only));
         }
         let before = self.clone();
         mutate(self);
@@ -291,7 +324,7 @@ impl SavedThemes {
     /// gets, so what is saved is what the next start reads back. Theme CSS is
     /// cleaned here; colors that clean to nothing are never saved, and never
     /// swapped for other colors either.
-    fn check_changed(&mut self) -> Result<(), String> {
+    fn check_changed(&mut self) -> Result<(), WriteFailure> {
         for slot in &mut self.slots {
             if let Slot::Readable { theme, edited: true, .. } = slot {
                 let no_colors_left = matches!(
@@ -300,11 +333,11 @@ impl SavedThemes {
                 );
                 if no_colors_left {
                     crate::always_eprint!("❌ Not saving theme '{}': its colors clean to nothing", theme.name);
-                    return Err("Its colors have nothing this app can use.".to_string());
+                    return Err(WriteFailure::NoColorsLeft);
                 }
                 let Some(clean) = checked(theme.clone()) else {
                     crate::always_eprint!("❌ Not saving theme '{}': it has a value this app cannot use", theme.name);
-                    return Err("It has a color or image this app cannot use.".to_string());
+                    return Err(WriteFailure::UnusableValue);
                 };
                 *theme = clean;
             }
@@ -314,7 +347,7 @@ impl SavedThemes {
 
     /// Write the list to `path` in one step, so a failed write leaves the old
     /// file rather than half of a new one.
-    fn save_at(&self, path: &Path) -> Result<(), String> {
+    fn save_at(&self, path: &Path) -> Result<(), WriteFailure> {
         let mut themes = Vec::with_capacity(self.slots.len());
         for slot in &self.slots {
             themes.push(match slot {
@@ -322,7 +355,7 @@ impl SavedThemes {
                 Slot::Readable { theme, read, .. } => {
                     let mut written = serde_json
                         ::to_value(theme)
-                        .map_err(|e| format!("Could not write the theme: {}", e))?;
+                        .map_err(|e| WriteFailure::NotJson(e.to_string()))?;
                     if let Some(read) = read {
                         keep_unknown_part_fields(&mut written, read);
                     }
@@ -333,7 +366,8 @@ impl SavedThemes {
         let mut document = self.extra.clone();
         document.insert("format".to_string(), Value::from(FORMAT));
         document.insert("themes".to_string(), Value::Array(themes));
-        data::save_json_to_file_atomically(&Value::Object(document), path)
+        data::save_json_to_file_atomically_typed(&Value::Object(document), path)
+            .map_err(WriteFailure::Storage)
     }
 }
 
@@ -405,7 +439,7 @@ pub fn checked_look(mut look: Look, app_images_only: bool) -> Option<Look> {
             (&mut logo.background_color, defaults.background_color),
             (&mut logo.muted_background, defaults.muted_background),
         ] {
-            *color = safe_color(color, default).ok()?;
+            *color = safe_color_value(color, default)?;
         }
         for image in [&logo.background_image, &logo.muted_background_image] {
             if !image_fits(image.as_deref(), app_images_only) {
@@ -414,10 +448,10 @@ pub fn checked_look(mut look: Look, app_images_only: bool) -> Option<Look> {
         }
     }
     if let Some(background) = &mut look.background {
-        background.background_color = safe_color(
+        background.background_color = safe_color_value(
             &background.background_color,
             BackgroundCustomization::default().background_color
-        ).ok()?;
+        )?;
         if !image_fits(background.background_image.as_deref(), app_images_only) {
             return None;
         }
@@ -518,13 +552,19 @@ pub fn apply(mutate: impl FnOnce(&mut SavedThemes)) -> Result<bool, String> {
         }
         store.apply_at(&paths::data::saved_themes_json(), mutate)
     };
+    // The list's lock is released at the end of the block above, so the catalog
+    // can be read here to word the cause. Wording it inside `apply_at` would
+    // take the config lock while this list's lock was held.
+    let result = result.map_err(|failure| {
+        crate::always_eprint!("❌ Failed to save saved_themes.json: {}", failure);
+        failure.ui_message(current_errors())
+    });
     match &result {
         Ok(true) => {
             GENERATION.fetch_add(1, Ordering::Release);
         }
         Ok(false) => {}
         Err(e) => {
-            crate::always_eprint!("❌ Failed to save saved_themes.json: {}", e);
             notice::report(
                 NoticeKind::Error,
                 notice::could_not_save_your_theme(current_errors(), e),
@@ -945,10 +985,58 @@ mod tests {
         // Colors that clean to nothing are refused, never saved as something else.
         let before = std::fs::read(&path).unwrap();
         let nothing = SharedColors::Custom { css: "} body { display: none; }".to_string() };
-        assert!(store.apply_at(&path, |store| store.insert(mine("b", nothing))).is_err());
+        assert_eq!(
+            store.apply_at(&path, |store| store.insert(mine("b", nothing))),
+            Err(WriteFailure::NoColorsLeft)
+        );
         assert_eq!(ids(&store), ["a"]);
         assert_eq!(std::fs::read(&path).unwrap(), before);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The causes a write is refused with: the log reads the English sentence in
+    /// every language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_write_failure_is_english_in_the_log_and_worded_on_screen() {
+        use crate::i18n::Language;
+
+        let failures = [
+            WriteFailure::ReadOnly(ReadOnly::CouldNotRead),
+            WriteFailure::ReadOnly(ReadOnly::MadeByNewerApp),
+            WriteFailure::NoColorsLeft,
+            WriteFailure::UnusableValue,
+            WriteFailure::NotJson("nested too deep".to_string()),
+            WriteFailure::Storage(data::WriteJsonError::Serialize("nope".to_string())),
+        ];
+        for failure in &failures {
+            assert_eq!(
+                failure.to_string(),
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_ne!(
+                    failure.ui_message(&language.strings().errors),
+                    failure.to_string(),
+                    "`{failure:?}` came out in English for {language:?}"
+                );
+            }
+        }
+        // The wording the notice and the rename dialog showed before the catalog
+        // was involved.
+        assert_eq!(WriteFailure::NoColorsLeft.to_string(), "Its colors have nothing this app can use.");
+        assert_eq!(
+            WriteFailure::UnusableValue.to_string(),
+            "It has a color or image this app cannot use."
+        );
+        assert_eq!(
+            WriteFailure::NotJson("nope".to_string()).to_string(),
+            "Could not write the theme: nope"
+        );
+        assert_eq!(
+            WriteFailure::Storage(data::WriteJsonError::Serialize("nope".to_string())).to_string(),
+            "Failed to serialize data: nope"
+        );
     }
 
     #[test]

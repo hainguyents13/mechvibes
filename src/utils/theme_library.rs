@@ -330,15 +330,22 @@ pub fn after_deleting_theme(config: &mut AppConfig, id: &str) {
 }
 
 /// The theme `config.theme` takes to show `colors`. Custom colors reuse a
-/// colors list entry whose CSS is exactly the cleaned CSS, or are added to
-/// the list under `name`. The caller saves the list.
+/// colors list entry whose CSS is exactly the cleaned CSS, or are added to the
+/// list under `name`. The caller saves the list.
+///
+/// The one failure is worded here, from the catalog: its `String` is shown as
+/// it is by the caller that puts a card on, so it cannot be an English cause.
+/// Reading the catalog takes the config lock while the colors list's lock is
+/// held by whoever called this (`theme::change_themes_config`), which cannot
+/// cycle: no path takes the config lock and then this list's, and the list's
+/// own `Lazy` already loads with the catalog.
 pub fn colors_choice(colors: &SharedColors, name: &str, themes: &mut ThemesConfig) -> Result<Theme, String> {
     match colors {
         SharedColors::BuiltIn(built_in) => Ok(Theme::BuiltIn(built_in.clone())),
         SharedColors::Custom { css } => {
             let css = safe_theme_css(css);
             if css.is_empty() {
-                return Err("These colors have nothing this app can use.".to_string());
+                return Err(current_errors().colors_have_nothing_usable.to_string());
             }
             match themes.find_by_css(&css) {
                 Some(id) => Ok(Theme::Custom(id)),

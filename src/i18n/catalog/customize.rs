@@ -160,6 +160,22 @@ zone! {
         import_kept_logo: "Kept your logo", "已保留你的标志", "Conservaste tu logotipo",
         import_kept_background: "Kept your background", "已保留你的背景", "Conservaste tu fondo",
         import_colors_line: "Colors: {}", "颜色：{}", "Colores: {}",
+        // What the theme brings for a part, as `theme_share::SharedTheme` reads
+        // it from the file. The part's own name, when the theme brings nothing,
+        // is the tab word above (`tab_logo`, `tab_background`) reused rather
+        // than repeated here: same word, same position on screen.
+        custom_colors: "Custom colors", "自定义颜色", "Colores personalizados",
+        logo_with_images: "Logo with images", "带图片的标志", "Logotipo con imágenes",
+        logo_style: "Logo style", "标志样式", "Estilo del logotipo",
+        background_image: "Background image", "背景图片", "Imagen de fondo",
+        background_color: "Background color", "背景颜色", "Color de fondo",
+        // What ticking a part does to the user's own part, and what a part the
+        // theme leaves out does (nothing at all).
+        import_not_in_theme: "Not in this theme. Yours stays as it is.",
+        "此主题不含此项。你的设置保持不变。",
+        "Este tema no incluye esto. Lo tuyo se queda como está.",
+        import_replaces_logo: "Replaces your logo", "将替换你的标志", "Reemplaza tu logotipo",
+        import_replaces_background: "Replaces your background", "将替换你的背景", "Reemplaza tu fondo",
         by_author: "by {}", "作者：{}", "por {}",
         error_opening_stopped: "Opening stopped unexpectedly.",
         "打开意外中断。",
@@ -194,6 +210,30 @@ mod tests {
             ("group_ready_made", EN.group_ready_made, "Ready-made"),
             ("group_my_themes", EN.group_my_themes, "My themes"),
             ("group_installed", EN.group_installed, "Installed"),
+        ];
+        for (key, actual, shipped) in expected {
+            assert_eq!(actual, shipped, "customize.{key} changed the words users already had");
+        }
+    }
+
+    /// The lines the theme import dialog showed while they were literals in
+    /// `utils::theme_share`. The move into the catalog must not rewrite one
+    /// word of them.
+    #[test]
+    fn english_keeps_the_words_the_import_checklist_showed() {
+        let expected = [
+            ("custom_colors", EN.custom_colors, "Custom colors"),
+            ("logo_with_images", EN.logo_with_images, "Logo with images"),
+            ("logo_style", EN.logo_style, "Logo style"),
+            ("background_image", EN.background_image, "Background image"),
+            ("background_color", EN.background_color, "Background color"),
+            (
+                "import_not_in_theme",
+                EN.import_not_in_theme,
+                "Not in this theme. Yours stays as it is.",
+            ),
+            ("import_replaces_logo", EN.import_replaces_logo, "Replaces your logo"),
+            ("import_replaces_background", EN.import_replaces_background, "Replaces your background"),
         ];
         for (key, actual, shipped) in expected {
             assert_eq!(actual, shipped, "customize.{key} changed the words users already had");
