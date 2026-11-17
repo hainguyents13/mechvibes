@@ -67,6 +67,141 @@ mod libs {
     }
 }
 
+/// Stands in for the app's `i18n` module, which the shared validator words its
+/// failures from.
+///
+/// `utils::soundpack_validator` is compiled into this tool with `#[path]`, and in
+/// the app it raises typed failures whose `Display` is composed from the catalog
+/// under `src/i18n/`. That catalog pulls in Dioxus, the config signal and ten
+/// other zones, none of which belong in a headless converter, so this module
+/// carries the one thing the validator reads: the English column of
+/// `src/i18n/catalog/errors.rs`, narrowed to the keys it names, plus the `fill`
+/// and the `En` lookup that reach them.
+///
+/// **This is not a second source of truth.** `src/i18n/catalog/errors.rs` scans
+/// this file in
+/// `the_headless_stub_carries_every_sentence_the_validator_reads_from_the_catalog`
+/// and fails, naming the key, when a sentence here and the English column drift
+/// apart. Re-word the catalog, then bring the copy below along.
+pub mod i18n {
+    /// The only language this tool speaks. The app's `Language` has three.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Language {
+        En,
+    }
+
+    /// The app's `Strings`, narrowed to the zone the validator reads.
+    pub struct Strings {
+        pub errors: catalog::errors::ErrorStrings,
+    }
+
+    const STRINGS_EN: Strings = Strings { errors: catalog::errors::EN };
+
+    impl Language {
+        /// Mirrors `i18n::Language::strings`.
+        pub fn strings(self) -> &'static Strings {
+            match self {
+                Language::En => &STRINGS_EN,
+            }
+        }
+    }
+
+    pub mod catalog {
+        pub mod errors {
+            /// The keys `utils::soundpack_validator` reads, with the English
+            /// column's words. Nothing else belongs here.
+            pub struct ErrorStrings {
+                pub soundpack_entry_unreadable: &'static str,
+                pub soundpack_archive_entry_unreadable: &'static str,
+                pub soundpack_entry_name_unusable: &'static str,
+                pub soundpack_entry_name_repeated: &'static str,
+                pub soundpack_config_not_found: &'static str,
+                pub soundpack_config_read_failed: &'static str,
+                pub soundpack_config_too_large: &'static str,
+                pub soundpack_issue_timing_expected: &'static str,
+                pub soundpack_issue_timing_pair: &'static str,
+                pub soundpack_issue_timing_entry: &'static str,
+                pub soundpack_issue_definitions_not_object: &'static str,
+                pub soundpack_issue_mouse_not_boolean: &'static str,
+                pub soundpack_config_file_unreadable: &'static str,
+                pub soundpack_config_json_invalid: &'static str,
+                pub soundpack_archive_open_failed: &'static str,
+                pub soundpack_archive_invalid: &'static str,
+                pub soundpack_no_audio_files: &'static str,
+                pub soundpack_temp_config_failed: &'static str,
+                pub soundpack_structure_invalid: &'static str,
+                pub soundpack_fields_missing: &'static str,
+                pub soundpack_version_unsupported: &'static str,
+                pub soundpack_requires_newer_app: &'static str,
+                pub soundpack_zip_missing: &'static str,
+                pub soundpack_zip_not_archive: &'static str,
+                pub soundpack_zip_open_failed: &'static str,
+                pub soundpack_zip_invalid: &'static str,
+                pub soundpack_zip_empty: &'static str,
+            }
+
+            pub const EN: ErrorStrings = ErrorStrings {
+                soundpack_entry_unreadable: "Failed to read archive entry: {}",
+                soundpack_archive_entry_unreadable: "Cannot read file in archive: {}",
+                soundpack_entry_name_unusable: "The ZIP contains a file with a name that cannot be used: '{}'",
+                soundpack_entry_name_repeated: "The ZIP has more than one file named '{}'. Every file in a sound pack needs a name of its own.",
+                soundpack_config_not_found: "No config.json found in ZIP file",
+                soundpack_config_read_failed: "Failed to read config.json: {}",
+                soundpack_config_too_large: "The sound pack's config.json is too large.",
+                soundpack_issue_timing_expected: "Invalid definitions entry for '{}': expected timing array",
+                soundpack_issue_timing_pair: "Invalid timing array for '{}[{}]': expected [start, end]",
+                soundpack_issue_timing_entry: "Invalid timing entry for '{}[{}]': expected array",
+                soundpack_issue_definitions_not_object: "definitions field should be an object",
+                soundpack_issue_mouse_not_boolean: "mouse field should be boolean",
+                soundpack_config_file_unreadable: "Cannot read config file: {}",
+                soundpack_config_json_invalid: "Invalid JSON: {}",
+                soundpack_archive_open_failed: "Cannot open ZIP file: {}",
+                soundpack_archive_invalid: "Invalid ZIP archive: {}",
+                soundpack_no_audio_files: "No audio files found in soundpack",
+                soundpack_temp_config_failed: "Cannot write temp config: {}",
+                soundpack_structure_invalid: "Invalid soundpack structure: {}",
+                soundpack_fields_missing: "Missing required fields: {}",
+                soundpack_version_unsupported: "Invalid or unsupported soundpack version",
+                soundpack_requires_newer_app: "This soundpack requires a newer version of Mechvibes",
+                soundpack_zip_missing: "File does not exist",
+                soundpack_zip_not_archive: "File must be a ZIP archive",
+                soundpack_zip_open_failed: "Cannot open file: {}",
+                soundpack_zip_invalid: "Invalid ZIP file: {}",
+                soundpack_zip_empty: "ZIP file is empty",
+            };
+        }
+
+        pub use errors::ErrorStrings;
+    }
+
+    /// Copy of `i18n::fill`, the app's placeholder filler: `{}` in order, a
+    /// placeholder with no argument left visible instead of a panic. The app's
+    /// copy is the one the window renders; this one only has to agree with it for
+    /// the sentences above, which both crates share.
+    pub fn fill(template: &str, args: &[&dyn std::fmt::Display]) -> String {
+        use std::fmt::Write;
+
+        let mut out = String::with_capacity(template.len() + 4 * args.len());
+        let mut rest = template;
+        let mut next_arg = 0;
+
+        while let Some(at) = rest.find("{}") {
+            out.push_str(&rest[..at]);
+            match args.get(next_arg) {
+                Some(arg) => {
+                    next_arg += 1;
+                    // Writing into a String cannot fail.
+                    let _ = write!(out, "{arg}");
+                }
+                None => out.push_str("{}"),
+            }
+            rest = &rest[at + 2..];
+        }
+        out.push_str(rest);
+        out
+    }
+}
+
 use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};

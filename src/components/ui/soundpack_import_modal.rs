@@ -146,7 +146,15 @@ pub fn SoundpackImportModal(
                 // First validate ZIP file structure
                 if let Err(e) = validate_zip_file(&file_path).await {
                     error_step.set(ImportStep::Validating);
-                    error_message.set(crate::i18n::fill(strings.soundpacks.invalid_file, &[&e]));
+                    // The validator raises a typed failure and never decides the
+                    // language itself; the cause is worded here, where the
+                    // catalog is in hand.
+                    error_message.set(
+                        crate::i18n::fill(
+                            strings.soundpacks.invalid_file,
+                            &[&e.ui_message(&strings.errors)]
+                        )
+                    );
                     is_loading.set(false);
                     return;
                 }
@@ -158,7 +166,9 @@ pub fn SoundpackImportModal(
                     }
                     Err(e) => {
                         error_step.set(ImportStep::Validating);
-                        error_message.set(e);
+                        // This sentence is the whole message, not a cause under a
+                        // wrapper, so it comes from the catalog too.
+                        error_message.set(e.ui_message(&strings.errors));
                         is_loading.set(false);
                         return; // Stop import process on validation error
                     }

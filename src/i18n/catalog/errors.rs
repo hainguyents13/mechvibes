@@ -70,6 +70,48 @@ zone! {
         soundpack_no_named_audio_file: "The pack names no audio file", "该音效包没有指定音频文件", "El paquete no indica ningún archivo de audio",
         soundpack_no_audio_loadable: "None of the pack's audio files could be loaded", "该音效包的音频文件都无法加载", "No se pudo cargar ninguno de los archivos de audio del paquete",
 
+        // ----- Importing a pack (`utils::soundpack_validator`) -----
+        // What the import dialog says when a ZIP is refused. The validator has no
+        // catalog in hand — it also runs inside the headless `pack-convert` — so it
+        // raises a typed failure and the dialog words it with these.
+        soundpack_zip_missing: "File does not exist", "文件不存在", "El archivo no existe",
+        soundpack_zip_not_archive: "File must be a ZIP archive", "文件必须是 ZIP 压缩包", "El archivo debe ser un paquete ZIP",
+        soundpack_zip_open_failed: "Cannot open file: {}", "无法打开文件：{}", "No se pudo abrir el archivo: {}",
+        soundpack_zip_invalid: "Invalid ZIP file: {}", "无效的 ZIP 文件：{}", "Archivo ZIP no válido: {}",
+        soundpack_zip_empty: "ZIP file is empty", "ZIP 文件为空", "El archivo ZIP está vacío",
+        // The archive's entries: a name the target systems cannot store, one name
+        // twice, and the config the installer will read. `{}` is the entry name or
+        // `zip`'s description of the failure.
+        soundpack_entry_unreadable: "Failed to read archive entry: {}", "无法读取压缩包条目：{}", "No se pudo leer la entrada del paquete: {}",
+        soundpack_archive_entry_unreadable: "Cannot read file in archive: {}", "无法读取压缩包中的文件：{}", "No se pudo leer el archivo dentro del paquete: {}",
+        soundpack_entry_name_unusable: "The ZIP contains a file with a name that cannot be used: '{}'", "ZIP 中包含文件名无法使用的文件：'{}'", "El ZIP contiene un archivo con un nombre que no se puede usar: '{}'",
+        soundpack_entry_name_repeated: "The ZIP has more than one file named '{}'. Every file in a sound pack needs a name of its own.", "ZIP 中有多个名为 '{}' 的文件。音效包中的每个文件都需要有各自的名称。", "El ZIP tiene más de un archivo llamado '{}'. Cada archivo de un paquete de sonido necesita un nombre propio.",
+        soundpack_config_not_found: "No config.json found in ZIP file", "ZIP 文件中未找到 config.json", "No se encontró config.json en el archivo ZIP",
+        soundpack_config_read_failed: "Failed to read config.json: {}", "无法读取 config.json：{}", "No se pudo leer config.json: {}",
+        soundpack_config_too_large: "The sound pack's config.json is too large.", "该音效包的 config.json 过大。", "El config.json del paquete de sonido es demasiado grande.",
+        // The pack as a whole: the ZIP the structure check opens, its audio, and the
+        // temp config that check validates. `{}` is the OS or `zip` cause.
+        soundpack_archive_open_failed: "Cannot open ZIP file: {}", "无法打开 ZIP 文件：{}", "No se pudo abrir el archivo ZIP: {}",
+        soundpack_archive_invalid: "Invalid ZIP archive: {}", "无效的 ZIP 压缩包：{}", "Paquete ZIP no válido: {}",
+        soundpack_no_audio_files: "No audio files found in soundpack", "音效包中未找到音频文件", "No se encontraron archivos de audio en el paquete de sonido",
+        soundpack_temp_config_failed: "Cannot write temp config: {}", "无法写入临时配置：{}", "No se pudo escribir la configuración temporal: {}",
+        // `{}` is the report's own sentence (the two keys below it) or the list of
+        // field names the config is missing.
+        soundpack_structure_invalid: "Invalid soundpack structure: {}", "音效包结构无效：{}", "Estructura del paquete de sonido no válida: {}",
+        soundpack_fields_missing: "Missing required fields: {}", "缺少必填字段：{}", "Faltan campos obligatorios: {}",
+        soundpack_version_unsupported: "Invalid or unsupported soundpack version", "音效包版本无效或不受支持", "Versión del paquete de sonido no válida o no compatible",
+        soundpack_requires_newer_app: "This soundpack requires a newer version of Mechvibes", "此音效包需要更新版本的 Mechvibes", "Este paquete de sonido requiere una versión más reciente de Mechvibes",
+        // The report's `InvalidStructure` payload: the file it could not read, or
+        // one entry of the config it could not use. `{}` is the cause, or the key
+        // name and its index in the definitions map.
+        soundpack_config_file_unreadable: "Cannot read config file: {}", "无法读取配置文件：{}", "No se pudo leer el archivo de configuración: {}",
+        soundpack_config_json_invalid: "Invalid JSON: {}", "无效的 JSON：{}", "JSON no válido: {}",
+        soundpack_issue_timing_expected: "Invalid definitions entry for '{}': expected timing array", "“{}”的定义条目无效：应为 timing 数组", "Entrada de definitions no válida para '{}': se esperaba un arreglo timing",
+        soundpack_issue_timing_pair: "Invalid timing array for '{}[{}]': expected [start, end]", "“{}[{}]”的 timing 数组无效：应为 [start, end]", "Arreglo timing no válido para '{}[{}]': se esperaba [start, end]",
+        soundpack_issue_timing_entry: "Invalid timing entry for '{}[{}]': expected array", "“{}[{}]”的 timing 条目无效：应为数组", "Entrada timing no válida para '{}[{}]': se esperaba un arreglo",
+        soundpack_issue_definitions_not_object: "definitions field should be an object", "definitions 字段应为对象", "El campo definitions debe ser un objeto",
+        soundpack_issue_mouse_not_boolean: "mouse field should be boolean", "mouse 字段应为布尔值", "El campo mouse debe ser booleano",
+
         // ----- Mood's own sounds (`utils::mood_sounds`) -----
         // The failures that carry a `{}` take the picked file's name or the OS
         // cause; the others are whole sentences.
@@ -257,5 +299,222 @@ mod tests {
     #[test]
     fn opening_a_picked_file_has_one_sentence_for_every_picker() {
         assert_eq!(EN.mood_sound_open_failed, "Could not open the file: {}");
+    }
+
+    /// The sentences the import dialog used to show, word for word, as they were
+    /// literals in `utils::soundpack_validator`. Moving a sentence into the
+    /// catalog must not rewrite it: an English user imports the same broken ZIP
+    /// and has to read the same bytes as before.
+    #[test]
+    fn english_keeps_the_sentences_the_import_dialog_showed() {
+        let expected = [
+            ("soundpack_zip_missing", EN.soundpack_zip_missing, "File does not exist"),
+            ("soundpack_zip_not_archive", EN.soundpack_zip_not_archive, "File must be a ZIP archive"),
+            ("soundpack_zip_open_failed", EN.soundpack_zip_open_failed, "Cannot open file: {}"),
+            ("soundpack_zip_invalid", EN.soundpack_zip_invalid, "Invalid ZIP file: {}"),
+            ("soundpack_zip_empty", EN.soundpack_zip_empty, "ZIP file is empty"),
+            (
+                "soundpack_entry_unreadable",
+                EN.soundpack_entry_unreadable,
+                "Failed to read archive entry: {}",
+            ),
+            (
+                "soundpack_archive_entry_unreadable",
+                EN.soundpack_archive_entry_unreadable,
+                "Cannot read file in archive: {}",
+            ),
+            (
+                "soundpack_entry_name_unusable",
+                EN.soundpack_entry_name_unusable,
+                "The ZIP contains a file with a name that cannot be used: '{}'",
+            ),
+            (
+                "soundpack_entry_name_repeated",
+                EN.soundpack_entry_name_repeated,
+                "The ZIP has more than one file named '{}'. Every file in a sound pack needs a name of its own.",
+            ),
+            (
+                "soundpack_config_not_found",
+                EN.soundpack_config_not_found,
+                "No config.json found in ZIP file",
+            ),
+            (
+                "soundpack_config_read_failed",
+                EN.soundpack_config_read_failed,
+                "Failed to read config.json: {}",
+            ),
+            (
+                "soundpack_config_too_large",
+                EN.soundpack_config_too_large,
+                "The sound pack's config.json is too large.",
+            ),
+            (
+                "soundpack_archive_open_failed",
+                EN.soundpack_archive_open_failed,
+                "Cannot open ZIP file: {}",
+            ),
+            ("soundpack_archive_invalid", EN.soundpack_archive_invalid, "Invalid ZIP archive: {}"),
+            (
+                "soundpack_no_audio_files",
+                EN.soundpack_no_audio_files,
+                "No audio files found in soundpack",
+            ),
+            (
+                "soundpack_temp_config_failed",
+                EN.soundpack_temp_config_failed,
+                "Cannot write temp config: {}",
+            ),
+            (
+                "soundpack_structure_invalid",
+                EN.soundpack_structure_invalid,
+                "Invalid soundpack structure: {}",
+            ),
+            ("soundpack_fields_missing", EN.soundpack_fields_missing, "Missing required fields: {}"),
+            (
+                "soundpack_version_unsupported",
+                EN.soundpack_version_unsupported,
+                "Invalid or unsupported soundpack version",
+            ),
+            (
+                "soundpack_requires_newer_app",
+                EN.soundpack_requires_newer_app,
+                "This soundpack requires a newer version of Mechvibes",
+            ),
+            (
+                "soundpack_config_file_unreadable",
+                EN.soundpack_config_file_unreadable,
+                "Cannot read config file: {}",
+            ),
+            ("soundpack_config_json_invalid", EN.soundpack_config_json_invalid, "Invalid JSON: {}"),
+            (
+                "soundpack_issue_timing_expected",
+                EN.soundpack_issue_timing_expected,
+                "Invalid definitions entry for '{}': expected timing array",
+            ),
+            (
+                "soundpack_issue_timing_pair",
+                EN.soundpack_issue_timing_pair,
+                "Invalid timing array for '{}[{}]': expected [start, end]",
+            ),
+            (
+                "soundpack_issue_timing_entry",
+                EN.soundpack_issue_timing_entry,
+                "Invalid timing entry for '{}[{}]': expected array",
+            ),
+            (
+                "soundpack_issue_definitions_not_object",
+                EN.soundpack_issue_definitions_not_object,
+                "definitions field should be an object",
+            ),
+            (
+                "soundpack_issue_mouse_not_boolean",
+                EN.soundpack_issue_mouse_not_boolean,
+                "mouse field should be boolean",
+            ),
+        ];
+        for (key, actual, shipped) in expected {
+            assert_eq!(actual, shipped, "errors.{key} changed the words users already had");
+        }
+    }
+
+    /// The wording a screen shows follows the catalog the caller hands in, and
+    /// the `Display` a log prints stays English.
+    ///
+    /// The validator is compiled into the headless `pack-convert` too, so it has
+    /// no language of its own: the sentence has to come from whoever holds the
+    /// catalog (the import dialogs, here through `errors`).
+    #[test]
+    fn the_validators_failures_are_worded_by_the_caller_and_logged_in_english() {
+        use crate::utils::soundpack_validator::{
+            PackArchiveError,
+            SoundpackStructureError,
+            SoundpackZipError,
+            StructureIssue,
+            StructureProblem,
+        };
+
+        let fields = SoundpackStructureError::MissingFields(
+            vec!["author".to_string(), "definitions".to_string()]
+        );
+        assert_eq!(fields.ui_message(&EN), "Missing required fields: author, definitions");
+        assert_eq!(fields.to_string(), "Missing required fields: author, definitions");
+        assert_eq!(fields.ui_message(&ES), "Faltan campos obligatorios: author, definitions");
+
+        // A finding underneath the wrapper: the cause is worded first, in the
+        // same language, and the wrapper keeps its placeholder in the middle of
+        // the sentence where the translation puts it.
+        let nested = SoundpackStructureError::Invalid(
+            StructureProblem::Issues(
+                vec![
+                    StructureIssue::TimingPair("KeyA".to_string(), 1),
+                    StructureIssue::MouseNotBoolean
+                ]
+            )
+        );
+        assert_eq!(
+            nested.ui_message(&EN),
+            "Invalid soundpack structure: Invalid timing array for 'KeyA[1]': expected [start, end]; mouse field should be boolean"
+        );
+        assert_eq!(
+            nested.ui_message(&ZH),
+            "音效包结构无效：“KeyA[1]”的 timing 数组无效：应为 [start, end]; mouse 字段应为布尔值"
+        );
+
+        // The cause the import dialog wraps in its own sentence, the pre-open
+        // checks, and the log form of both.
+        let no_config = SoundpackStructureError::Archive(PackArchiveError::NoConfig);
+        assert_eq!(no_config.ui_message(&ZH), "ZIP 文件中未找到 config.json");
+        assert_eq!(no_config.to_string(), "No config.json found in ZIP file");
+        assert_eq!(SoundpackZipError::Empty.ui_message(&ES), "El archivo ZIP está vacío");
+        assert_eq!(SoundpackZipError::Empty.to_string(), "ZIP file is empty");
+    }
+
+    /// Every identifier `text` reads as `marker<name>`.
+    ///
+    /// Used to read the validator's source instead of restating its key list here:
+    /// a key it starts reading is covered without anyone remembering this test.
+    fn identifiers_after<'a>(text: &'a str, marker: &str) -> Vec<&'a str> {
+        text.match_indices(marker)
+            .filter_map(|(at, _)| {
+                let rest = &text[at + marker.len()..];
+                let end = rest
+                    .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+                    .unwrap_or(rest.len());
+                (end > 0).then(|| &rest[..end])
+            })
+            .collect()
+    }
+
+    /// The headless `pack-convert` binary cannot link this crate's catalog — it
+    /// compiles `utils::soundpack_validator` with `#[path]` and supplies its own
+    /// `i18n` stub, because the real one pulls in Dioxus and the config signal.
+    /// That stub retypes the English column, so this is the guard that stops the
+    /// two copies drifting: every key the validator reads from the catalog must
+    /// appear in the stub with these exact words.
+    ///
+    /// If this fails, re-word `src/bin/pack_convert.rs`'s `i18n::catalog::errors`
+    /// (or this column) until they agree again.
+    #[test]
+    fn the_headless_stub_carries_every_sentence_the_validator_reads_from_the_catalog() {
+        const VALIDATOR: &str = include_str!("../../utils/soundpack_validator.rs");
+        const STUB: &str = include_str!("../../bin/pack_convert.rs");
+
+        let keys = identifiers_after(VALIDATOR, "errors.");
+        assert!(
+            !keys.is_empty(),
+            "the scan found no `errors.` read in the validator; the marker changed and this \
+             guard is now doing nothing"
+        );
+
+        for key in keys {
+            let Some((_, english, ..)) = ENTRIES.iter().find(|(name, ..)| *name == key) else {
+                panic!("`utils::soundpack_validator` reads `errors.{key}`, which is not a key here");
+            };
+            assert!(
+                STUB.contains(*english),
+                "`pack_convert`'s i18n stub is missing errors.{key} ({english:?}), so the headless \
+                 tool would print a sentence the app no longer says"
+            );
+        }
     }
 }

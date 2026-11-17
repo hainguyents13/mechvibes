@@ -129,7 +129,7 @@ pub fn LibraryInstallModal() -> Element {
                                 }).await
                                 .unwrap_or_else(|_| Err(strings.soundpacks.library_install_stopped.to_string()))
                         }
-                        Err(e) => Err(e),
+                        Err(e) => Err(e.ui_message(&strings.errors)),
                     };
                     let _ = std::fs::remove_file(&zip);
                     installed
