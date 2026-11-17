@@ -52,6 +52,23 @@ mechvibes/
 │   │   ├── themes.rs           # Theme state
 │   │   ├── saved_themes.rs     # Saved themes list (saved_themes.json): damaged entries kept, read-only when it cannot be read
 │   │   └── rodio_music.rs      # [DEAD CODE] Music player (removed)
+│   ├── i18n/                   # Every string the user reads (see Internationalization)
+│   │   ├── mod.rs              # Language, resolve, system_language, use_language, use_strings, fill, plural
+│   │   ├── detect.rs           # System locale: LC_ALL/LC_MESSAGES/LANG, then sys-locale
+│   │   ├── strings.rs          # Strings (one field per zone), one const per language, for_language
+│   │   └── catalog/            # One file per zone: struct + EN/ZH/ES + ENTRIES
+│   │       ├── mod.rs          # zone! macro, ZONES, IDENTICAL_IS_INTENTIONAL, the invariants
+│   │       ├── chrome.rs       # Title bar, header, volume slider, app info
+│   │       ├── common.rs       # Buttons and words several screens use
+│   │       ├── customize.rs    # Customize page and its tabs
+│   │       ├── devices.rs      # Device selectors
+│   │       ├── errors.rs       # Notices and messages from outside the component tree
+│   │       ├── home.rs         # Home page, update button, app info
+│   │       ├── mood.rs         # Mood page + ambience_text (the ten built-in ambiences)
+│   │       ├── nav.rs          # Dock labels
+│   │       ├── settings.rs     # Settings page
+│   │       ├── soundpacks.rs   # Sound packs page, selector, table, import modals
+│   │       └── tray.rs         # Tray menu
 │   ├── components/             # Dioxus UI components
 │   │   ├── mod.rs
 │   │   ├── app_info.rs         # App info modal
@@ -148,7 +165,8 @@ mechvibes/
 ├── assets/
 │   ├── icon.ico             # Windows taskbar icon
 │   ├── icon.png             # Linux/macOS app icon
-│   └── starter-themes/      # Ready-made .mvtheme files built into the app, CREDITS.md
+│   ├── starter-themes/      # Ready-made .mvtheme files built into the app, CREDITS.md
+│   └── flags/               # Language flags for Settings > General > Language (us, cn, es)
 ├── soundpacks/              # Bundled default soundpacks
 │   └── (pack directories)
 ├── docs/
@@ -273,6 +291,7 @@ pub struct AppConfig {
     pub enabled_mice: Vec<String>,       // Device IDs
     
     // UI customization
+    pub language: Option<Language>, // None = follow the system language
     pub theme: Theme,
     pub logo_customization: LogoCustomization,
     pub background_customization: BackgroundCustomization,
@@ -348,6 +367,98 @@ pub struct InputChannels {
 ```
 
 **Receiver types:** `crossbeam_channel::Receiver` (supports `select!`).
+
+## Internationalization (i18n)
+
+Every string the user reads comes from a typed catalog in `src/i18n/`. Nothing is read from disk at runtime and no i18n crate is used: the only dependency this feature added is `sys-locale = "0.3"`, for one platform query.
+
+### The model
+
+`Language` (`src/i18n/mod.rs`) is `En | Zh | Es` and serializes as its primary subtag (`"en"`, `"zh"`, `"es"`), so the identifier in `config.json` is stable across reordering the enum. `native_label()` returns `English` / `简体中文` / `Español` and is **never translated**: a language is named in its own language, or the one reader who needs it cannot find it. `from_bcp47` keeps only the primary subtag (`es-AR` → `Es`, `zh_TW.UTF-8` → `Zh`) and answers `None` for a language the app does not speak. Chinese has one Simplified catalog for now, so a Traditional locale lands there instead of falling back to English.
+
+`AppConfig::language` is `Option<Language>` (`src/state/config.rs`). **`None` means "follow the system"**, which is why there is no fourth `System` variant: it is the absence of a preference, not a language. `resolve(preferred)` is `preferred.unwrap_or_else(system_language)`. A config written before the field existed carries no `language` key and loads as `None` (an `Option` field may be absent), so an upgrade keeps the OS language instead of being pinned to English. The field is listed in `data_equals`, which is what `config_writer::apply` uses to decide whether to persist, so choosing a language is saved like any other setting; a damaged value falls back to "follow the system" through `parse_lenient`.
+
+### Detection (two layers)
+
+`src/i18n/detect.rs`, in this order:
+
+1. **The POSIX environment** — `LC_ALL`, then `LC_MESSAGES`, then `LANG`. The first value that is not empty, `C` or `POSIX` wins. `env_locale_from` takes the lookup as a closure so the precedence is testable: `std::env::set_var` is `unsafe` in edition 2024 and races between parallel tests. This is the precedence the repo already had in telemetry.
+2. **`sys_locale::get_locale()`** — the preferred UI language on Windows, `NSLocale` on macOS, `setlocale` on Unix.
+
+The second layer is not redundancy. An app started from the Windows desktop or from Finder inherits no `LANG` at all, so the environment alone would answer "unknown" on exactly the platforms where most people launch it from an icon, and the app would open in English regardless of the system language. `system_locale` tries layer 1 and falls back to layer 2; `system_language` runs that once and caches it in a `OnceLock`, so every render does not hit the platform API and the language cannot change halfway through a screen.
+
+Telemetry keeps its own private copy of layer 1 in `src/utils/telemetry.rs`, on purpose: it feeds an anonymous launch metric whose continuity nobody asked to change. The duplication is documented in both places; unifying it is a metrics decision, not a refactor.
+
+### The catalog
+
+`src/i18n/catalog/` holds one file per zone. A zone is a group of screens edited together (`settings`, `soundpacks`, `tray`…), so two people can translate different parts at the same time without touching the same file. Each file has one `zone!` block with one line per key and one column per language:
+
+```rust
+zone! {
+    NavStrings {
+        home: "Home", "首页", "Inicio",
+    }
+}
+```
+
+The `zone!` macro (`src/i18n/catalog/mod.rs`) generates the struct, the three `const`s (`EN`, `ZH`, `ES`) and the test-only `ENTRIES` table from that one list:
+
+- **A typo does not compile.** `strings.settings.page_title` is a field access; there is no lookup by name, so a misspelled key is `no field … on type …`.
+- **A key cannot be missing from one language.** All three `const`s come from the same list, so a key without its three columns is a macro arity error.
+- **A new zone must be registered.** A new module does not compile until its struct is a field of `Strings` (`src/i18n/strings.rs`) and appears in all three language `const`s. Adding it to `ZONES` (next to the `zone!` block) is what puts it under the invariants — the compiler does not ask for that one.
+
+`Strings` is the composed struct, one field per zone. `src/i18n/strings.rs` builds one `const Strings` per language out of the zone `const`s and `for_language` matches on the variant; `Language::strings()` hands out a `&'static Strings`, so nothing is allocated per render.
+
+**Invariants** — `src/i18n/catalog/mod.rs` walks every zone's `ENTRIES`:
+
+| Test | Catches |
+|------|---------|
+| `no_translation_is_blank` | a language left empty |
+| `no_translation_has_surrounding_whitespace` | spacing baked into a value, which an editor trims and no review sees — the separator belongs at the call site |
+| `every_translation_keeps_the_english_placeholders` | a translation that drops or repeats `{}`, which `fill` would then misplace silently |
+| `every_translation_differs_from_the_base_language` | a column copied from the English |
+| `the_allowlist_has_no_stale_entries` | an allowlist entry naming a key that no longer exists, or with no reason |
+| `every_language_resolves_to_a_catalog` | a language wired to an empty catalog — the type system cannot tell |
+
+**The allowlist.** `IDENTICAL_IS_INTENTIONAL` is the reviewed list of entries whose translation legitimately equals the English one, each with its reason on the same line. It is not a way to silence a failure: `Error` and `Color` are the correct Spanish words, and `General` names the section identically. Such a word still belongs in the catalog rather than as a literal at the call site — Spanish happens to spell three of these the same, German or French would not, so the key is what keeps the word translatable for the next language even when this one coincides. A hardcoded literal cannot be translated at all.
+
+Two zones guard what the compiler cannot. `nav.rs` pins the English dock labels to the text users already had, so the migration re-worded nothing on screen. `mood.rs` carries `every_built_in_ambience_has_its_text_in_every_language`, because the ten built-in ambiences are looked up by `id` through `ambience_text` and nothing makes a new one arrive with its two keys.
+
+### `fill` and `plural`
+
+- `fill(template, &[args])` replaces `{}` in order. `format!` requires a literal format string, so `format!(strings.some_key, n)` does not compile and every count-dependent sentence would have to be split around its number at the call site. A placeholder with no matching argument stays visible as `{}` instead of panicking: a stray `{}` is a bug report, a render panic is a dead window.
+- `plural(one, other, count)` picks between two catalog keys with the `_one` / `_other` suffix. Count-dependent wording belongs in the data, not in a `match` at the call site, and a language that does not inflect for number (Chinese) writes the same text in both keys.
+
+### Hooks and the `use_memo` rule
+
+- `use_language()` reads the config signal through `use_config()` and resolves it with `resolve`.
+- `use_strings()` is `use_language().strings()`, so a component that calls it is subscribed to the config signal and re-renders when the language changes. There is no global language variable and nothing is invalidated by hand.
+
+**No translated value goes inside a `use_memo`.** A memo recomputes only when a signal read *inside* its closure changes, so a value captured outside keeps the language it was computed with until the component unmounts. Call `use_strings()` in the component body; `use_memo` stays for config values that are not text.
+
+### Adding a Language
+
+1. Add the variant to `Language` (`src/i18n/mod.rs`) and its arms in `tag` and `native_label`; add it to `Language::ALL` and bump the count in `the_selector_lists_every_language`. The compiler names the first two; `ALL` is the one place it does not check.
+2. Widen `zone!` (`src/i18n/catalog/mod.rs`) by one column: one more `literal` in the matcher, one more `const` it emits, one more column in `ENTRIES`. The invariant tests destructure `(key, en, zh, es)`, so they change shape with it.
+3. Fill the new column in every zone file — eleven today. A file left behind fails with a macro error on the offending line: it points at the line, not at the key.
+4. `src/i18n/strings.rs`: one more `const Strings` and an arm in `for_language`, whose match is exhaustive.
+5. A flag in `assets/flags/` and its arm in `flag_for` (`src/components/pages/settings.rs`).
+6. `cargo test`.
+
+**What the compiler catches:** a missing arm in `tag`, `native_label`, `for_language` or `flag_for`; a zone file with the wrong number of columns; a misspelled key at a call site.
+**What it cannot:** whether a column is a real translation or a copy of the English, which is `every_translation_differs_from_the_base_language` plus `IDENTICAL_IS_INTENTIONAL`; an ambience added without its text, which is `mood.rs`'s test; a forgotten entry in `Language::ALL`; and a zone left out of `ZONES`, whose entries then escape the invariants entirely.
+
+### What is not in the catalog
+
+- **The wordmark.** `logo.rs` draws "Mechvibes" as part of the mark (`src/components/logo.rs`), and `APP_NAME` (`src/utils/constants.rs`) is what `fill` splices into a sentence. A brand is not a translation: giving every translator the name to retype invites them to translate it.
+- **DaisyUI theme identifiers.** The `data-theme` names DaisyUI switches on (`light`, `synthwave`, …) are identifiers in `src/libs/theme.rs`, not text. The user-facing label of a mode (`Light`, `Dark`, `System`) is in the catalog.
+- **URLs and file paths.** A link is a URL where the code opens it (`LIBRARY_BASE_URL` in `src/utils/constants.rs`, the release and social links in `src/components/pages/settings.rs` and `src/components/window_controller.rs`), not a key; a path is an argument to a catalog sentence, never a key.
+- **Key combinations.** `Ctrl+Alt+M` is written inside the sentence that mentions it, so the translator moves the words around a shortcut nobody translates.
+- **Spacing and punctuation around a value.** The space after `Volume`, the `%` after a number, the `❌` before an error: layout stays at the call site, because an editor trimming trailing whitespace must not change what the user sees.
+
+### The layout constraint
+
+The dock is a bar of five buttons where each label gets a fixed, equal slice of the window width. A translation that does not fit does not only look wrong: it wraps to a second line, pushes the icon row up and misaligns the whole bar (it did happen, with "Paquetes de sonido"). Translations are shortened until they fit — `Paquetes` — and the dock is not restructured around the longest label.
 
 ## Common Development Tasks
 

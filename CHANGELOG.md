@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **Mechvibes speaks English, Simplified Chinese and Spanish, and follows the language of your computer.** Pick one in Settings > General > Language, or leave it on **System** to follow your computer as before. The window and the tray menu change as soon as you pick, and the choice is remembered the next time you start. A config from an earlier version keeps opening in your system language; there is nothing to migrate.
+
 ## [3.5.7] - 2026-11-12
 
 ### Added

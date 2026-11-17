@@ -34,9 +34,21 @@ All links point to the [latest release](https://github.com/hainguyents13/mechvib
 - **Pick your speakers**: switch the output device (headphones, speakers, virtual devices) in Settings without restarting.
 - **Mood**: 10 ambient sounds (rain, forest, ocean waves, coffee shop and more) to mix in, each with its own volume, plus your own music or sound files on repeat.
 - **Themes and customization**: start from four ready-made themes or 36 built-in colors, or make your own with a custom logo and background. Every theme you make or install stays in a gallery, so you can switch between them with one click, and your changes save on their own. Share your whole look with a friend as one file. On Windows and Linux they open it with a double-click.
+- **Languages**: Mechvibes speaks English, Simplified Chinese and Spanish, and starts in the language of your computer. Switch it in Settings > General > Language.
 - **Verified updates**: on Windows, click **Update now** and Mechvibes downloads, checks and installs the new version. On macOS and Linux the app tells you when an update is out and links to the download page.
 - **Your settings stay put**: they are saved in `%APPDATA%\Mechvibes` (Windows), `~/.local/share/mechvibes` (Linux) or `~/Library/Application Support/Mechvibes` (macOS), so they survive restarts, updates and reinstalls. Uninstalling on Windows keeps them unless you choose to delete them.
 - **Logs for bug reports**: Settings > Debug shows a live log, with an **Export logs** button for attaching to an issue.
+
+## Languages
+
+Mechvibes speaks English, Simplified Chinese and Spanish. The first time it starts it uses the language of your computer, so there is nothing to set up.
+
+To change it, open **Settings > General > Language** and pick one:
+
+- **System**: follow the language of your computer. This is where Mechvibes starts.
+- **English**, **简体中文** (Simplified Chinese) or **Español**: keep that language whatever your computer is set to.
+
+The window changes as soon as you pick, the tray menu changes with it, and your choice is remembered the next time you start. Each language is listed in its own language, so the one you read is easy to find even when the app opens in another.
 
 ## Sound packs
 

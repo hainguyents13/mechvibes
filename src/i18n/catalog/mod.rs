@@ -32,9 +32,11 @@
 /// keeps this list flat, and the call site names both, so neither can be
 /// forgotten.
 ///
-/// **Adding a language** means one more column per zone file (about ten files).
-/// That is mechanical and the compiler names every entry that is missing; it is
-/// the price of seeing all translations of a key on one line while writing them.
+/// **Adding a language** means one more column per zone file (eleven today) plus
+/// the matcher and `ENTRIES` shape here, the registry in `strings.rs` and
+/// `Language` itself. That is mechanical and the compiler stops at every line
+/// that is missing a column; it is the price of seeing all translations of a key
+/// on one line while writing them.
 macro_rules! zone {
     (
         $( #[$meta:meta] )*
