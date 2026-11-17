@@ -333,6 +333,13 @@ fn effective_volume(sound_volume: f32, global_volume: f32) -> f32 {
     (sound_volume * global_volume).clamp(0.0, 1.0)
 }
 
+/// One row of the Mood mixer.
+///
+/// `name` and `description` are the text a built-in sound ships with, and they
+/// stay on the struct so its serialized shape does not depend on a translation.
+/// What the mixer *draws* for a built-in ambience comes from the catalog, looked
+/// up by `id` (`crate::i18n::catalog::mood::ambience_text`); these fields are the
+/// fallback for an id the catalog does not know.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AmbianceSound {
     pub id: String,
@@ -349,6 +356,10 @@ pub struct AmbianceSound {
 
 impl AmbianceSound {
     /// A sound the user added, as the list shows it.
+    ///
+    /// `description` is the English data default: for a custom sound the mixer
+    /// draws `MoodStrings::custom_sound_description` from the catalog, since the
+    /// id (`custom-<hash>`) has no entry to look up.
     pub fn from_custom(sound: &CustomMoodSound) -> Self {
         Self {
             id: sound.id.clone(),
