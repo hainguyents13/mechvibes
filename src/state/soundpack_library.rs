@@ -17,15 +17,6 @@ pub enum SoundpackSort {
     Name,
 }
 
-impl SoundpackSort {
-    pub fn label(self) -> &'static str {
-        match self {
-            SoundpackSort::RecentlyAdded => "Recently added",
-            SoundpackSort::Name => "Name",
-        }
-    }
-}
-
 fn now_secs() -> u64 {
     std::time::SystemTime
         ::now()

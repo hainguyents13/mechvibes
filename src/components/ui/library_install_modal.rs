@@ -41,10 +41,13 @@ pub(crate) fn format_size(bytes: u64) -> String {
     }
 }
 
-fn category_label(pack: &LibraryPack) -> &'static str {
+fn category_label(
+    pack: &LibraryPack,
+    strings: &'static crate::i18n::Strings,
+) -> &'static str {
     match pack.soundpack_type() {
-        Some(crate::state::soundpack::SoundpackType::Mouse) => "Mouse",
-        _ => "Keyboard",
+        Some(crate::state::soundpack::SoundpackType::Mouse) => strings.soundpacks.mouse_label,
+        _ => strings.soundpacks.keyboard_label,
     }
 }
 
@@ -53,6 +56,9 @@ pub fn LibraryInstallModal() -> Element {
     let audio_ctx: Arc<AudioContext> = use_context();
     let state_trigger = use_state_trigger();
     let mut stage = use_signal(|| Stage::Hidden);
+    // The catalog, read at render time: a `use_memo` cannot see the language
+    // change. `&'static`, so the install handler below captures it too.
+    let strings = crate::i18n::use_strings();
 
     // Each link that arrives opens the dialog, unless one is already asking
     // or installing. A page could otherwise swap the pack under the user's
@@ -121,7 +127,7 @@ pub fn LibraryInstallModal() -> Element {
                                         soundpack_type
                                     )
                                 }).await
-                                .unwrap_or_else(|_| Err("The install stopped unexpectedly.".to_string()))
+                                .unwrap_or_else(|_| Err(strings.soundpacks.library_install_stopped.to_string()))
                         }
                         Err(e) => Err(e),
                     };
@@ -136,9 +142,13 @@ pub fn LibraryInstallModal() -> Element {
                     // playing, and lists a new one.
                     crate::state::app::reload_current_soundpacks(&audio_ctx);
                     state_trigger.call(());
-                    let verb = if updating { "Updated" } else { "Installed" };
+                    let done = if updating {
+                        strings.soundpacks.library_done_updated
+                    } else {
+                        strings.soundpacks.library_done_installed
+                    };
                     stage.set(Stage::Done {
-                        message: format!("{} {}. Pick it on the Home page to hear it.", verb, info.name),
+                        message: crate::i18n::fill(done, &[&info.name]),
                         updating,
                     });
                 }
@@ -164,11 +174,12 @@ pub fn LibraryInstallModal() -> Element {
         div { class: "modal-box",
           h3 { class: "font-bold text-lg mb-4",
             match &current {
-                Stage::Confirm { kind: LibraryInstall::Update { .. }, .. } => "Update sound pack",
-                Stage::Working { updating: true, .. } => "Updating sound pack",
-                Stage::Done { updating: true, .. } => "Sound pack updated",
-                Stage::Done { .. } => "Sound pack installed",
-                _ => "Install sound pack",
+                Stage::Confirm { kind: LibraryInstall::Update { .. }, .. } =>
+                    strings.soundpacks.library_title_update,
+                Stage::Working { updating: true, .. } => strings.soundpacks.library_title_updating,
+                Stage::Done { updating: true, .. } => strings.soundpacks.library_title_updated,
+                Stage::Done { .. } => strings.soundpacks.library_title_installed,
+                _ => strings.soundpacks.library_title_install,
             }
           }
 
@@ -176,17 +187,26 @@ pub fn LibraryInstallModal() -> Element {
               Stage::Loading => rsx! {
                 div { class: "flex items-center gap-3 text-sm text-base-content/70",
                   span { class: "loading loading-spinner loading-sm" }
-                  "Looking up the sound pack..."
+                  "{strings.soundpacks.library_looking_up}"
                 }
               },
               Stage::Confirm { pack, .. } | Stage::Working { pack, .. } => rsx! {
                 div { class: "card border border-base-300 bg-base-200 p-4 space-y-1",
                   div { class: "font-medium text-base-content", "{pack.name}" }
                   if let Some(author) = &pack.author {
-                    div { class: "text-sm text-base-content/70", "by {author}" }
+                    div { class: "text-sm text-base-content/70",
+                      {crate::i18n::fill(strings.soundpacks.by_author, &[author])}
+                    }
                   }
                   div { class: "text-xs text-base-content/60",
-                    "{category_label(pack)} · Version {pack.revision} · {format_size(pack.zip_size)}"
+                    {crate::i18n::fill(
+                        strings.soundpacks.library_meta,
+                        &[
+                            &category_label(pack, strings),
+                            &pack.revision,
+                            &format_size(pack.zip_size),
+                        ],
+                    )}
                   }
                 }
               },
@@ -202,36 +222,56 @@ pub fn LibraryInstallModal() -> Element {
           if let Stage::Confirm { kind, .. } = &current {
             match kind {
                 LibraryInstall::Update { installed: Some(installed) } => rsx! {
-                  div { class: "text-sm text-base-content/70 mt-3", "You have version {installed}. Updating replaces it." }
+                  div { class: "text-sm text-base-content/70 mt-3",
+                    {crate::i18n::fill(strings.soundpacks.library_have_version, &[installed])}
+                  }
                 },
                 LibraryInstall::Update { installed: None } => rsx! {
-                  div { class: "text-sm text-base-content/70 mt-3", "You already have this pack. Updating replaces it." }
+                  div { class: "text-sm text-base-content/70 mt-3",
+                    "{strings.soundpacks.library_have_pack}"
+                  }
                 },
                 LibraryInstall::Current { installed } => rsx! {
-                  div { class: "text-sm text-base-content/70 mt-3", "You already have version {installed} of this pack." }
+                  div { class: "text-sm text-base-content/70 mt-3",
+                    {crate::i18n::fill(strings.soundpacks.library_current, &[installed])}
+                  }
                 },
                 LibraryInstall::New => rsx! {
-                  div { class: "text-sm text-base-content/70 mt-3", "Only install sound packs you trust." }
+                  div { class: "text-sm text-base-content/70 mt-3",
+                    "{strings.soundpacks.library_trust}"
+                  }
                 },
             }
           }
 
           div { class: "modal-action mt-6",
             button { class: "btn btn-sm btn-ghost", disabled: busy, onclick: close,
-              if matches!(current, Stage::Confirm { .. }) { "Cancel" } else { "Close" }
+              if matches!(current, Stage::Confirm { .. }) {
+                "{strings.common.cancel}"
+              } else {
+                "{strings.common.close}"
+              }
             }
             match &current {
                 Stage::Confirm { kind: LibraryInstall::Current { .. }, .. } => rsx! {},
                 Stage::Confirm { kind, .. } => rsx! {
                   button { class: "btn btn-sm btn-neutral", onclick: install,
                     Download { class: "w-4 h-4 mr-2" }
-                    if matches!(kind, LibraryInstall::Update { .. }) { "Update" } else { "Install" }
+                    if matches!(kind, LibraryInstall::Update { .. }) {
+                      "{strings.soundpacks.library_update}"
+                    } else {
+                      "{strings.soundpacks.library_install}"
+                    }
                   }
                 },
                 Stage::Working { updating, .. } => rsx! {
                   button { class: "btn btn-sm btn-neutral", disabled: true,
                     span { class: "loading loading-spinner loading-sm mr-2" }
-                    if *updating { "Updating..." } else { "Installing..." }
+                    if *updating {
+                      "{strings.soundpacks.library_updating}"
+                    } else {
+                      "{strings.soundpacks.library_installing}"
+                    }
                   }
                 },
                 _ => rsx! {},

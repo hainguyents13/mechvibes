@@ -56,12 +56,31 @@ fn delete_soundpack(soundpack_id: &str) -> Result<(), String> {
 #[component]
 pub fn SoundpackTable(
     soundpacks: Vec<SoundpackMetadata>,
-    soundpack_type: &'static str,
+    soundpack_type: crate::state::soundpack::SoundpackType,
     on_add_click: Option<EventHandler<MouseEvent>>
 ) -> Element {
     // Search state
     let mut search_query = use_signal(String::new);
     let mut sort_order = use_signal(|| SoundpackSort::RecentlyAdded);
+
+    // The catalog, read at render time: a `use_memo` cannot see the language change.
+    let strings = crate::i18n::use_strings();
+    // The category inside a sentence (lower-case in Spanish) and the complete
+    // sentence for an empty table, which English capitalises differently.
+    let (category_noun, empty_message) = match soundpack_type {
+        crate::state::soundpack::SoundpackType::Keyboard =>
+            (strings.soundpacks.keyboard_noun, strings.soundpacks.empty_keyboard),
+        crate::state::soundpack::SoundpackType::Mouse =>
+            (strings.soundpacks.mouse_noun, strings.soundpacks.empty_mouse),
+    };
+    let search_placeholder = crate::i18n::fill(strings.soundpacks.search_hint, &[&category_noun]);
+    // The wording of the hint is finished in the catalog: it names the order
+    // inside a sentence, so lower-casing a label here would break the languages
+    // whose adjective does not share the label's case.
+    let sort_hint = match sort_order() {
+        SoundpackSort::RecentlyAdded => strings.soundpacks.sort_hint_recently_added,
+        SoundpackSort::Name => strings.soundpacks.sort_hint_name,
+    };
 
     // Refresh state
     let refreshing_soundpacks = use_signal(|| false);
@@ -150,7 +169,7 @@ pub fn SoundpackTable(
         div { class: "flex items-center px-3 gap-2",
           input {
             class: "input input-sm w-full",
-            placeholder: "Search {soundpack_type.to_lowercase()} sound packs...",
+            placeholder: "{search_placeholder}",
             value: "{search_query}",
             oninput: move |evt| search_query.set(evt.value()),
           }
@@ -163,7 +182,7 @@ pub fn SoundpackTable(
                         SoundpackSort::Name => SoundpackSort::RecentlyAdded,
                     });
             },
-            title: "Sorted by {sort_order().label().to_lowercase()} - click to change",
+            title: "{sort_hint}",
             // The icon carries the current order on its own: a clock for
             // recency, A-Z for alphabetical.
             match sort_order() {
@@ -179,7 +198,7 @@ pub fn SoundpackTable(
             class: "btn btn-sm btn-ghost",
             disabled: refreshing_soundpacks(),
             onclick: refresh_soundpacks_cache,
-            title: "Refresh sound pack list",
+            title: "{strings.soundpacks.refresh_title}",
             if refreshing_soundpacks() {
               span { class: "loading loading-spinner loading-xs" }
             } else {
@@ -191,20 +210,20 @@ pub fn SoundpackTable(
               class: "btn btn-sm btn-neutral",
               onclick: move |evt| add_handler.call(evt),
               Plus { class: "w-4 h-4 mr-2" }
-              "Add"
+              "{strings.common.add}"
             }
           }
         }
         if soundpacks.is_empty() {
           div { class: "p-4 text-center text-sm text-base-content/70",
-            "No {soundpack_type} sound pack found. You can add new sound packs by clicking the 'Add' button above."
+            "{empty_message}"
           }
         } else {
           // Table
           div { class: "overflow-x-auto overflow-y-auto max-h-[calc(100vh-400px)] -mb-1",
             if filtered_soundpacks.is_empty() {
               div { class: "p-4 text-center text-sm text-base-content/70",
-                "No result match your search!"
+                "{strings.soundpacks.no_search_results}"
               }
             } else {
               table { class: "table table-sm w-full",
@@ -236,6 +255,7 @@ pub fn SoundpackTable(
 pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bool) -> Element {
     let state_trigger = use_state_trigger();
     let (_config, update_config) = use_config();
+    let strings = crate::i18n::use_strings();
 
     // A starred pack is listed in the pack picker on Home.
     let on_toggle_star = {
@@ -337,11 +357,13 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bo
                 "{soundpack.name}"
               }
               if is_new {
-                span { class: "badge badge-primary badge-xs shrink-0 ml-0.5", "New" }
+                span { class: "badge badge-primary badge-xs shrink-0 ml-0.5", "{strings.soundpacks.new_badge}" }
               }
             }
             if let Some(author) = &soundpack.author {
-              div { class: "text-xs text-base-content/50", "by {author}" }
+              div { class: "text-xs text-base-content/50",
+                {crate::i18n::fill(strings.soundpacks.by_author, &[author])}
+              }
             }
           }
         }
@@ -350,19 +372,19 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bo
           div { class: "flex items-center justify-end gap-1",
             button {
               class: if starred { "btn btn-ghost btn-xs text-primary" } else { "btn btn-ghost btn-xs text-base-content/40" },
-              title: if starred { "Remove from the Home list" } else { "Show on the Home list" },
+              title: if starred { strings.soundpacks.star_remove_title } else { strings.soundpacks.star_add_title },
               onclick: on_toggle_star,
               Star { class: if starred { "w-4 h-4 fill-primary" } else { "w-4 h-4" } }
             }
             button {
               class: "btn btn-soft btn-xs",
-              title: "Open soundpack folder",
+              title: "{strings.soundpacks.open_folder_title}",
               onclick: on_open_folder,
               FolderOpen { class: "w-4 h-4" }
             }
             button {
               class: "btn btn-soft btn-error btn-xs",
-              title: "Delete this soundpack",
+              title: "{strings.soundpacks.row_delete_title}",
               onclick: move |_| {
                   eval(
                       &format!(

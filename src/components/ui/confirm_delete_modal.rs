@@ -7,6 +7,8 @@ pub fn ConfirmDeleteModal(
     soundpack_name: String,
     on_confirm: EventHandler<()>,
 ) -> Element {
+    // The catalog, read at render time: a `use_memo` cannot see the language change.
+    let strings = crate::i18n::use_strings();
     rsx! {
       dialog { class: "modal", id: "{modal_id}",
         div { class: "modal-box",
@@ -15,7 +17,7 @@ pub fn ConfirmDeleteModal(
               "✕"
             }
           }
-          h3 { class: "text-lg font-bold", "Delete soundpack" }
+          h3 { class: "text-lg font-bold", "{strings.soundpacks.delete_title}" }
 
           // Content
           div { class: "space-y-4 mt-6",
@@ -26,16 +28,16 @@ pub fn ConfirmDeleteModal(
               }
               div { class: "flex-1",
                 div { class: "font-medium text-base-content mb-1",
-                  "Are you sure you want to delete this soundpack?"
+                  "{strings.soundpacks.delete_question}"
                 }
                 div { class: "text-sm text-base-content/70 mb-3",
-                  "This action cannot be undone. The soundpack \"{soundpack_name}\" and all its files will be permanently removed."
+                  {crate::i18n::fill(strings.soundpacks.delete_body, &[&soundpack_name])}
                 }
               }
             }            // Action buttons
             div { class: "flex justify-end gap-2 pt-2",
               form { method: "dialog",
-                button { class: "btn btn-ghost", "Cancel" }
+                button { class: "btn btn-ghost", "{strings.common.cancel}" }
               }              form { method: "dialog",
                 button {
                   class: "btn btn-error",
@@ -44,7 +46,7 @@ pub fn ConfirmDeleteModal(
                       on_confirm.call(());
                   },
                   Check { class: "w-4 h-4 mr-1" }
-                  "Delete"
+                  "{strings.common.delete}"
                 }
               }
             }
