@@ -39,17 +39,17 @@ macro_rules! zone {
     (
         $( #[$meta:meta] )*
         $ty:ident {
-            $( $key:ident : $en:literal , $zh:literal , $es:literal ),+ $(,)?
+            $( $key:ident : $en:literal , $zh:literal , $es:literal ),* $(,)?
         }
     ) => {
         $( #[$meta] )*
         pub struct $ty {
-            $( pub $key: &'static str, )+
+            $( pub $key: &'static str, )*
         }
 
-        pub(crate) const EN: $ty = $ty { $( $key: $en, )+ };
-        pub(crate) const ZH: $ty = $ty { $( $key: $zh, )+ };
-        pub(crate) const ES: $ty = $ty { $( $key: $es, )+ };
+        pub(crate) const EN: $ty = $ty { $( $key: $en, )* };
+        pub(crate) const ZH: $ty = $ty { $( $key: $zh, )* };
+        pub(crate) const ES: $ty = $ty { $( $key: $es, )* };
 
         /// Every key with its three translations, as
         /// `(key, english, chinese, spanish)`.
@@ -58,26 +58,47 @@ macro_rules! zone {
         /// `catalog` can check every language without reflection.
         #[cfg(test)]
         pub(super) const ENTRIES: &[(&str, &str, &str, &str)] = &[
-            $( (stringify!($key), $en, $zh, $es), )+
+            $( (stringify!($key), $en, $zh, $es), )*
         ];
     };
 }
 
 pub mod common;
+pub mod customize;
+pub mod devices;
+pub mod errors;
+pub mod home;
+pub mod mood;
 pub mod nav;
 pub mod settings;
+pub mod soundpacks;
+pub mod tray;
 
 pub use common::CommonStrings;
+pub use customize::CustomizeStrings;
+pub use devices::DevicesStrings;
+pub use errors::ErrorStrings;
+pub use home::HomeStrings;
+pub use mood::MoodStrings;
 pub use nav::NavStrings;
 pub use settings::SettingsStrings;
+pub use soundpacks::SoundpacksStrings;
+pub use tray::TrayStrings;
 
 /// Every zone's `ENTRIES` with its name, so the invariants cover the whole
 /// catalog and a failure names where the entry lives.
 #[cfg(test)]
 pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[
     ("common", common::ENTRIES),
+    ("customize", customize::ENTRIES),
+    ("devices", devices::ENTRIES),
+    ("errors", errors::ENTRIES),
+    ("home", home::ENTRIES),
+    ("mood", mood::ENTRIES),
     ("nav", nav::ENTRIES),
     ("settings", settings::ENTRIES),
+    ("soundpacks", soundpacks::ENTRIES),
+    ("tray", tray::ENTRIES),
 ];
 
 /// Keys whose translation is legitimately identical to the English one.

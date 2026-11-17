@@ -19,22 +19,57 @@ pub struct Strings {
     pub nav: catalog::NavStrings,
     /// The Settings page.
     pub settings: catalog::SettingsStrings,
+    /// The Home page.
+    pub home: catalog::HomeStrings,
+    /// The Sound packs page and its modals.
+    pub soundpacks: catalog::SoundpacksStrings,
+    /// Customize: themes, colors, background and logo.
+    pub customize: catalog::CustomizeStrings,
+    /// Mood and the built-in ambience texts.
+    pub mood: catalog::MoodStrings,
+    /// The device selectors.
+    pub devices: catalog::DevicesStrings,
+    /// The tray menu.
+    pub tray: catalog::TrayStrings,
+    /// Text that reaches the screen from outside the component tree.
+    pub errors: catalog::ErrorStrings,
 }
 
 const STRINGS_EN: Strings = Strings {
     common: catalog::common::EN,
     nav: catalog::nav::EN,
     settings: catalog::settings::EN,
+    home: catalog::home::EN,
+    soundpacks: catalog::soundpacks::EN,
+    customize: catalog::customize::EN,
+    mood: catalog::mood::EN,
+    devices: catalog::devices::EN,
+    tray: catalog::tray::EN,
+    errors: catalog::errors::EN,
 };
 const STRINGS_ZH: Strings = Strings {
     common: catalog::common::ZH,
     nav: catalog::nav::ZH,
     settings: catalog::settings::ZH,
+    home: catalog::home::ZH,
+    soundpacks: catalog::soundpacks::ZH,
+    customize: catalog::customize::ZH,
+    mood: catalog::mood::ZH,
+    devices: catalog::devices::ZH,
+    tray: catalog::tray::ZH,
+    errors: catalog::errors::ZH,
 };
 const STRINGS_ES: Strings = Strings {
     common: catalog::common::ES,
     nav: catalog::nav::ES,
     settings: catalog::settings::ES,
+    home: catalog::home::ES,
+    soundpacks: catalog::soundpacks::ES,
+    customize: catalog::customize::ES,
+    mood: catalog::mood::ES,
+    devices: catalog::devices::ES,
+    tray: catalog::tray::ES,
+    errors: catalog::errors::ES,
 };
 
 /// The catalog for `language`.
