@@ -78,6 +78,12 @@ fn saved_on_finish(typed: &str, before_typing: Option<String>) -> Option<String>
 
 /// The theme's colours a logo or background colour can follow, so it changes
 /// with the theme.
+///
+/// The second value is the identity: it is what goes in the `style`, and what
+/// [`theme_color_label`] looks the displayed word up by. The first value is
+/// only a fallback for a value the catalog does not name yet — the labels the
+/// screen shows come from the catalog, because `ui/fill_field.rs` builds its
+/// pickers from this list and its labels have to follow the language too.
 pub const THEME_COLOR_OPTIONS: [(&str, &str); 14] = [
     ("Main color", "var(--color-primary)"),
     ("Text on main color", "var(--color-primary-content)"),
@@ -95,6 +101,37 @@ pub const THEME_COLOR_OPTIONS: [(&str, &str); 14] = [
     ("Text on error", "var(--color-error-content)"),
 ];
 
+/// The word the screen shows for one of [`THEME_COLOR_OPTIONS`], in the
+/// language the UI is being drawn in.
+///
+/// Looked up by the colour, not by the English name: the name is what the
+/// fallback shows, and matching on it would make an English word the key.
+/// `Error` is the `common` word, spelled the same in Spanish and needed in the
+/// catalog anyway for the languages where it is not.
+pub(crate) fn theme_color_label(
+    strings: &crate::i18n::Strings,
+    color: &str
+) -> Option<&'static str> {
+    let customize = &strings.customize;
+    Some(match color {
+        "var(--color-primary)" => customize.color_main,
+        "var(--color-primary-content)" => customize.color_text_on_main,
+        "var(--color-secondary)" => customize.color_second,
+        "var(--color-secondary-content)" => customize.color_text_on_second,
+        "var(--color-base-content)" => customize.color_text,
+        "var(--color-base-100)" => customize.color_background,
+        "var(--color-base-200)" => customize.color_panel,
+        "var(--color-base-300)" => customize.color_panel_edge,
+        "var(--color-success)" => customize.color_success,
+        "var(--color-success-content)" => customize.color_text_on_success,
+        "var(--color-warning)" => customize.color_warning,
+        "var(--color-warning-content)" => customize.color_text_on_warning,
+        "var(--color-error)" => strings.common.error,
+        "var(--color-error-content)" => customize.color_text_on_error,
+        _ => return None,
+    })
+}
+
 #[component]
 pub fn ColorPicker(
     label: String,
@@ -106,6 +143,7 @@ pub fn ColorPicker(
     description: Option<String>,
 ) -> Element {
     let mut is_open = use_signal(|| false);
+    let strings = crate::i18n::use_strings();
     // What is typed in the field while the user is still typing it. `None`
     // shows the saved colour, so a pick from the list or a reset shows up.
     let mut draft = use_signal(|| None::<String>);
@@ -131,11 +169,11 @@ pub fn ColorPicker(
         }
     };
 
-    // Find the display name for the selected value
-    let selected_display = options
-        .iter()
-        .find(|(_, value)| *value == selected_value)
-        .map(|(name, _)| *name)
+    // Find the display name for the selected value: the catalog's word for a
+    // theme colour, the option's own name for a list the catalog does not know,
+    // or the placeholder for a colour that was typed.
+    let selected_display = theme_color_label(strings, &selected_value)
+        .or_else(|| options.iter().find(|(_, value)| *value == selected_value).map(|(name, _)| *name))
         .unwrap_or(&placeholder);
 
     rsx! {
@@ -191,7 +229,9 @@ pub fn ColorPicker(
                                         class: "w-4 h-4 rounded-full border border-base-300 flex-shrink-0",
                                         style: format!("background-color: {}", color),
                                     }
-                                    span { class: "truncate text-sm", "{name}" }
+                                    span { class: "truncate text-sm",
+                                        "{theme_color_label(strings, color).unwrap_or(name)}"
+                                    }
                                 }
                             }
                         }
@@ -200,7 +240,7 @@ pub fn ColorPicker(
                 input {
                     r#type: "text",
                     class: "input",
-                    placeholder: "Or type a color, like #ff0000",
+                    placeholder: "{strings.customize.color_type_placeholder}",
                     value: draft().unwrap_or(saved_text),
                     // Saved as soon as it is a whole colour that is not the
                     // start of a longer one, so the logo follows along, but
@@ -238,6 +278,34 @@ pub fn ColorPicker(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
+
+    /// Every colour a logo or background can follow has a word in the catalog,
+    /// and it is the word the picker showed before the migration. A new entry
+    /// in `THEME_COLOR_OPTIONS` without a catalog key fails here instead of
+    /// falling back to English on a translated screen.
+    #[test]
+    fn every_theme_colour_has_its_english_word_in_the_catalog() {
+        let strings = Language::En.strings();
+        for (shipped, value) in THEME_COLOR_OPTIONS {
+            let shown = theme_color_label(strings, value)
+                .unwrap_or_else(|| panic!("{value} has no catalog key"));
+            assert_eq!(shown, shipped, "the catalog word for {value} changed");
+        }
+    }
+
+    /// Spanish and Chinese get their own word; `Error` is the one that is
+    /// spelled the same, and it is in the catalog anyway for the languages
+    /// where it is not (German `Fehler`, French `Erreur`).
+    #[test]
+    fn the_colour_words_follow_the_language() {
+        let es = Language::Es.strings();
+        assert_eq!(theme_color_label(es, "var(--color-primary)"), Some("Color principal"));
+        assert_eq!(theme_color_label(es, "var(--color-error)"), Some("Error"));
+        assert_eq!(theme_color_label(es, "#ff0000"), None, "a typed colour has no name");
+        let zh = Language::Zh.strings();
+        assert_eq!(theme_color_label(zh, "var(--color-base-200)"), Some("面板"));
+    }
 
     #[test]
     fn a_half_typed_color_is_not_saved() {

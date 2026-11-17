@@ -22,8 +22,10 @@
 //! is dropped, so a read that never finishes cannot hold the dialog.
 
 use crate::components::customize::theme_card::{ CardPreview, ColorDots, ThemePicture };
+use crate::components::customize::strings_now;
 use crate::components::theme_share::{ put_on, undo_look };
 use crate::components::ui::library_install_modal::format_size;
+use crate::i18n::{ catalog::CustomizeStrings, fill, use_strings };
 use crate::libs::theme::use_theme;
 use crate::utils::config::use_config;
 use crate::utils::deep_link;
@@ -71,17 +73,29 @@ struct ChangeRow {
     changed: bool,
 }
 
-/// One line per part: what the theme brought for each part put on, and the
-/// part's name for each one that stayed the user's own.
-fn changes(theme: &SharedTheme, parts: ImportParts) -> [ChangeRow; 3] {
-    let row = |part: Part, name: &str, label: Option<String>| match label.filter(|_| parts.has(part)) {
+/// One line per part: what the theme brought for each part put on, and a
+/// sentence saying the part stayed the user's own for each one that did.
+///
+/// A whole sentence per part rather than "Kept your {}" with the part's word
+/// in it: Spanish has to agree in number and gender with that word, and a
+/// catalog template cannot.
+fn changes(
+    theme: &SharedTheme,
+    parts: ImportParts,
+    strings: &CustomizeStrings
+) -> [ChangeRow; 3] {
+    let row = |part: Part, kept: &str, label: Option<String>| match label.filter(|_| parts.has(part)) {
         Some(label) => ChangeRow { label, changed: true },
-        None => ChangeRow { label: format!("Kept your {}", name), changed: false },
+        None => ChangeRow { label: kept.to_string(), changed: false },
     };
     [
-        row(Part::Colors, "colors", Some(format!("Colors: {}", theme.colors_label()))),
-        row(Part::Logo, "logo", theme.logo_label().map(str::to_string)),
-        row(Part::Background, "background", theme.background_label().map(str::to_string)),
+        row(
+            Part::Colors,
+            strings.import_kept_colors,
+            Some(fill(strings.import_colors_line, &[&theme.colors_label()]))
+        ),
+        row(Part::Logo, strings.import_kept_logo, theme.logo_label().map(str::to_string)),
+        row(Part::Background, strings.import_kept_background, theme.background_label().map(str::to_string)),
     ]
 }
 
@@ -138,6 +152,7 @@ pub fn ThemeImportModal() -> Element {
     let (config, update_config) = use_config();
     let (themes, update_themes) = use_themes();
     let theme_signal = use_theme();
+    let strings = use_strings();
     let mut stage = use_signal(|| Stage::Hidden);
     let mut request = use_signal(|| 0u64);
     // The parts ticked in the checklist. Every new request starts with all.
@@ -162,7 +177,7 @@ pub fn ThemeImportModal() -> Element {
                         ::spawn_blocking(move || {
                             theme_share::open(&path).map(|theme| (theme.fingerprint(), with_preview(theme)))
                         }).await
-                        .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string()));
+                        .unwrap_or_else(|_| Err(strings_now().error_opening_stopped.to_string()));
                     advance(stage, request, number, match opened {
                         Ok((fingerprint, (theme, preview))) =>
                             Stage::Confirm(
@@ -207,7 +222,7 @@ pub fn ThemeImportModal() -> Element {
                         Ok(bytes) =>
                             tokio::task
                                 ::spawn_blocking(move || theme_share::from_bytes(&bytes).map(with_preview)).await
-                                .unwrap_or_else(|_| Err("Opening stopped unexpectedly.".to_string())),
+                                .unwrap_or_else(|_| Err(strings_now().error_opening_stopped.to_string())),
                         Err(e) => Err(e),
                     };
                     advance(stage, request, number, match opened {
@@ -293,29 +308,31 @@ pub fn ThemeImportModal() -> Element {
         return rsx! {};
     }
 
+    // Read before the `rsx!`: a `match` inside the body is one expression, not
+    // the interpolated text a literal in the body would be.
+    let title = match &current {
+        Stage::Done(_) => strings.customize.import_title_on,
+        Stage::Failed(_) => strings.customize.import_title_failed,
+        _ => strings.customize.import_title_use,
+    };
+
     rsx! {
       div { class: "modal modal-open",
         div { class: "modal-box",
-          h3 { class: "font-bold text-lg mb-4",
-            match &current {
-                Stage::Done(_) => "Theme is on",
-                Stage::Failed(_) => "Could not use this theme",
-                _ => "Use this theme?",
-            }
-          }
+          h3 { class: "font-bold text-lg mb-4", "{title}" }
 
           match &current {
               Stage::Opening => rsx! {
-                Waiting { text: "Opening the theme..." }
+                Waiting { text: strings.customize.import_wait_opening }
               },
               Stage::LookingUp => rsx! {
-                Waiting { text: "Looking up the theme..." }
+                Waiting { text: strings.customize.import_wait_looking_up }
               },
               Stage::Downloading => rsx! {
-                Waiting { text: "Downloading the theme..." }
+                Waiting { text: strings.customize.import_wait_downloading }
               },
               Stage::Working => rsx! {
-                Waiting { text: "Putting the theme on..." }
+                Waiting { text: strings.customize.import_wait_putting_on }
               },
               Stage::Confirm(offer) => rsx! {
                 // A card of its own for each request. Dioxus keeps any inline
@@ -336,8 +353,10 @@ pub fn ThemeImportModal() -> Element {
                   }
                 }
                 div { class: "mt-4",
-                  div { class: "text-sm font-medium text-base-content", "Choose what to use" }
-                  div { class: "text-xs text-base-content/60", "Anything you untick stays as you have it now." }
+                  div { class: "text-sm font-medium text-base-content",
+                    "{strings.customize.import_choose}"
+                  }
+                  div { class: "text-xs text-base-content/60", "{strings.customize.import_untick_note}" }
                 }
                 div { class: "space-y-3 mt-3",
                   for row in checklist(&offer.theme, &config()) {
@@ -364,7 +383,7 @@ pub fn ThemeImportModal() -> Element {
                     }
                   }
                 }
-                div { class: "text-xs text-base-content/60 mt-3", "Your current theme stays in the Themes tab." }
+                div { class: "text-xs text-base-content/60 mt-3", "{strings.customize.import_yours_stays}" }
               },
               Stage::Done(applied) => rsx! {
                 DoneCard {
@@ -373,7 +392,7 @@ pub fn ThemeImportModal() -> Element {
                   picture: CardPreview::of(&Look::from_config(&config(), &themes())),
                 }
                 div { class: "text-xs text-base-content/60 mt-3",
-                  "Find it any time in Customize > Themes. The look you had before is there too."
+                  "{strings.customize.import_find_it}"
                 }
               },
               Stage::Failed(message) => rsx! {
@@ -389,16 +408,20 @@ pub fn ThemeImportModal() -> Element {
                 Stage::Done(_) => rsx! {
                   button { class: "btn btn-sm btn-ghost", onclick: undo,
                     Undo2 { class: "w-4 h-4 mr-2" }
-                    "Undo"
+                    "{strings.common.undo}"
                   }
-                  button { class: "btn btn-sm btn-neutral", onclick: close, "Done" }
+                  button { class: "btn btn-sm btn-neutral", onclick: close, "{strings.customize.done}" }
                 },
                 _ => rsx! {
                   button {
                     class: "btn btn-sm btn-ghost",
                     disabled: current == Stage::Working,
                     onclick: close,
-                    if current.cancellable() || matches!(current, Stage::Confirm(_)) { "Cancel" } else { "Close" }
+                    if current.cancellable() || matches!(current, Stage::Confirm(_)) {
+                      "{strings.common.cancel}"
+                    } else {
+                      "{strings.common.close}"
+                    }
                   }
                   if let Stage::Confirm(offer) = &current {
                     button {
@@ -406,7 +429,7 @@ pub fn ThemeImportModal() -> Element {
                       disabled: !parts().within(offer.theme.parts()).any(),
                       onclick: apply,
                       Download { class: "w-4 h-4 mr-2" }
-                      "Use this theme"
+                      "{strings.customize.import_use}"
                     }
                   }
                 },
@@ -430,6 +453,7 @@ const FRAME_CLASS: &str = "shrink-0 rounded-lg border border-base-300";
 #[component]
 fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
     let theme = &offer.theme;
+    let strings = use_strings();
 
     rsx! {
       div { class: "card border border-base-300 bg-base-200 p-4",
@@ -445,7 +469,9 @@ fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
                 "{theme.name}"
               }
               if let Some(author) = &theme.author {
-                div { class: "truncate text-xs text-base-content/60", "by {author}" }
+                div { class: "truncate text-xs text-base-content/60",
+                  "{fill(strings.customize.by_author, &[&author])}"
+                }
               }
             }
             // Six lines hold a usual description with its credit at the
@@ -468,13 +494,13 @@ fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
               if theme.logo.is_some() {
                 span { class: "flex items-center gap-1",
                   Stamp { class: "w-3 h-3" }
-                  "Logo"
+                  "{strings.customize.tab_logo}"
                 }
               }
               if theme.background.is_some() {
                 span { class: "flex items-center gap-1",
                   ImageIcon { class: "w-3 h-3" }
-                  "Background"
+                  "{strings.customize.tab_background}"
                 }
               }
               if let Some(size) = offer.size {
@@ -492,6 +518,7 @@ fn OfferCard(offer: Rc<Offer>, picture: CardPreview) -> Element {
 #[component]
 fn DoneCard(applied: Rc<Applied>, picture: CardPreview) -> Element {
     let theme = &applied.offer.theme;
+    let strings = use_strings();
 
     rsx! {
       div { class: "card border border-base-300 bg-base-200 p-4",
@@ -506,11 +533,13 @@ fn DoneCard(applied: Rc<Applied>, picture: CardPreview) -> Element {
                 "{theme.name}"
               }
               if let Some(author) = &theme.author {
-                div { class: "truncate text-xs text-base-content/60", "by {author}" }
+                div { class: "truncate text-xs text-base-content/60",
+                  "{fill(strings.customize.by_author, &[&author])}"
+                }
               }
             }
             div { class: "space-y-1",
-              for row in changes(theme, applied.parts) {
+              for row in changes(theme, applied.parts, &strings.customize) {
                 div {
                   key: "{row.label}",
                   class: if row.changed { "flex items-center gap-2 text-sm text-base-content" } else { "flex items-center gap-2 text-sm text-base-content/50" },
@@ -543,6 +572,13 @@ fn Waiting(text: &'static str) -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
+
+    /// The catalog the dialog is drawn with in English. The assertions below
+    /// used to spell the sentences out; they now name the keys the dialog shows.
+    fn en() -> &'static CustomizeStrings {
+        &Language::En.strings().customize
+    }
 
     fn offer(bytes: &[u8]) -> Rc<Offer> {
         let theme = theme_share::from_bytes(bytes).unwrap();
@@ -573,19 +609,25 @@ mod tests {
     #[test]
     fn the_done_list_says_which_parts_the_theme_changed() {
         let theme = &offer(include_bytes!("../../utils/theme_share/fixtures/v1/custom-full.mvtheme")).theme;
-        let rows = changes(theme, ImportParts::ALL.with(Part::Background, false));
-        assert_eq!(rows[0], ChangeRow { label: format!("Colors: {}", theme.colors_label()), changed: true });
+        let rows = changes(theme, ImportParts::ALL.with(Part::Background, false), en());
+        assert_eq!(
+            rows[0],
+            ChangeRow {
+                label: fill(en().import_colors_line, &[&theme.colors_label()]),
+                changed: true,
+            }
+        );
         assert_eq!(rows[1], ChangeRow { label: theme.logo_label().unwrap().to_string(), changed: true });
-        assert_eq!(rows[2], ChangeRow { label: "Kept your background".to_string(), changed: false });
+        assert_eq!(rows[2], ChangeRow { label: en().import_kept_background.to_string(), changed: false });
     }
 
     #[test]
     fn a_part_the_theme_leaves_out_stays_yours_in_the_done_list() {
         let theme = &offer(include_bytes!("../../utils/theme_share/fixtures/v1/built-in-plain.mvtheme")).theme;
-        let rows = changes(theme, ImportParts::ALL);
+        let rows = changes(theme, ImportParts::ALL, en());
         assert!(rows[0].changed, "a theme always brings its colors");
-        assert_eq!(rows[1], ChangeRow { label: "Kept your logo".to_string(), changed: false });
-        assert_eq!(rows[2], ChangeRow { label: "Kept your background".to_string(), changed: false });
+        assert_eq!(rows[1], ChangeRow { label: en().import_kept_logo.to_string(), changed: false });
+        assert_eq!(rows[2], ChangeRow { label: en().import_kept_background.to_string(), changed: false });
     }
 
     #[test]

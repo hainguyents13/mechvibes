@@ -9,16 +9,20 @@ use crate::components::customize::{
     CURRENT_TAB,
 };
 use crate::components::ui::PageHeader;
+use crate::i18n::use_strings;
 use dioxus::prelude::*;
 use lucide_dioxus::Palette;
 
 #[component]
 pub fn CustomizePage() -> Element {
+    // Reads the config signal, so choosing a language re-renders the page.
+    let strings = use_strings();
+
     rsx! {
       div {
         PageHeader {
-          title: "Customize".to_string(),
-          subtitle: "Vibe it your way!".to_string(),
+          title: strings.customize.page_title.to_string(),
+          subtitle: strings.customize.page_subtitle.to_string(),
           icon: Some(rsx! {
             Palette { class: "w-8 h-8 mx-auto" }
           }),

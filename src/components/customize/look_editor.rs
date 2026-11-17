@@ -6,6 +6,8 @@
 //! saves an edit still waiting and the look on screen, so switching never
 //! loses a look. What saving does is in `utils::theme_library`.
 
+use crate::components::customize::strings_now;
+use crate::i18n::fill;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::config_writer;
@@ -143,7 +145,14 @@ impl LookEditor {
             Card::Starter(starter) => {
                 // Its images go where its look says they are, before it is on.
                 if let Err(e) = starter.save_images() {
-                    notice::report(NoticeKind::Error, format!("Could not put {} on. {}", starter.name(), e), None);
+                    notice::report(
+                        NoticeKind::Error,
+                        fill(
+                            strings_now().could_not_put_on,
+                            &[&starter.name(), &e]
+                        ),
+                        None
+                    );
                     return Err(e);
                 }
                 card_colors(&starter.theme.colors, starter.name())?
@@ -195,13 +204,17 @@ pub fn duplicate(card: &Card) -> Result<(), String> {
     let card = &as_saved_now(card, &saved_themes::current());
     if let Card::Starter(starter) = card {
         if let Err(e) = starter.save_images() {
-            notice::report(NoticeKind::Error, format!("Could not copy {}. {}", starter.name(), e), None);
+            notice::report(
+                NoticeKind::Error,
+                fill(strings_now().could_not_copy, &[&starter.name(), &e]),
+                None
+            );
             return Err(e);
         }
     }
     let name = theme_library::duplicate_name(card.name(), &theme_library::cards(&saved_themes::current()));
     let Some(copy) = theme_library::new_mine(name, card.look(), Utc::now()) else {
-        return Err("This theme has no colors to copy.".to_string());
+        return Err(strings_now().no_colors_to_copy.to_string());
     };
     saved_themes::apply(|store| store.insert(copy)).map(|_| ())
 }
@@ -297,7 +310,7 @@ fn card_colors(colors: &SharedColors, name: &str) -> Result<Theme, String> {
     match chosen {
         Ok(Ok(theme)) => Ok(theme),
         Ok(Err(e)) => {
-            notice::report(NoticeKind::Error, format!("Could not put {} on. {}", name, e), None);
+            notice::report(NoticeKind::Error, fill(strings_now().could_not_put_on, &[&name, &e]), None);
             Err(e)
         }
         // A failed save of the colors list has told the user already.

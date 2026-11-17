@@ -2,7 +2,9 @@
 //! the buttons that share it, import another one, or find more online.
 
 use crate::components::customize::look_editor::{ card_on_screen, use_saved_themes };
+use crate::components::customize::theme_name;
 use crate::components::theme_share::{ pick_theme_file, share_card, share_current };
+use crate::i18n::use_strings;
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config_writer;
 use crate::utils::config::use_config;
@@ -19,6 +21,7 @@ pub(crate) const FIND_MORE_URL: &str =
 pub fn CurrentThemeRow() -> Element {
     let (config, _) = use_config();
     let (themes, _) = use_themes();
+    let strings = use_strings();
     let saved_themes = use_saved_themes();
     // The save dialog and the writing take a moment; one share at a time.
     let mut sharing = use_signal(|| false);
@@ -42,14 +45,22 @@ pub fn CurrentThemeRow() -> Element {
 
     // The swatch takes the colours from the theme's own name or CSS, the way
     // the colour list draws its buttons. Custom colours that are gone show as
-    // the default colours, which is what the screen falls back to.
+    // the default colours, which is what the screen falls back to. The name is
+    // the theme's own, or for a built-in theme the catalog's word for the mode
+    // (or the DaisyUI name, which is not translated).
     let list = themes();
     let (colors_name, data_theme, css) = match &config().theme {
-        Theme::BuiltIn(theme) => (format!("{:?}", theme), theme.to_daisy_theme(), String::new()),
+        Theme::BuiltIn(theme) =>
+            (theme_name(theme, &strings.customize), theme.to_daisy_theme(), String::new()),
         Theme::Custom(id) =>
             match list.get_theme_by_id(id) {
                 Some(theme) => (theme.name.clone(), id.clone(), theme.css.clone()),
-                None => (format!("{:?}", BuiltInTheme::System), BuiltInTheme::System.to_daisy_theme(), String::new()),
+                None =>
+                    (
+                        theme_name(&BuiltInTheme::System, &strings.customize),
+                        BuiltInTheme::System.to_daisy_theme(),
+                        String::new(),
+                    ),
             }
     };
     // The saved theme the look belongs to. A look no theme holds, as while
@@ -77,7 +88,7 @@ pub fn CurrentThemeRow() -> Element {
             } else {
               Share2 { class: "w-4 h-4" }
             }
-            "Share"
+            "{strings.customize.share}"
           }
           button {
             class: "btn btn-sm btn-soft",
@@ -85,7 +96,7 @@ pub fn CurrentThemeRow() -> Element {
                 spawn(pick_theme_file());
             },
             Download { class: "w-4 h-4" }
-            "Import"
+            "{strings.customize.import_theme}"
           }
           a {
             class: "btn btn-sm btn-soft",
@@ -93,7 +104,7 @@ pub fn CurrentThemeRow() -> Element {
             target: "_blank",
             rel: "noopener noreferrer",
             ExternalLink { class: "w-4 h-4" }
-            "Find more"
+            "{strings.customize.find_more}"
           }
         }
       }

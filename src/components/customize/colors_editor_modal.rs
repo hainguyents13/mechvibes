@@ -6,6 +6,7 @@
 //! so nothing typed is lost.
 
 use crate::components::customize::look_editor::use_look_editor;
+use crate::i18n::{ catalog::CustomizeStrings, use_strings };
 use crate::libs::theme::Theme;
 use crate::state::themes::ThemesConfig;
 use crate::utils::notice::{ self, NoticeKind };
@@ -73,14 +74,21 @@ pub(crate) struct CleanColors {
 }
 
 /// Check and clean what the user typed before it is saved.
-pub(crate) fn clean_colors(name: &str, css: &str) -> Result<CleanColors, String> {
+///
+/// Takes the catalog instead of reading it, so the messages are the one the
+/// dialog is drawn in and the check stays a plain function.
+pub(crate) fn clean_colors(
+    name: &str,
+    css: &str,
+    strings: &CustomizeStrings
+) -> Result<CleanColors, &'static str> {
     let name = name.trim();
     if name.is_empty() {
-        return Err("Give it a name first.".to_string());
+        return Err(strings.name_first);
     }
     let clean = safe_theme_css(css);
     if clean.is_empty() {
-        return Err("There are no colors here. Each line should look like --color-primary: #3b82f6;".to_string());
+        return Err(strings.colors_no_colors);
     }
     Ok(CleanColors {
         name: name.to_string(),
@@ -102,6 +110,7 @@ pub(crate) fn colors_after_save(editor: &ColorsEditor, saved_id: &str) -> Option
 pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> Element {
     let (themes, update_themes) = use_themes();
     let look_editor = use_look_editor();
+    let strings = use_strings();
 
     // Mounted fresh each time the editor opens, so these start from the
     // colors being edited, or from the template for new ones.
@@ -121,10 +130,10 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
     let on_save = {
         let editor = editor.clone();
         move |_| {
-            let clean = match clean_colors(&name(), &css()) {
+            let clean = match clean_colors(&name(), &css(), &strings.customize) {
                 Ok(clean) => clean,
                 Err(e) => {
-                    error.set(e);
+                    error.set(e.to_string());
                     return;
                 }
             };
@@ -162,7 +171,7 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
                 }
             });
             if clean.left_out {
-                notice::report(NoticeKind::Info, "Some lines were left out because they are not colors.", None);
+                notice::report(NoticeKind::Info, strings.customize.colors_some_lines_left_out, None);
             }
             on_close.call(());
         }
@@ -173,31 +182,31 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
         div { class: "modal-box",
           h3 { class: "font-bold text-lg mb-4",
             if editor == ColorsEditor::New {
-              "New colors"
+              "{strings.customize.new_colors}"
             } else {
-              "Edit colors"
+              "{strings.customize.edit_colors}"
             }
           }
           div { class: "space-y-4",
             fieldset { class: "fieldset",
-              legend { class: "fieldset-legend", "Name" }
+              legend { class: "fieldset-legend", "{strings.customize.name}" }
               input {
                 class: "input w-full",
                 r#type: "text",
-                placeholder: "My colors",
+                placeholder: "{strings.customize.colors_name_placeholder}",
                 value: name(),
                 oninput: move |e| name.set(e.value()),
               }
             }
             fieldset { class: "fieldset",
-              legend { class: "fieldset-legend", "Color code (advanced)" }
+              legend { class: "fieldset-legend", "{strings.customize.colors_code_legend}" }
               textarea {
                 class: "textarea w-full h-64 font-mono text-sm",
                 value: css(),
                 oninput: move |e| css.set(e.value()),
               }
               div { class: "label whitespace-break-spaces",
-                "Change the values after each colon. Each line is one color."
+                "{strings.customize.colors_code_help}"
               }
             }
             if !error().is_empty() {
@@ -205,8 +214,8 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
             }
           }
           div { class: "modal-action",
-            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_close.call(()), "Cancel" }
-            button { class: "btn btn-sm btn-primary", onclick: on_save, "Save" }
+            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_close.call(()), "{strings.common.cancel}" }
+            button { class: "btn btn-sm btn-primary", onclick: on_save, "{strings.common.save}" }
           }
         }
         div { class: "modal-backdrop", onclick: move |_| on_close.call(()) }
@@ -217,24 +226,31 @@ pub fn ColorsEditorModal(editor: ColorsEditor, on_close: EventHandler<()>) -> El
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
+
+    /// The catalog the dialog is drawn with in English. The test used to spell
+    /// the message out; it now names the key the dialog shows.
+    fn en() -> &'static CustomizeStrings {
+        &Language::En.strings().customize
+    }
 
     #[test]
     fn saved_colors_keep_only_color_lines() {
         let typed = "--color-primary: oklch(55% 0.3 240);\n--evil: red;\nfont-size: 40px;\n--color-base-100: #fff;";
-        let clean = clean_colors("  Night  ", typed).unwrap();
+        let clean = clean_colors("  Night  ", typed, en()).unwrap();
         assert_eq!(clean.name, "Night");
         assert_eq!(clean.css, "--color-primary: oklch(55% 0.3 240);\n--color-base-100: #fff;");
         assert!(clean.left_out, "the lines that are not colors were dropped");
 
-        let clean = clean_colors("Night", THEME_DEFAULT_CSS).unwrap();
+        let clean = clean_colors("Night", THEME_DEFAULT_CSS, en()).unwrap();
         assert!(!clean.left_out, "the template loses nothing");
     }
 
     #[test]
     fn colors_need_a_name_and_at_least_one_color() {
-        assert_eq!(clean_colors(" ", THEME_DEFAULT_CSS), Err("Give it a name first.".to_string()));
-        assert!(clean_colors("Night", "--evil: red;").is_err());
-        assert!(clean_colors("Night", "--color-primary: transparent;").is_err());
+        assert_eq!(clean_colors(" ", THEME_DEFAULT_CSS, en()), Err(en().name_first));
+        assert_eq!(clean_colors("Night", "--evil: red;", en()), Err(en().colors_no_colors));
+        assert!(clean_colors("Night", "--color-primary: transparent;", en()).is_err());
     }
 
     #[test]

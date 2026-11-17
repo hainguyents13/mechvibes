@@ -4,6 +4,7 @@ use crate::components::customize::look_editor::use_look_editor;
 use crate::components::customize::part_panel::{ edit_part, starting_point, PartPanel };
 use crate::components::logo::logo_style;
 use crate::components::ui::{ ColorPicker, FillField, Toggler, THEME_COLOR_OPTIONS };
+use crate::i18n::use_strings;
 use crate::state::config::LogoCustomization;
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
@@ -13,6 +14,7 @@ use std::rc::Rc;
 pub fn LogoTab() -> Element {
     let (config, _) = use_config();
     let editor = use_look_editor();
+    let strings = use_strings();
     let enabled = config().enable_logo_customization;
     let saved = config().logo_customization.clone();
     // The config is the single source of truth: every field reads it and
@@ -58,27 +60,27 @@ pub fn LogoTab() -> Element {
 
     rsx! {
       PartPanel {
-        switch_label: "Use my own logo".to_string(),
+        switch_label: strings.customize.use_my_logo.to_string(),
         enabled,
         on_switch,
         on_start_over,
         preview: rsx! {
           div { class: "grid grid-cols-2 gap-2 p-4 bg-base-100 rounded-box border border-base-300",
             div {
-              div { class: "text-xs text-base-content/70", "Sound on" }
+              div { class: "text-xs text-base-content/70", "{strings.customize.sound_on}" }
               div { class: "{preview_base}{normal_class}", style: "{normal_style}", "Mechvibes" }
             }
             div {
-              div { class: "text-xs text-base-content/70", "Sound off" }
+              div { class: "text-xs text-base-content/70", "{strings.customize.sound_off}" }
               div { class: "{preview_base}{muted_class}", style: "{muted_style}", "Mechvibes" }
             }
           }
         },
         ColorPicker {
-          label: "Border".to_string(),
+          label: strings.customize.border.to_string(),
           selected_value: logo.border_color.clone(),
           options: THEME_COLOR_OPTIONS.to_vec(),
-          placeholder: "Pick a color".to_string(),
+          placeholder: strings.common.pick_a_color.to_string(),
           on_change: {
               let edit = edit.clone();
               move |value: String| edit(Box::new(move |l| l.border_color = value))
@@ -87,10 +89,10 @@ pub fn LogoTab() -> Element {
           description: None,
         }
         ColorPicker {
-          label: "Text".to_string(),
+          label: strings.customize.text.to_string(),
           selected_value: logo.text_color.clone(),
           options: THEME_COLOR_OPTIONS.to_vec(),
-          placeholder: "Pick a color".to_string(),
+          placeholder: strings.common.pick_a_color.to_string(),
           on_change: {
               let edit = edit.clone();
               move |value: String| edit(Box::new(move |l| l.text_color = value))
@@ -99,10 +101,10 @@ pub fn LogoTab() -> Element {
           description: None,
         }
         ColorPicker {
-          label: "Shadow".to_string(),
+          label: strings.customize.shadow.to_string(),
           selected_value: logo.shadow_color.clone(),
           options: THEME_COLOR_OPTIONS.to_vec(),
-          placeholder: "Pick a color".to_string(),
+          placeholder: strings.common.pick_a_color.to_string(),
           on_change: {
               let edit = edit.clone();
               move |value: String| edit(Box::new(move |l| l.shadow_color = value))
@@ -112,7 +114,7 @@ pub fn LogoTab() -> Element {
         }
         div { class: "space-y-3 p-3 border border-base-300 rounded-box bg-base-100",
           FillField {
-            label: "Logo background".to_string(),
+            label: strings.customize.logo_background.to_string(),
             description: None,
             use_image: logo.use_background_image,
             color: logo.background_color.clone(),
@@ -134,7 +136,7 @@ pub fn LogoTab() -> Element {
         }
         div { class: "space-y-3 p-3 border border-base-300 rounded-box bg-base-100",
           FillField {
-            label: "Logo background when sound is off".to_string(),
+            label: strings.customize.logo_muted_background.to_string(),
             description: None,
             use_image: logo.use_muted_background_image,
             color: logo.muted_background.clone(),
@@ -155,7 +157,7 @@ pub fn LogoTab() -> Element {
           }
         }
         Toggler {
-          title: "Fade the logo when sound is off".to_string(),
+          title: strings.customize.logo_fade_when_muted.to_string(),
           description: None,
           checked: logo.dimmed_when_muted,
           on_change: {

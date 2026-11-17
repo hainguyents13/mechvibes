@@ -1,5 +1,7 @@
 //! The tab bar of Customize: Themes, Colors, Logo and Background.
 
+use crate::i18n::catalog::CustomizeStrings;
+use crate::i18n::use_strings;
 use dioxus::prelude::*;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -18,12 +20,14 @@ impl CustomizeTab {
         CustomizeTab::Background,
     ];
 
-    pub fn label(self) -> &'static str {
+    /// The tab's label. Takes the catalog rather than reading it here, so the
+    /// tab bar can pass the one it already has and nothing is looked up twice.
+    pub fn label(self, strings: &CustomizeStrings) -> &'static str {
         match self {
-            CustomizeTab::Themes => "Themes",
-            CustomizeTab::Colors => "Colors",
-            CustomizeTab::Logo => "Logo",
-            CustomizeTab::Background => "Background",
+            CustomizeTab::Themes => strings.tab_themes,
+            CustomizeTab::Colors => strings.tab_colors,
+            CustomizeTab::Logo => strings.tab_logo,
+            CustomizeTab::Background => strings.tab_background,
         }
     }
 }
@@ -38,6 +42,9 @@ pub static CURRENT_TAB: GlobalSignal<CustomizeTab> = Signal::global(|| Customize
 #[component]
 pub fn CustomizeTabs(children: Element) -> Element {
     let current = CURRENT_TAB();
+    // The zone's catalog, not the whole one: this bar only shows tab labels.
+    // Read here, in the body, so a language change re-renders the bar.
+    let strings = &use_strings().customize;
 
     rsx! {
       div { class: "tabs tabs-lift",
@@ -50,7 +57,7 @@ pub fn CustomizeTabs(children: Element) -> Element {
               checked: current == tab,
               onchange: move |_| *CURRENT_TAB.write() = tab,
             }
-            "{tab.label()}"
+            "{tab.label(strings)}"
           }
           // daisyUI shows the panel that comes right after the checked tab.
           if current == tab {
