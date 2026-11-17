@@ -5,6 +5,9 @@ use tray_icon::{
     TrayIconBuilder,
     TrayIconEvent,
 };
+use crate::i18n::catalog::TrayStrings;
+use crate::i18n::fill;
+use crate::state::config::AppConfig;
 use crate::utils::constants::APP_NAME;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -67,10 +70,17 @@ pub enum TrayMessage {
 /// The two macOS permission lines in the tray menu.
 ///
 /// Each shows "X: Granted" (nothing to do) or a red "Grant X…" (clickable, opens
-/// the matching System Settings pane). Owned by the permission watcher after the
-/// menu is built, so the text can change in place when a permission is granted
-/// or revoked.
+/// the matching System Settings pane). The handles are cloned: the tray keeps one
+/// set, so a language change can relabel the pair from `update_menu`, and the
+/// permission watcher keeps the other, so the lines still update while the window
+/// is hidden. Both point at the same native items.
+///
+/// **The words come from the catalog, the layout and the colour from
+/// `permissions`.** It has to be that way round: the attributed title it builds
+/// is made from the exact string the item shows, so a label put on the item
+/// behind its back would be replaced the moment the row was styled.
 #[cfg(target_os = "macos")]
+#[derive(Clone)]
 struct PermissionItems {
     accessibility: MenuItem,
     input_monitoring: MenuItem,
@@ -81,23 +91,43 @@ struct PermissionItems {
     ns_menu: *mut std::ffi::c_void,
 }
 
+/// The catalog words for one permission row, in the language the tray shows.
+///
+/// `permissions` lays them out; which words go in is decided here, next to the
+/// menu labels they sit between.
+#[cfg(target_os = "macos")]
+fn permission_words<'a>(
+    strings: &'a TrayStrings,
+    name: &'a str
+) -> crate::libs::permissions::PermissionText<'a> {
+    crate::libs::permissions::PermissionText {
+        name,
+        granted_line: strings.permission_granted,
+        grant_line: strings.permission_grant,
+        granted_word: strings.permission_granted_word,
+    }
+}
+
 #[cfg(target_os = "macos")]
 impl PermissionItems {
     fn new(
         status: crate::libs::permissions::PermissionStatus,
-        ns_menu: *mut std::ffi::c_void
+        ns_menu: *mut std::ffi::c_void,
+        strings: &TrayStrings
     ) -> Self {
         use crate::libs::permissions::menu_text;
+        let accessibility = permission_words(strings, strings.accessibility);
+        let input_monitoring = permission_words(strings, strings.input_monitoring);
         Self {
             accessibility: MenuItem::with_id(
                 MenuId::new("perm_accessibility"),
-                menu_text("Accessibility", status.accessibility),
+                menu_text(&accessibility, status.accessibility),
                 !status.accessibility,
                 None
             ),
             input_monitoring: MenuItem::with_id(
                 MenuId::new("perm_input_monitoring"),
-                menu_text("Input Monitoring", status.input_monitoring),
+                menu_text(&input_monitoring, status.input_monitoring),
                 !status.input_monitoring,
                 None
             ),
@@ -105,22 +135,40 @@ impl PermissionItems {
         }
     }
 
-    /// Styles the two lines: a dull grey label with a green "Granted", or the
+    /// Styles the two lines: a dull grey label with a green granted word, or the
     /// whole line in red when the permission is missing.
-    fn style(&self, status: crate::libs::permissions::PermissionStatus) {
-        use crate::libs::permissions::{ style_menu_item, ACCESSIBILITY_TAG, INPUT_MONITORING_TAG };
-        style_menu_item(self.ns_menu, ACCESSIBILITY_TAG, "Accessibility", status.accessibility);
-        style_menu_item(self.ns_menu, INPUT_MONITORING_TAG, "Input Monitoring", status.input_monitoring);
+    ///
+    /// The label is built here and handed over, never re-derived inside
+    /// `permissions`, so the plain title and the attributed one are the same
+    /// string in every language.
+    fn style(&self, status: crate::libs::permissions::PermissionStatus, strings: &TrayStrings) {
+        use crate::libs::permissions::{ menu_text, style_menu_item, ACCESSIBILITY_TAG, INPUT_MONITORING_TAG };
+        let accessibility = permission_words(strings, strings.accessibility);
+        let input_monitoring = permission_words(strings, strings.input_monitoring);
+        style_menu_item(
+            self.ns_menu,
+            ACCESSIBILITY_TAG,
+            &menu_text(&accessibility, status.accessibility),
+            status.accessibility.then_some(accessibility.granted_word)
+        );
+        style_menu_item(
+            self.ns_menu,
+            INPUT_MONITORING_TAG,
+            &menu_text(&input_monitoring, status.input_monitoring),
+            status.input_monitoring.then_some(input_monitoring.granted_word)
+        );
     }
 
-    fn apply(&self, status: crate::libs::permissions::PermissionStatus) {
+    fn apply(&self, status: crate::libs::permissions::PermissionStatus, strings: &TrayStrings) {
         use crate::libs::permissions::menu_text;
-        self.accessibility.set_text(menu_text("Accessibility", status.accessibility));
+        let accessibility = permission_words(strings, strings.accessibility);
+        let input_monitoring = permission_words(strings, strings.input_monitoring);
+        self.accessibility.set_text(menu_text(&accessibility, status.accessibility));
         self.accessibility.set_enabled(!status.accessibility);
-        self.input_monitoring.set_text(menu_text("Input Monitoring", status.input_monitoring));
+        self.input_monitoring.set_text(menu_text(&input_monitoring, status.input_monitoring));
         self.input_monitoring.set_enabled(!status.input_monitoring);
         // Setting the text above replaces the title, so the colours go on after.
-        self.style(status);
+        self.style(status, strings);
     }
 }
 
@@ -290,15 +338,82 @@ fn next_menu_event() -> Option<MenuEvent> {
     }
 }
 
+/// The catalog for the language the app is set to right now.
+///
+/// The tray is not a Dioxus component, so `use_strings()` is not available to
+/// it: the config writer is the same authority the Settings screen writes the
+/// choice through, and reading it here is what lets `request_tray_update()` —
+/// sent from Settings when the language changes — reach the menu.
+fn tray_strings(config: &AppConfig) -> &'static TrayStrings {
+    &crate::i18n::resolve(config.language).strings().tray
+}
+
+/// What the tray menu should say, and which checkmarks should be on.
+///
+/// Everything that decides the menu's content lives in [`tray_menu_state`],
+/// apart from the tray: the tray needs a running event loop and real menu
+/// objects, so nothing that builds one can be tested. [`TrayManager`] only
+/// copies this onto the items that already exist.
+struct TrayMenu {
+    /// "Show Mechvibes": the catalog's phrase around the brand. `APP_NAME` is a
+    /// constant, not copy, so the name itself is never translated.
+    show: String,
+    mute_sounds: &'static str,
+    mute_mood: &'static str,
+    github: &'static str,
+    discord: &'static str,
+    website: &'static str,
+    exit: &'static str,
+    /// The state the two mute entries show. It is a **checkmark, never a
+    /// label**: rebuilding the menu to say "Unmute" made the label flip on
+    /// every refresh, so the wording is fixed and the check carries the state.
+    /// Only a language change moves these two labels.
+    sounds_muted: bool,
+    mood_muted: bool,
+}
+
+/// The menu for `strings` and one sound state.
+///
+/// Pure on purpose: no tray, no config, no platform call, so a test can pin both
+/// the labels English has always shown and the fact that another language
+/// produces different ones.
+fn tray_menu_state(strings: &TrayStrings, sounds_enabled: bool, mood_muted: bool) -> TrayMenu {
+    TrayMenu {
+        show: fill(strings.show, &[&APP_NAME]),
+        mute_sounds: strings.mute_sounds,
+        mute_mood: strings.mute_mood,
+        github: strings.github,
+        discord: strings.discord,
+        website: strings.website,
+        exit: strings.exit,
+        // `enable_sound` is the positive flag, so muted is its inverse.
+        sounds_muted: !sounds_enabled,
+        mood_muted,
+    }
+}
+
 pub struct TrayManager {
     tray_icon: TrayIcon,
-    /// Kept alive past menu construction so the checkmark can be toggled in
-    /// place. Rebuilding the whole menu to change one item made the label flip
-    /// between "Mute"/"Unmute"; holding the item lets the label stay fixed and
-    /// the state show as a checkmark instead.
+    /// The items are held past menu construction so their labels can be replaced
+    /// with `set_text` when the language changes, without building a second
+    /// `Menu`: the [`MenuId`]s below are what `handle_tray_events` matches on.
+    show_item: MenuItem,
+    /// Held so the **checkmark** can be toggled in place. Rebuilding the whole
+    /// menu to change one item made the label flip between "Mute"/"Unmute";
+    /// holding the item lets the label stay fixed with respect to the state and
+    /// show it as a checkmark instead.
     mute_item: CheckMenuItem,
     /// Mood's own mute, the same one as the button on the Mood page.
     mood_mute_item: CheckMenuItem,
+    github_item: MenuItem,
+    discord_item: MenuItem,
+    website_item: MenuItem,
+    exit_item: MenuItem,
+    /// macOS: the two permission lines, so a language change relabels them from
+    /// `update_menu` too. The permission watcher holds a clone of the same
+    /// handles, which is what keeps them current while the window is hidden.
+    #[cfg(target_os = "macos")]
+    permissions: PermissionItems,
     icons: TrayIcons,
 }
 
@@ -306,53 +421,44 @@ impl TrayManager {
     pub fn new() -> Result<Self, Box<dyn std::error::Error>> {
         // Load current config to determine sound state
         let config = crate::state::config_writer::current();
+        let strings = tray_strings(&config);
+        let menu_state = tray_menu_state(strings, config.enable_sound, config.ambiance_is_muted);
         // `enable_sound` is the positive flag, so muted is its inverse. The
         // menu item is checked when muted.
-        let muted = !config.enable_sound;
+        let muted = menu_state.sounds_muted;
 
-        // Create the tray menu with specific IDs
-        let show_item = MenuItem::with_id(
-            MenuId::new("show"),
-            &format!("Show {}", APP_NAME),
-            true,
-            None
-        );
+        // Create the tray menu with specific IDs. These IDs are the contract with
+        // `handle_tray_events`, so the menu is built exactly once and only ever
+        // re-labelled in place (see `update_menu`).
+        let show_item = MenuItem::with_id(MenuId::new("show"), &menu_state.show, true, None);
         let separator1 = PredefinedMenuItem::separator();
 
-        // Sound control section. Fixed label; the checkmark carries the state.
+        // Sound control section. The label names the action, not the state: the
+        // checkmark carries the state, and only a language change moves the
+        // wording.
         let mute_item = CheckMenuItem::with_id(
             MenuId::new("toggle_mute"),
-            "Mute sounds",
+            menu_state.mute_sounds,
             true,
             muted,
             None
         );
         let mood_mute_item = CheckMenuItem::with_id(
             MenuId::new("toggle_mood_mute"),
-            "Mute Mood",
+            menu_state.mute_mood,
             true,
-            config.ambiance_is_muted,
+            menu_state.mood_muted,
             None
         );
         let separator2 = PredefinedMenuItem::separator();
 
         // External links section
-        let github_item = MenuItem::with_id(MenuId::new("github"), "GitHub Repository", true, None);
-        let discord_item = MenuItem::with_id(
-            MenuId::new("discord"),
-            "Discord Community",
-            true,
-            None
-        );
-        let website_item = MenuItem::with_id(
-            MenuId::new("website"),
-            "Official Website",
-            true,
-            None
-        );
+        let github_item = MenuItem::with_id(MenuId::new("github"), menu_state.github, true, None);
+        let discord_item = MenuItem::with_id(MenuId::new("discord"), menu_state.discord, true, None);
+        let website_item = MenuItem::with_id(MenuId::new("website"), menu_state.website, true, None);
         let separator = PredefinedMenuItem::separator();
 
-        let exit_item = MenuItem::with_id(MenuId::new("exit"), "Exit", true, None);
+        let exit_item = MenuItem::with_id(MenuId::new("exit"), menu_state.exit, true, None);
 
         // Create the menu with the items
         let menu = Menu::with_items(
@@ -375,14 +481,18 @@ impl TrayManager {
         // listed above so the menu on Windows and Linux is built exactly as
         // before, and placed relative to the last sound item so it stays right
         // if items are added above it.
+        //
+        // The pair is kept on the manager as well as handed to the watcher: a
+        // language change relabels it from `update_menu`, and the watcher needs
+        // its own handles to keep the lines current while the window is hidden.
         #[cfg(target_os = "macos")]
-        {
+        let permission_items = {
             use crate::libs::permissions::{ self, ACCESSIBILITY_TAG, INPUT_MONITORING_TAG };
             use tray_icon::menu::ContextMenu;
 
             let ns_menu = menu.ns_menu() as *mut std::ffi::c_void;
             let status = permissions::current();
-            let items = PermissionItems::new(status, ns_menu);
+            let items = PermissionItems::new(status, ns_menu, strings);
 
             let mood_mute_position = menu
                 .items()
@@ -397,20 +507,25 @@ impl TrayManager {
             // after this finds them by tag and never by position.
             permissions::tag_menu_item(ns_menu, first, ACCESSIBILITY_TAG);
             permissions::tag_menu_item(ns_menu, first + 1, INPUT_MONITORING_TAG);
-            items.style(status);
+            items.style(status, strings);
 
             // Keep the lines current. This runs on the main dispatch queue, not
             // in the tray loop inside the web view, so it keeps working while the
-            // window is hidden and that loop is frozen.
+            // window is hidden and that loop is frozen. The catalog is read
+            // inside the callback, so a grant that arrives after a language
+            // change is drawn in the language now in use.
+            let watched = items.clone();
             permissions::watch(move |status| {
-                items.apply(status);
+                watched.apply(status, tray_strings(&crate::state::config_writer::current()));
                 crate::always_print!(
                     "🔐 Tray permissions: Accessibility {}, Input Monitoring {}",
                     if status.accessibility { "granted" } else { "missing" },
                     if status.input_monitoring { "granted" } else { "missing" }
                 );
             });
-        }
+
+            items
+        };
 
         #[cfg(target_os = "macos")]
         install_menu_event_handler();
@@ -429,30 +544,67 @@ impl TrayManager {
 
         Ok(TrayManager {
             tray_icon,
+            show_item,
             mute_item,
             mood_mute_item,
+            github_item,
+            discord_item,
+            website_item,
+            exit_item,
+            #[cfg(target_os = "macos")]
+            permissions: permission_items,
             icons,
         })
     }
 
-    /// Syncs the tray checkmark and icon with the persisted sound state.
+    /// Syncs the tray with the persisted state: the labels follow the chosen
+    /// language and the checkmarks follow the sound state.
     ///
     /// Called after every path that can flip `enable_sound` (tray item, the
-    /// Settings toggle, Reset to Defaults, and the Ctrl+Alt+M hotkey), so the
-    /// config on disk stays the single source of truth for what the tray shows.
+    /// Settings toggle, Reset to Defaults, and the Ctrl+Alt+M hotkey) and after a
+    /// language change, which Settings announces with `request_tray_update()`. So
+    /// the config on disk stays the single source of truth for what the tray
+    /// shows.
+    ///
+    /// **The items are re-labelled in place; no `Menu`, no `TrayIcon` and no
+    /// [`MenuId`] is built here.** The IDs are what `handle_tray_events` matches
+    /// on, and on Linux the glib tray object has to survive an update, so a
+    /// second `Menu` would leave the handlers watching a menu nobody shows.
     pub fn update_menu(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         let config = crate::state::config_writer::current();
-        let enabled = config.enable_sound;
+        let strings = tray_strings(&config);
+        let menu_state = tray_menu_state(strings, config.enable_sound, config.ambiance_is_muted);
+        let muted = menu_state.sounds_muted;
 
-        // Mutate the existing item instead of rebuilding the menu: the label is
-        // fixed, only the checkmark moves.
-        self.mute_item.set_checked(!enabled);
+        // Mutate the existing items instead of rebuilding the menu. The mute
+        // labels never follow the checkmarks: the same word covers on and off,
+        // and the checkmark is what says which.
+        self.show_item.set_text(&menu_state.show);
+        self.mute_item.set_text(menu_state.mute_sounds);
+        self.mood_mute_item.set_text(menu_state.mute_mood);
+        self.github_item.set_text(menu_state.github);
+        self.discord_item.set_text(menu_state.discord);
+        self.website_item.set_text(menu_state.website);
+        self.exit_item.set_text(menu_state.exit);
+
+        self.mute_item.set_checked(muted);
         // Mood's mute is saved the moment it changes, from the tray or the
         // Mood page, so the config is the source here too.
-        self.mood_mute_item.set_checked(config.ambiance_is_muted);
-        self.tray_icon.set_icon(Some(self.icons.for_sound_enabled(enabled)))?;
+        self.mood_mute_item.set_checked(menu_state.mood_muted);
 
-        crate::always_print!("🔄 Tray updated: sounds {}", if enabled { "on" } else { "muted" });
+        // macOS: the two permission rows follow the language as well. Their text
+        // is built from the same catalog, and the colours have to be put back
+        // after it, so they go through `permissions` in one go.
+        #[cfg(target_os = "macos")]
+        self.permissions.apply(crate::libs::permissions::current(), strings);
+
+        self.tray_icon.set_icon(Some(self.icons.for_sound_enabled(!muted)))?;
+
+        crate::always_print!(
+            "🔄 Tray updated: sounds {}, language {}",
+            if muted { "muted" } else { "on" },
+            crate::i18n::resolve(config.language).tag()
+        );
 
         Ok(())
     }
@@ -540,6 +692,7 @@ pub fn handle_tray_events() -> Option<TrayMessage> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
 
     #[cfg(target_os = "macos")]
     fn route(id: &'static str) -> (bool, Vec<&'static str>) {
@@ -605,5 +758,106 @@ mod tests {
         let mut pixels = vec![10, 20, 30, 255];
         fade_alpha(&mut pixels);
         assert!(pixels[3] < 255);
+    }
+
+    fn menu_in(language: Language) -> TrayMenu {
+        tray_menu_state(&language.strings().tray, true, false)
+    }
+
+    /// The labels the tray showed before this migration, one per item, kept
+    /// byte for byte: English is the language the app already ships in, so this
+    /// is a move into the catalog and not a copy edit. A translator touching the
+    /// English column fails here, next to the menu.
+    #[test]
+    fn the_menu_state_is_the_english_menu_users_already_had() {
+        let menu = menu_in(Language::En);
+        assert_eq!(menu.show, format!("Show {}", APP_NAME));
+        assert_eq!(menu.mute_sounds, "Mute sounds");
+        assert_eq!(menu.mute_mood, "Mute Mood");
+        assert_eq!(menu.github, "GitHub Repository");
+        assert_eq!(menu.discord, "Discord Community");
+        assert_eq!(menu.website, "Official Website");
+        assert_eq!(menu.exit, "Exit");
+        assert!(!menu.sounds_muted, "sounds are on, so the mute entry is unchecked");
+        assert!(!menu.mood_muted);
+    }
+
+    /// A language change has to reach every item, so no label may keep the
+    /// English text. The brand is the exception the catalog allows: it is filled
+    /// in at the call site, so `show` differs by its phrase, not by the name.
+    #[test]
+    fn another_language_relabels_every_item() {
+        let english = menu_in(Language::En);
+        for language in [Language::Zh, Language::Es] {
+            let other = menu_in(language);
+            for (key, en, translated) in [
+                ("show", english.show.as_str(), other.show.as_str()),
+                ("mute_sounds", english.mute_sounds, other.mute_sounds),
+                ("mute_mood", english.mute_mood, other.mute_mood),
+                ("github", english.github, other.github),
+                ("discord", english.discord, other.discord),
+                ("website", english.website, other.website),
+                ("exit", english.exit, other.exit),
+            ] {
+                assert_ne!(en, translated, "tray.{key} still reads English in {}", language.tag());
+            }
+            assert!(
+                other.show.contains(APP_NAME),
+                "the brand has to survive the translation: {:?}",
+                other.show
+            );
+        }
+    }
+
+    /// The mute entries carry their state in the checkmark. A label that followed
+    /// it is the bug the held items were introduced to fix, so the same label has
+    /// to come out for both states and only the checkmark may move.
+    #[test]
+    fn the_mute_labels_never_follow_the_sound_state() {
+        let strings = &Language::En.strings().tray;
+        let on = tray_menu_state(strings, true, false);
+        let off = tray_menu_state(strings, false, true);
+
+        assert_eq!(on.mute_sounds, off.mute_sounds);
+        assert_eq!(on.mute_mood, off.mute_mood);
+        assert_eq!((on.sounds_muted, on.mood_muted), (false, false));
+        assert_eq!((off.sounds_muted, off.mood_muted), (true, true));
+    }
+
+    /// A relabel updates the items that exist and nothing else.
+    ///
+    /// The IDs `handle_tray_events` matches on belong to the `Menu` built in
+    /// `new()`, and on Linux the glib tray object has to survive the update, so
+    /// `update_menu` may not build a second menu. No runtime test can see that
+    /// (it needs an event loop and a live menu), so this reads the source the
+    /// same way `window_controller` checks its tray release.
+    #[test]
+    fn relabelling_reuses_the_menu_and_its_ids() {
+        const SOURCE: &str = include_str!("tray.rs");
+        let runtime = SOURCE.split("#[cfg(test)]").next().expect("the tests come last");
+        let relabel = runtime
+            .split("pub fn update_menu")
+            .nth(1)
+            .expect("update_menu must exist: it is the only path that relabels the tray")
+            .split("pub fn handle_tray_events")
+            .next()
+            .expect("handle_tray_events follows update_menu");
+
+        assert!(relabel.contains("set_text"), "a language change has to relabel the live items");
+        for rebuilt in ["Menu::", "TrayIconBuilder", "MenuId::new"] {
+            assert!(
+                !relabel.contains(rebuilt),
+                "update_menu must not build `{rebuilt}`: the ids and the tray object have to \
+                 survive a relabel"
+            );
+        }
+        for id in ["show", "toggle_mute", "toggle_mood_mute", "github", "discord", "website", "exit"] {
+            let created = format!("MenuId::new(\"{id}\")");
+            assert_eq!(
+                runtime.matches(&created).count(),
+                1,
+                "`{id}` must be created once, in `new()`, and never re-created per relabel"
+            );
+        }
     }
 }

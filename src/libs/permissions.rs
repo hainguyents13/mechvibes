@@ -5,9 +5,11 @@
 //! - **Accessibility**: used while the Mechvibes window is focused.
 //! - **Input Monitoring**: used while it is minimized or another app is in front.
 //!
-//! The tray menu shows both ("Accessibility: Granted" / "Grant Accessibility…")
-//! so a silent app can be diagnosed from the menu bar. Reading the state here
-//! never shows a system prompt; only the explicit "Grant …" menu items do that.
+//! The tray menu shows both ("Accessibility: Granted" / "Grant Accessibility…",
+//! in the language the app is being shown in: the words come from the tray's
+//! catalog, see [`PermissionText`]) so a silent app can be diagnosed from the menu
+//! bar. Reading the state here never shows a system prompt; only the explicit
+//! "Grant …" menu items do that.
 //!
 //! The focused-window listener waits here for Accessibility and starts as soon
 //! as it is granted (`wait_for_accessibility`), because Accessibility trust is
@@ -62,9 +64,6 @@ unsafe extern "C" {
     static NSForegroundColorAttributeName: *mut AnyObject;
     static NSFontAttributeName: *mut AnyObject;
 }
-
-/// The word that is picked out in green on a granted line.
-const GRANTED: &str = "Granted";
 
 /// How often a missing permission is re-checked, and how often the tray lines
 /// are refreshed.
@@ -191,10 +190,32 @@ extern "C" fn check_now(_: *mut c_void) {
     schedule_next_check();
 }
 
+/// The catalog words one permission row is built from.
+///
+/// Passed in by the tray, which is the layer that knows which language is on:
+/// this module lays the words out and colours them, but never decides what they
+/// say and never reads the config itself.
+pub struct PermissionText<'a> {
+    /// The permission's name, as the row shows it ("Accessibility", "辅助功能").
+    pub name: &'a str,
+    /// `"{}: Granted"`: the line for a permission that is already granted.
+    pub granted_line: &'a str,
+    /// `"Grant {}…"`: the line that opens the settings pane when it is missing.
+    pub grant_line: &'a str,
+    /// The word inside `granted_line` that is drawn green ("Granted").
+    pub granted_word: &'a str,
+}
+
 /// The tray item text for one permission: a status line when granted, and the
 /// action to take when it is not.
-pub fn menu_text(name: &str, granted: bool) -> String {
-    if granted { format!("{name}: Granted") } else { format!("Grant {name}…") }
+///
+/// Both templates come from the catalog with `{}` where the name goes, so a
+/// translation can put the name where its own grammar wants it. The same call
+/// gives the text and takes the word to colour, which is what keeps the plain
+/// title and the attributed one from ever disagreeing.
+pub fn menu_text(text: &PermissionText, granted: bool) -> String {
+    let template = if granted { text.granted_line } else { text.grant_line };
+    crate::i18n::fill(template, &[&text.name])
 }
 
 /// A colour as 0.0-1.0 sRGB channels.
@@ -265,7 +286,7 @@ fn label_color() -> Option<Retained<AnyObject>> {
     adaptive_color(&LABEL)
 }
 
-/// The word "Granted".
+/// The colour of the word that marks a granted permission.
 fn granted_color() -> Option<Retained<AnyObject>> {
     adaptive_color(&GRANTED_GREEN)
 }
@@ -286,12 +307,20 @@ fn menu_font() -> Option<Retained<AnyObject>> {
     unsafe { msg_send![class, menuFontOfSize: 0.0f64] }
 }
 
-/// The UTF-16 `(location, length)` of the word "Granted" within the granted line
-/// for `name`, which is how AppKit addresses a range of an attributed string.
-pub fn granted_word_range(name: &str) -> (usize, usize) {
-    let text = menu_text(name, true);
-    let prefix = text.len() - GRANTED.len();
-    (text[..prefix].encode_utf16().count(), GRANTED.encode_utf16().count())
+/// The UTF-16 `(location, length)` of `word` within `label`, which is how AppKit
+/// addresses a range of an attributed string.
+///
+/// The word ends the granted line in every catalog the app ships ("{}: Granted",
+/// "{}：已授权", "{}: Concedido"), so its range is whatever follows the prefix —
+/// `every_language_ends_its_granted_line_with_the_granted_word` keeps that true.
+/// `strip_suffix` and not an index: a language that moved the word must not cut a
+/// UTF-8 sequence in half on the main thread, and the empty range it falls back
+/// to draws nothing instead of taking the menu down.
+pub fn granted_word_range(label: &str, word: &str) -> (usize, usize) {
+    match label.strip_suffix(word) {
+        Some(prefix) => (prefix.encode_utf16().count(), word.encode_utf16().count()),
+        None => (label.encode_utf16().count(), 0),
+    }
 }
 
 /// Marks the menu item at `index` with `tag`, so that `style_menu_item` can find
@@ -318,15 +347,19 @@ pub fn tag_menu_item(ns_menu: *mut c_void, index: usize, tag: isize) {
     }
 }
 
-/// Styles the tray menu item marked with `tag` for `name` ("Accessibility" or
-/// "Input Monitoring").
+/// Styles the tray menu item marked with `tag`.
+///
+/// `label` is the exact text the item shows and `granted_word` is the word inside
+/// it that says the permission is granted. Both come from the same [`menu_text`]
+/// call, so the plain title and the attributed one cannot drift apart, and a
+/// translation is styled as it was written.
 ///
 /// All text uses the standard menu font, the same as every other menu item.
 ///
-/// - **Granted**: "Accessibility: Granted" with the label in the system's
-///   secondary label colour (a dull grey that adapts to light and dark menus) and
-///   only the word "Granted" in green.
-/// - **Missing**: "Grant Accessibility…", entirely in red.
+/// - **Granted** (`Some(word)`): the label in the system's secondary label
+///   colour (a dull grey that adapts to light and dark menus) and only `word` in
+///   green.
+/// - **Missing** (`None`): the whole line in red, as the action to take.
 ///
 /// Neither state has a background, so both sit on the menu's own background.
 ///
@@ -336,7 +369,12 @@ pub fn tag_menu_item(ns_menu: *mut c_void, index: usize, tag: isize) {
 /// nothing if no item carries that tag or if any AppKit object cannot be built.
 ///
 /// Must run on the main thread, like every menu change.
-pub fn style_menu_item(ns_menu: *mut c_void, tag: isize, name: &str, granted: bool) {
+pub fn style_menu_item(
+    ns_menu: *mut c_void,
+    tag: isize,
+    label: &str,
+    granted_word: Option<&str>
+) {
     if ns_menu.is_null() {
         return;
     }
@@ -354,10 +392,9 @@ pub fn style_menu_item(ns_menu: *mut c_void, tag: isize, name: &str, granted: bo
             return;
         }
 
-        // The base colour of the whole string; the word "Granted" is then picked
+        // The base colour of the whole string; the granted word is then picked
         // out on top of it.
-        let base_color = if granted { label_color() } else { missing_color() };
-        let label = menu_text(name, granted);
+        let base_color = if granted_word.is_some() { label_color() } else { missing_color() };
         let (Some(base_color), Some(font)) = (base_color, menu_font()) else {
             return;
         };
@@ -375,13 +412,13 @@ pub fn style_menu_item(ns_menu: *mut c_void, tag: isize, name: &str, granted: bo
         let allocated: Allocated<AnyObject> = msg_send![string_class, alloc];
         let title: Retained<AnyObject> = msg_send![
             allocated,
-            initWithString: &*NSString::from_str(&label),
+            initWithString: &*NSString::from_str(label),
             attributes: &*attributes
         ];
 
-        if granted {
+        if let Some(word) = granted_word {
             if let Some(green) = granted_color() {
-                let (location, length) = granted_word_range(name);
+                let (location, length) = granted_word_range(label, word);
                 let _: () = msg_send![
                     &*title,
                     addAttribute: NSForegroundColorAttributeName,
@@ -422,16 +459,64 @@ fn open_pane(url: &str) {
 mod tests {
     use super::*;
 
+    /// The English words for one permission row, exactly as the tray passes them.
+    fn words_for(name: &'static str) -> PermissionText<'static> {
+        let strings = &crate::i18n::Language::En.strings().tray;
+        PermissionText {
+            name,
+            granted_line: strings.permission_granted,
+            grant_line: strings.permission_grant,
+            granted_word: strings.permission_granted_word,
+        }
+    }
+
+    /// The line a row shows, and the word to colour when it is granted.
+    fn row(name: &'static str, granted: bool) -> (String, Option<&'static str>) {
+        let words = words_for(name);
+        (menu_text(&words, granted), granted.then_some(words.granted_word))
+    }
+
     #[test]
     fn a_granted_permission_reads_as_a_status() {
-        assert_eq!(menu_text("Accessibility", true), "Accessibility: Granted");
-        assert_eq!(menu_text("Input Monitoring", true), "Input Monitoring: Granted");
+        for name in ["Accessibility", "Input Monitoring"] {
+            assert_eq!(menu_text(&words_for(name), true), format!("{name}: Granted"), "{name}");
+        }
     }
 
     #[test]
     fn a_missing_permission_reads_as_the_action_to_take() {
-        assert_eq!(menu_text("Accessibility", false), "Grant Accessibility…");
-        assert_eq!(menu_text("Input Monitoring", false), "Grant Input Monitoring…");
+        for name in ["Accessibility", "Input Monitoring"] {
+            assert_eq!(menu_text(&words_for(name), false), format!("Grant {name}…"), "{name}");
+        }
+    }
+
+    #[test]
+    fn the_granted_word_is_found_by_its_utf16_range() {
+        for name in ["Accessibility", "Input Monitoring"] {
+            let (line, word) = row(name, true);
+            let word = word.expect("a granted row colours its word");
+            assert_eq!(
+                granted_word_range(&line, word),
+                (format!("{name}: ").len(), "Granted".len()),
+                "{name}"
+            );
+        }
+    }
+
+    /// A translation that moved the word out of the suffix must not slice a UTF-8
+    /// sequence in half: the range comes back empty, which AppKit draws as
+    /// nothing, instead of panicking on the main thread.
+    ///
+    /// (`every_language_ends_its_granted_line_with_the_granted_word`, in the tray
+    /// catalog, is what keeps the shipped languages out of this branch.)
+    #[test]
+    fn a_word_that_does_not_end_the_line_gets_an_empty_range() {
+        let label = "已授权：辅助功能";
+        assert_eq!(
+            granted_word_range(label, "已授权"),
+            (label.encode_utf16().count(), 0),
+            "an empty range at the end, never a split glyph"
+        );
     }
 
     /// Reading the state must never block on or raise a system prompt, because
@@ -611,12 +696,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn the_granted_word_is_found_by_its_utf16_range() {
-        assert_eq!(granted_word_range("Accessibility"), ("Accessibility: ".len(), "Granted".len()));
-        assert_eq!(granted_word_range("Input Monitoring"), ("Input Monitoring: ".len(), "Granted".len()));
-    }
-
     /// Clearly green: the green channel well ahead of both others. Not tied to
     /// one shade, because the green differs between light and dark menus.
     fn is_green(c: Rgb) -> bool {
@@ -632,9 +711,11 @@ mod tests {
     #[test]
     fn a_granted_line_has_a_grey_label_and_only_the_word_granted_in_green() {
         let (menu, item) = native_menu_with_item("placeholder");
-        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, "Accessibility", true);
+        let (line, word) = row("Accessibility", true);
+        let word = word.expect("a granted row colours its word");
+        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, &line, Some(word));
 
-        let (start, _) = granted_word_range("Accessibility");
+        let (start, _) = granted_word_range(&line, word);
         let last = start + "Granted".len() - 1;
         assert_eq!(drawn_at(item, 0).text, "Accessibility: Granted");
 
@@ -658,11 +739,15 @@ mod tests {
     /// in a dark one, and no single fixed colour is both.
     #[test]
     fn every_permission_colour_is_readable_in_both_light_and_dark_menus() {
+        let (line, word) = row("Accessibility", true);
+        let word = word.expect("a granted row colours its word");
+        let missing_line = row("Accessibility", false).0;
+
         let (menu, granted) = native_menu_with_item("placeholder");
-        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, "Accessibility", true);
+        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, &line, Some(word));
         let (menu, missing) = native_menu_with_item("placeholder");
-        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, "Accessibility", false);
-        let (start, _) = granted_word_range("Accessibility");
+        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, &missing_line, None);
+        let (start, _) = granted_word_range(&line, word);
 
         for (what, item, index) in [("label", granted, 0), ("Granted", granted, start), ("Grant line", missing, 0)] {
             for appearance in [LIGHT, DARK] {
@@ -721,7 +806,8 @@ mod tests {
         let index_of_tagged: isize = unsafe { msg_send![&*menu, indexOfItemWithTag: ACCESSIBILITY_TAG] };
         assert_eq!(index_of_tagged, 1, "the tagged item moved down one place");
 
-        style_menu_item(menu_ptr, ACCESSIBILITY_TAG, "Accessibility", true);
+        let (line, word) = row("Accessibility", true);
+        style_menu_item(menu_ptr, ACCESSIBILITY_TAG, &line, word);
 
         assert_eq!(drawn_at(tagged, 0).text, "Accessibility: Granted", "the tagged item was styled");
         let above_title: Option<Retained<AnyObject>> =
@@ -803,16 +889,18 @@ mod tests {
     #[test]
     fn a_missing_permission_is_plain_red_text_with_no_background() {
         let (menu, item) = native_menu_with_item("placeholder");
-        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, "Input Monitoring", false);
+        let (line, _) = row("Input Monitoring", false);
+        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, &line, None);
 
+        let last_index = line.encode_utf16().count() - 1;
         let first = drawn_at(item, 0);
-        let last = drawn_at(item, "Grant Input Monitoring…".encode_utf16().count() - 1);
+        let last = drawn_at(item, last_index);
         assert_eq!(first.text, "Grant Input Monitoring…", "the text is the plain label, unpadded");
         for drawn in [&first, &last] {
             assert!(!drawn.has_background, "same plain background as a granted line");
         }
         for appearance in [LIGHT, DARK] {
-            for index in [0, "Grant Input Monitoring…".encode_utf16().count() - 1] {
+            for index in [0, last_index] {
                 let red = resolved(item, index, appearance).0;
                 assert!(is_red(red), "{appearance}: the text should be red, was {red:?}");
             }
@@ -828,9 +916,12 @@ mod tests {
 
         for (name, granted) in [("Accessibility", true), ("Input Monitoring", true), ("Accessibility", false)] {
             let (menu, item) = native_menu_with_item("placeholder");
-            style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, name, granted);
-            let (word_start, _) = granted_word_range(name);
-            let points = if granted { vec![0, word_start] } else { vec![0, 3] };
+            let (line, word) = row(name, granted);
+            style_menu_item(Retained::as_ptr(&menu) as *mut c_void, ACCESSIBILITY_TAG, &line, word);
+            let points = match word {
+                Some(word) => vec![0, granted_word_range(&line, word).0],
+                None => vec![0, 3]
+            };
             for index in points {
                 let drawn = drawn_at(item, index);
                 assert_eq!(drawn.font_name, expected_name, "{name} granted={granted} at {index}");
@@ -843,8 +934,9 @@ mod tests {
     fn styling_an_item_that_does_not_exist_does_nothing() {
         let (menu, _item) = native_menu_with_item("only item");
         // A tag nothing carries, and a null menu: neither may crash.
-        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, 0x1234, "Accessibility", true);
-        style_menu_item(std::ptr::null_mut(), ACCESSIBILITY_TAG, "Accessibility", true);
+        let (line, word) = row("Accessibility", true);
+        style_menu_item(Retained::as_ptr(&menu) as *mut c_void, 0x1234, &line, word);
+        style_menu_item(std::ptr::null_mut(), ACCESSIBILITY_TAG, &line, None);
         tag_menu_item(Retained::as_ptr(&menu) as *mut c_void, 9, INPUT_MONITORING_TAG);
         tag_menu_item(std::ptr::null_mut(), 0, INPUT_MONITORING_TAG);
     }
