@@ -114,7 +114,11 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
               div { class: "text-xs text-base-content/60",
                 {crate::i18n::fill(
                     strings.soundpacks.last_scan,
-                    &[&crate::utils::time::format_relative_time(app_state.optimized_cache.last_scan)],
+                    &[&crate::utils::time::format_relative_time_in(
+                        &strings.home,
+                        app_state.optimized_cache.last_scan,
+                        crate::utils::time::now_secs(),
+                    )],
                 )}
               }
             }
