@@ -19,6 +19,9 @@ fn VolumeSliderBase(
 ) -> Element {
     // Use shared config hook for enable_sound
     let (config, update_config) = use_config();
+    // Read at render time: the memos below hold booleans, never a translated
+    // string, so a language change still re-renders these labels.
+    let strings = crate::i18n::use_strings();
 
     // The engine thread caches the enable flags in its own state and only
     // updates them on `AudioCommand::Set*SoundEnabled`. Writing the config
@@ -54,7 +57,9 @@ fn VolumeSliderBase(
             label { 
               r#for: "{id}", 
               class: "label label-text text-base", 
-              "Volume " 
+              // The trailing space is layout, so it stays here and not in the
+              // catalog (an editor would trim it on save).
+              "{strings.chrome.volume} "
             }
           }
           span {
@@ -93,7 +98,7 @@ fn VolumeSliderBase(
           }
           div {
             class: "tooltip",
-            "data-tip": if enable_sound() { "Mute" } else { "Unmute" },
+            "data-tip": if enable_sound() { strings.chrome.mute } else { strings.chrome.unmute },
             button {
               class: format!(
                   "btn btn-square btn-sm btn-ghost rounded-box {}",

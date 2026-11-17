@@ -5,8 +5,11 @@
 //! also runs on the audio thread and in tokio tasks), and the window's poll
 //! loop picks the messages up with `take_new` and shows them as toasts.
 
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::fmt::Display;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{ AtomicBool, AtomicU64, Ordering };
 use std::sync::Mutex;
 
@@ -61,6 +64,67 @@ pub fn report(kind: NoticeKind, text: impl Into<String>, action: Option<NoticeAc
     }
     // After the push, so a reader that sees the flag also sees the notice.
     HAS_WAITING.store(true, Ordering::Release);
+}
+
+// The wording of every notice the app reports. Each one takes the catalog of
+// the language in effect: **this module never reads the config**, so it stays
+// usable from the audio thread and from a startup path that runs before the
+// window exists. The caller resolves the language (a component through
+// `use_strings()`, anything else through `i18n::resolve(config.language)`) and
+// passes the `errors` zone in.
+//
+// A failure that carries its own type is worded by that type's `ui_message`
+// from the same catalog (`ReadOnly`, `ThemesError`), so the sentence lives in
+// exactly one place. The builders below are for the notices no typed error
+// carries.
+
+/// A change that could not be written. `cause` is the save error's description.
+///
+/// Reported by `state::config_writer` and `utils::theme`.
+pub fn could_not_save_your_changes(errors: &ErrorStrings, cause: impl Display) -> String {
+    fill(errors.could_not_save_your_changes, &[&cause])
+}
+
+/// A saved theme that could not be written. `cause` is the save error.
+///
+/// Reported by `state::saved_themes`.
+pub fn could_not_save_your_theme(errors: &ErrorStrings, cause: impl Display) -> String {
+    fill(errors.could_not_save_your_theme, &[&cause])
+}
+
+/// A colors list that was damaged and moved aside, and where the copy went.
+///
+/// Reported by `state::themes::ThemesConfig::load`.
+pub fn colors_list_damaged(errors: &ErrorStrings, copy: &Path) -> String {
+    fill(errors.colors_list_damaged, &[&copy.display()])
+}
+
+/// A colors list that could not be read at all this session.
+///
+/// Reported by `state::themes::ThemesConfig::load`.
+pub fn colors_list_read_only(errors: &ErrorStrings) -> String {
+    fill(errors.colors_list_read_only, &[])
+}
+
+/// A saved-themes list that was damaged and moved aside.
+///
+/// Reported by `state::saved_themes`'s load.
+pub fn saved_themes_damaged(errors: &ErrorStrings, copy: &Path) -> String {
+    fill(errors.saved_themes_damaged, &[&copy.display()])
+}
+
+/// A saved-themes list that could not be written this session.
+///
+/// Reported by `state::saved_themes::ReadOnly::ui_message`.
+pub fn saved_themes_read_only(errors: &ErrorStrings) -> String {
+    fill(errors.saved_themes_read_only, &[])
+}
+
+/// A saved-themes list written by a newer Mechvibes.
+///
+/// Reported by `state::saved_themes::ReadOnly::ui_message`.
+pub fn saved_themes_from_newer_app(errors: &ErrorStrings) -> String {
+    fill(errors.saved_themes_from_newer_app, &[])
 }
 
 /// The messages reported since the last call, oldest first.

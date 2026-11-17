@@ -2,6 +2,7 @@
 #![allow(non_snake_case)]
 
 mod components;
+mod i18n;
 mod libs;
 mod state;
 mod utils;

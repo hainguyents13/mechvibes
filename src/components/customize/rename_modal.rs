@@ -1,15 +1,15 @@
 //! Renames a theme of the user's own.
 
+use crate::i18n::{ catalog::CustomizeStrings, use_strings };
 use crate::state::saved_themes;
 use crate::utils::theme_share::{ clean_name, MAX_NAME_CHARS };
 use dioxus::prelude::*;
 
-/// Said when the name box is left empty.
-const NAME_FIRST: &str = "Give it a name first.";
-
-/// The name the user typed, cleaned the way every theme name is.
-fn new_name(typed: &str) -> Result<String, String> {
-    clean_name(typed).ok_or_else(|| NAME_FIRST.to_string())
+/// The name the user typed, cleaned the way every theme name is. The refusal
+/// message comes from the catalog: an empty name is said in the language the
+/// dialog is in.
+fn new_name(typed: &str, strings: &CustomizeStrings) -> Result<String, &'static str> {
+    clean_name(typed).ok_or(strings.name_first)
 }
 
 /// Asks for a new name for the saved theme with this `id`, starting from
@@ -18,12 +18,13 @@ fn new_name(typed: &str) -> Result<String, String> {
 pub fn RenameModal(id: String, name: String, on_close: EventHandler<()>) -> Element {
     let mut typed = use_signal(move || name);
     let mut error = use_signal(String::new);
+    let strings = use_strings();
 
     let save = use_callback(move |_: ()| {
-        let name = match new_name(&typed()) {
+        let name = match new_name(&typed(), &strings.customize) {
             Ok(name) => name,
             Err(e) => {
-                error.set(e);
+                error.set(e.to_string());
                 return;
             }
         };
@@ -39,10 +40,10 @@ pub fn RenameModal(id: String, name: String, on_close: EventHandler<()>) -> Elem
     rsx! {
       div { class: "modal modal-open",
         div { class: "modal-box",
-          h3 { class: "font-bold text-lg mb-4", "Rename theme" }
+          h3 { class: "font-bold text-lg mb-4", "{strings.customize.rename_theme_title}" }
           div { class: "space-y-4",
             fieldset { class: "fieldset",
-              legend { class: "fieldset-legend", "Name" }
+              legend { class: "fieldset-legend", "{strings.customize.name}" }
               input {
                 class: "input w-full",
                 r#type: "text",
@@ -67,8 +68,8 @@ pub fn RenameModal(id: String, name: String, on_close: EventHandler<()>) -> Elem
             }
           }
           div { class: "modal-action",
-            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_close.call(()), "Cancel" }
-            button { class: "btn btn-sm btn-primary", onclick: move |_| save.call(()), "Save" }
+            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_close.call(()), "{strings.common.cancel}" }
+            button { class: "btn btn-sm btn-primary", onclick: move |_| save.call(()), "{strings.common.save}" }
           }
         }
         div { class: "modal-backdrop", onclick: move |_| on_close.call(()) }
@@ -79,15 +80,23 @@ pub fn RenameModal(id: String, name: String, on_close: EventHandler<()>) -> Elem
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
+
+    fn en() -> &'static CustomizeStrings {
+        &Language::En.strings().customize
+    }
 
     #[test]
     fn a_new_name_is_cleaned_like_every_theme_name() {
-        assert_eq!(new_name("  Rainy \n  evening ").unwrap(), "Rainy evening");
-        assert_eq!(new_name(&"A".repeat(MAX_NAME_CHARS + 10)).unwrap().chars().count(), MAX_NAME_CHARS);
+        assert_eq!(new_name("  Rainy \n  evening ", en()).unwrap(), "Rainy evening");
+        assert_eq!(
+            new_name(&"A".repeat(MAX_NAME_CHARS + 10), en()).unwrap().chars().count(),
+            MAX_NAME_CHARS
+        );
     }
 
     #[test]
     fn an_empty_name_is_refused() {
-        assert_eq!(new_name("   ").unwrap_err(), NAME_FIRST);
+        assert_eq!(new_name("   ", en()).unwrap_err(), en().name_first);
     }
 }

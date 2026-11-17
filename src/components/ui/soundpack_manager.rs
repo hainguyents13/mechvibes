@@ -7,6 +7,8 @@ use std::sync::Arc;
 pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
     let app_state = use_app_state();
     let audio_ctx: Arc<crate::libs::audio::AudioContext> = use_context();
+    // The catalog, read at render time: a `use_memo` cannot see the language change.
+    let strings = crate::i18n::use_strings();
     let state_trigger = crate::state::app::use_state_trigger(); // UI state for notification and loading
     let refreshing_soundpacks = use_signal(|| false);
     let refresh_soundpacks_cache = {
@@ -59,25 +61,33 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
     // Get current counts from cache
     let soundpack_count_keyboard = app_state.optimized_cache.count.keyboard;
     let soundpack_count_mouse = app_state.optimized_cache.count.mouse;
+    let soundpack_count_total = soundpack_count_keyboard + soundpack_count_mouse;
 
     rsx! {
       div { class: "space-y-4",
         div { class: "text-base-content",
           div {
             div { class: "font-medium text-sm pb-1",
-              if soundpack_count_keyboard + soundpack_count_mouse == 0 {
-                "Click refresh to scan for sound packs"
+              if soundpack_count_total == 0 {
+                "{strings.soundpacks.scan_hint}"
               } else {
-                "Found {soundpack_count_keyboard + soundpack_count_mouse} sound pack(s)"
+                {crate::i18n::fill(
+                    crate::i18n::plural(
+                        strings.soundpacks.found_one,
+                        strings.soundpacks.found_other,
+                        soundpack_count_total,
+                    ),
+                    &[&soundpack_count_total],
+                )}
               }
             }
-            if soundpack_count_keyboard + soundpack_count_mouse > 0 {
+            if soundpack_count_total > 0 {
               ul { class: "list-disc pl-6",
                 li { class: "text-sm text-base-content/70",
-                  "Keyboard: {soundpack_count_keyboard}"
+                  {crate::i18n::fill(strings.soundpacks.count_keyboard, &[&soundpack_count_keyboard])}
                 }
                 li { class: "text-sm text-base-content/70",
-                  "Mouse: {soundpack_count_mouse}"
+                  {crate::i18n::fill(strings.soundpacks.count_mouse, &[&soundpack_count_mouse])}
                 }
               }
             }
@@ -85,7 +95,7 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
         }
         div { class: "space-y-2",
           div { class: "text-base-content/70 text-sm",
-            "Refresh sound pack list to detect newly added or removed sound packs."
+            "{strings.soundpacks.manager_refresh_hint}"
           }
           div { class: "flex items-center gap-4",
             button {
@@ -94,24 +104,31 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
               disabled: refreshing_soundpacks(),
               if refreshing_soundpacks() {
                 span { class: "loading loading-spinner loading-xs mr-2" }
-                "Refreshing..."
+                "{strings.soundpacks.refreshing}"
               } else {
                 RefreshCcw { class: "w-4 h-4 mr-1" }
-                "Refresh"
+                "{strings.common.refresh}"
               }
             } // Last scan info
             if app_state.optimized_cache.last_scan > 0 {
               div { class: "text-xs text-base-content/60",
-                "Last scan: {crate::utils::time::format_relative_time(app_state.optimized_cache.last_scan)}"
+                {crate::i18n::fill(
+                    strings.soundpacks.last_scan,
+                    &[&crate::utils::time::format_relative_time_in(
+                        &strings.home,
+                        app_state.optimized_cache.last_scan,
+                        crate::utils::time::now_secs(),
+                    )],
+                )}
               }
             }
           }
         }
         div { class: "divider" }
         div { class: "space-y-2",
-          div { class: "text-base-content font-medium text-sm", "Built-in sound packs folder" }
+          div { class: "text-base-content font-medium text-sm", "{strings.soundpacks.builtin_folder_title}" }
           div { class: "text-sm text-base-content/70",
-            "Default sound packs that ship with the app."
+            "{strings.soundpacks.builtin_folder_hint}"
           }
           div { class: "flex gap-2",
             button {
@@ -138,7 +155,7 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
                   }
               },
               FolderOpen { class: "w-4 h-4 mr-1" }
-              "Keyboard"
+              "{strings.soundpacks.keyboard_label}"
             }
             button {
               class: "btn btn-soft btn-sm",
@@ -164,15 +181,15 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
                   }
               },
               FolderOpen { class: "w-4 h-4 mr-1" }
-              "Mouse"
+              "{strings.soundpacks.mouse_label}"
             }
           }
         }
         div { class: "divider" }
         div { class: "space-y-2",
-          div { class: "text-base-content font-medium text-sm", "Custom sound packs folder" }
+          div { class: "text-base-content font-medium text-sm", "{strings.soundpacks.custom_folder_title}" }
           div { class: "text-sm text-base-content/70",
-            "Add your own custom sound packs here."
+            "{strings.soundpacks.custom_folder_hint}"
           }
           div { class: "flex gap-2",
             button {
@@ -184,7 +201,7 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
                   let _ = crate::utils::path::open_path(&custom_keyboard_dir.to_string_lossy());
               },
               FolderOpen { class: "w-4 h-4 mr-1" }
-              "Keyboard"
+              "{strings.soundpacks.keyboard_label}"
             }
             button {
               class: "btn btn-soft btn-sm",
@@ -195,29 +212,29 @@ pub fn SoundpackManager(on_import_click: EventHandler<MouseEvent>) -> Element {
                   let _ = crate::utils::path::open_path(&custom_mouse_dir.to_string_lossy());
               },
               FolderOpen { class: "w-4 h-4 mr-1" }
-              "Mouse"
+              "{strings.soundpacks.mouse_label}"
             }
           }
         }
         div { class: "divider" }
         div { class: "space-y-3",
-          div { class: "text-base-content font-medium text-sm", "Need more sound packs?" }
+          div { class: "text-base-content font-medium text-sm", "{strings.soundpacks.need_more_title}" }
           div { class: "text-sm text-base-content/70",
-            "Check out the Mechvibes website to find more sound packs. You can also create your own sound packs using the Sound Pack Editor."
+            "{strings.soundpacks.need_more_hint}"
           }
           div { class: "flex items-center gap-2",
             a {
               class: "btn btn-soft btn-sm",
               href: "https://mechvibes.com/sound-packs?utm_source=mechvibes&utm_medium=app&utm_campaign=soundpack_manager",
               target: "_blank",
-              "Browse sound packs"
+              "{strings.soundpacks.browse_packs}"
               ExternalLink { class: "w-4 h-4 ml-1" }
             }
             a {
               class: "btn btn-soft btn-sm",
               href: "https://editor.mechvibes.com/?utm_source=mechvibes&utm_medium=app&utm_campaign=soundpack_manager",
               target: "_blank",
-              "Open Editor"
+              "{strings.soundpacks.open_editor}"
               ExternalLink { class: "w-4 h-4 ml-1" }
             }
           }

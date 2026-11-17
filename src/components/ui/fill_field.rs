@@ -19,6 +19,9 @@ pub fn FillField(
     field: String,
 ) -> Element {
     let choice = |active: bool| if active { "btn btn-sm join-item btn-active" } else { "btn btn-sm join-item" };
+    // Read at render time, never inside a memo: the config signal this reads is
+    // what re-renders the field when the language changes.
+    let strings = crate::i18n::use_strings();
 
     rsx! {
         div { class: "space-y-2",
@@ -28,12 +31,12 @@ pub fn FillField(
                     button {
                         class: choice(!use_image),
                         onclick: move |_| on_use_image.call(false),
-                        "Color"
+                        "{strings.common.color}"
                     }
                     button {
                         class: choice(use_image),
                         onclick: move |_| on_use_image.call(true),
-                        "Image"
+                        "{strings.common.image}"
                     }
                 }
             }
@@ -44,7 +47,7 @@ pub fn FillField(
                     label: String::new(),
                     selected_value: color,
                     options: THEME_COLOR_OPTIONS.to_vec(),
-                    placeholder: "Pick a color".to_string(),
+                    placeholder: strings.common.pick_a_color.to_string(),
                     on_change: on_color,
                     field,
                     description: None,

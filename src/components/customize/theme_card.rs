@@ -9,6 +9,7 @@
 //! the saved themes were read, so they are safe in a `style`.
 
 use crate::components::logo::logo_style;
+use crate::i18n::{ Strings, use_strings };
 use crate::libs::theme::BuiltInTheme;
 use crate::state::config::{ BackgroundCustomization, LogoCustomization };
 use crate::utils::theme_share::{ Look, LookColors, SharedColors };
@@ -87,12 +88,15 @@ pub enum CardAction {
 }
 
 impl CardAction {
-    fn label(self) -> &'static str {
+    /// The menu item's word. Takes the whole catalog because the actions
+    /// share their words with the buttons of the screen behind the card
+    /// (`common`), and only one of them is this zone's own.
+    fn label(self, strings: &Strings) -> &'static str {
         match self {
-            CardAction::Share => "Share",
-            CardAction::Rename => "Rename",
-            CardAction::Duplicate => "Duplicate",
-            CardAction::Delete => "Delete",
+            CardAction::Share => strings.customize.share,
+            CardAction::Rename => strings.common.rename,
+            CardAction::Duplicate => strings.customize.duplicate,
+            CardAction::Delete => strings.common.delete,
         }
     }
 }
@@ -108,6 +112,7 @@ pub fn ThemeCard(
 ) -> Element {
     let border = if active { "border-primary" } else { "border-base-300" };
     let key = preview.key();
+    let strings = use_strings();
 
     rsx! {
       // The menu sits beside the card's button, not in it, and outside its
@@ -133,8 +138,8 @@ pub fn ThemeCard(
                 class: "btn btn-xs btn-circle shadow-sm",
                 tabindex: "0",
                 role: "button",
-                title: "More",
-                "aria-label": "More for {name}",
+                title: "{strings.customize.more}",
+                "aria-label": crate::i18n::fill(strings.customize.more_for, &[&name]),
                 Ellipsis { class: "w-4 h-4" }
               }
               ul {
@@ -142,7 +147,7 @@ pub fn ThemeCard(
                 style: "min-width: 9rem;",
                 tabindex: "0",
                 for action in actions.iter().copied() {
-                  li { key: "{action.label()}",
+                  li { key: "{action.label(strings)}",
                     a {
                       class: if action == CardAction::Delete { "text-error" } else { "" },
                       onclick: move |_| {
@@ -165,7 +170,7 @@ pub fn ThemeCard(
                             Trash2 { class: "w-4 h-4 mr-1" }
                           },
                       }
-                      "{action.label()}"
+                      "{action.label(strings)}"
                     }
                   }
                 }

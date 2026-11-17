@@ -3,7 +3,9 @@
 
 use crate::components::customize::colors_editor_modal::{ ColorsEditor, ColorsEditorModal };
 use crate::components::customize::look_editor::{ use_look_editor, use_saved_themes };
+use crate::components::customize::theme_name;
 use crate::components::ui::ConfirmModal;
+use crate::i18n::{ fill, use_strings };
 use crate::libs::theme::{ BuiltInTheme, Theme };
 use crate::state::config::AppConfig;
 use crate::state::themes::ThemesConfig;
@@ -13,9 +15,6 @@ use crate::utils::theme::use_themes;
 use crate::utils::theme_library::{ cards, palette_in_use };
 use dioxus::prelude::*;
 use lucide_dioxus::{ Ellipsis, Palette, Pencil, Trash2 };
-
-/// Said instead of deleting the colors the theme in use shows.
-const COLORS_IN_USE: &str = "These colors belong to the theme you are using. Pick other colors first, then delete them.";
 
 /// After colors are deleted: if they were the ones in use, the app goes back
 /// to the default colors rather than pointing at colors that are gone.
@@ -31,6 +30,7 @@ pub fn ColorsTab() -> Element {
     let (themes, update_themes) = use_themes();
     let look_editor = use_look_editor();
     let saved_themes = use_saved_themes();
+    let strings = use_strings();
     let mut editor = use_signal(|| None::<ColorsEditor>);
     // The id and name of the colors waiting for the user to confirm their
     // deletion.
@@ -46,9 +46,9 @@ pub fn ColorsTab() -> Element {
 
     rsx! {
       div { class: "space-y-6",
-        div { class: "text-sm text-base-content/70", "Pick the app colors, or make your own" }
+        div { class: "text-sm text-base-content/70", "{strings.customize.colors_intro}" }
         div { class: "space-y-2",
-          div { class: "text-sm text-base-content", "Ready-made colors" }
+          div { class: "text-sm text-base-content", "{strings.customize.colors_ready_made}" }
           div { class: "grid grid-cols-3 gap-2",
             for built_in in BuiltInTheme::all() {
               {
@@ -66,7 +66,7 @@ pub fn ColorsTab() -> Element {
                         css: String::new(),
                         dimmed: is_active,
                       }
-                      div { class: "line-clamp-1", {format!("{:?}", built_in)} }
+                      div { class: "line-clamp-1", {theme_name(&built_in, &strings.customize)} }
                     }
                   }
               }
@@ -74,9 +74,9 @@ pub fn ColorsTab() -> Element {
           }
         }
         div { class: "space-y-2",
-          div { class: "text-sm text-base-content", "My colors" }
+          div { class: "text-sm text-base-content", "{strings.customize.colors_mine}" }
           if mine.is_empty() {
-            div { class: "text-sm text-base-content/50", "You have not made any colors yet" }
+            div { class: "text-sm text-base-content/50", "{strings.customize.colors_none_yet}" }
           }
           for colors in mine.iter() {
             {
@@ -104,7 +104,7 @@ pub fn ColorsTab() -> Element {
                         class: "btn btn-ghost",
                         tabindex: "0",
                         role: "button",
-                        title: "More",
+                        title: "{strings.customize.more}",
                         Ellipsis { class: "w-4 h-4" }
                       }
                       ul {
@@ -117,7 +117,7 @@ pub fn ColorsTab() -> Element {
                                 move |_| editor.set(Some(ColorsEditor::Edit(id.clone())))
                             },
                             Pencil { class: "w-4 h-4 mr-1" }
-                            "Edit"
+                            "{strings.customize.edit}"
                           }
                         }
                         li {
@@ -129,14 +129,18 @@ pub fn ColorsTab() -> Element {
                                     // Deleting them would take them from under the
                                     // theme on screen, which keeps its own copy.
                                     if palette_in_use(&id, &config.peek(), &cards(&saved_themes.peek())) {
-                                        notice::report(NoticeKind::Info, COLORS_IN_USE, None);
+                                        notice::report(
+                                            NoticeKind::Info,
+                                            strings.customize.colors_in_use,
+                                            None
+                                        );
                                         return;
                                     }
                                     deleting.set(Some((id.clone(), name.clone())));
                                 }
                             },
                             Trash2 { class: "w-4 h-4 mr-1" }
-                            "Delete"
+                            "{strings.common.delete}"
                           }
                         }
                       }
@@ -149,7 +153,7 @@ pub fn ColorsTab() -> Element {
             class: "btn btn-neutral btn-sm mt-2",
             onclick: move |_| editor.set(Some(ColorsEditor::New)),
             Palette { class: "w-4 h-4 mr-1" }
-            "New colors"
+            "{strings.customize.new_colors}"
           }
         }
         if let Some(open) = editor() {
@@ -157,9 +161,9 @@ pub fn ColorsTab() -> Element {
         }
         if let Some((id, name)) = deleting() {
           ConfirmModal {
-            title: format!("Delete {}?", name),
-            message: "This cannot be undone.".to_string(),
-            confirm_label: "Delete".to_string(),
+            title: fill(strings.customize.delete_title, &[&name]),
+            message: strings.customize.delete_message.to_string(),
+            confirm_label: strings.common.delete.to_string(),
             on_confirm: {
                 let update_themes = update_themes.clone();
                 let update_config = update_config.clone();

@@ -21,8 +21,15 @@ use lucide_dioxus::{
 use crate::utils::notice::{ self, NoticeKind };
 
 use crate::components::ui::{ PageHeader };
+use crate::i18n::{
+    catalog::mood::{ ambience_text, MoodStrings },
+    fill,
+    plural,
+    use_strings,
+};
 use crate::state::ambiance::{
     AmbiancePlayerState,
+    AmbianceSound,
     initialize_global_ambiance_player_state,
     update_global_ambiance_player_state,
     get_global_ambiance_player_state_copy,
@@ -33,6 +40,40 @@ use futures_timer::Delay;
 use std::sync::atomic::{ AtomicU64, Ordering };
 use std::sync::Arc;
 use std::time::Duration;
+
+/// The name and description the mixer shows for `sound`.
+///
+/// A built-in ambience takes its text from the catalog, keyed by its id, so it
+/// follows the language. A sound the user added shows its own file name and the
+/// catalog's "your sound" line, and a built-in id the catalog does not know yet
+/// falls back to the fields the sound was listed with.
+fn shown_text<'a>(strings: &'a MoodStrings, sound: &'a AmbianceSound) -> SoundText<'a> {
+    if sound.custom {
+        SoundText {
+            name: sound.name.as_str(),
+            description: strings.custom_sound_description,
+        }
+    } else {
+        match ambience_text(strings, &sound.id) {
+            Some((name, description)) => SoundText { name, description },
+            None => SoundText {
+                name: sound.name.as_str(),
+                description: sound.description.as_str(),
+            },
+        }
+    }
+}
+
+/// See [`shown_text`].
+struct SoundText<'a> {
+    name: &'a str,
+    description: &'a str,
+}
+
+/// "1 active sound" / "3 active sounds", from the catalog's pair.
+fn active_sounds_line(strings: &MoodStrings, count: usize) -> String {
+    fill(plural(strings.active_sounds_one, strings.active_sounds_other, count), &[&count])
+}
 
 /// Writes the ambiance settings once a slider drag settles.
 ///
@@ -70,22 +111,20 @@ fn SoundSelectionPanel(
     // state, so a newer move on any slider supersedes an older pending save.
     let save_counter = use_hook(|| Arc::new(AtomicU64::new(0)));
 
+    // Reads the config signal, so choosing a language re-renders the mixer with
+    // the new text. Not memoized: a memo would keep the first language.
+    let strings = use_strings();
+
     rsx! {
       div { class: "bg-base-200 border border-base-300 rounded-box p-6 space-y-4",
         // Header
         div { class: "space-y-1",
-          h3 { class: "text-lg font-semibold", "Ambiance sounds" }
+          h3 { class: "text-lg font-semibold", "{strings.mood.mixer_title}" }
           p { class: "text-sm text-base-content/70",
             if ambiance_player().active_sounds.is_empty() {
-              "Select at least one sound to play"
+              "{strings.mood.no_sounds_selected}"
             } else {
-              {
-                  format!(
-                      "{} active sound{}",
-                      ambiance_player().active_sounds.len(),
-                      if ambiance_player().active_sounds.len() == 1 { "" } else { "s" },
-                  )
-              }
+              { active_sounds_line(&strings.mood, ambiance_player().active_sounds.len()) }
             }
           }
         }
@@ -152,9 +191,7 @@ fn SoundSelectionPanel(
         }
         // Mood is playing as far as its own controls go, but the app is muted.
         if ambiance_player().silenced && ambiance_player().is_playing && !ambiance_player().is_muted {
-          p { class: "text-xs text-base-content/70",
-            "Mood is quiet while Mechvibes is muted or your microphone is in use."
-          }
+          p { class: "text-xs text-base-content/70", "{strings.mood.silenced_hint}" }
         }
         // Sound Selection List
         div { class: "{crate::utils::spacing::SECTION_SPACING}",
@@ -212,13 +249,14 @@ fn SoundSelectionPanel(
                         },
                     }
                   }
-                  // Sound Name and Description
+                  // Sound Name and Description, from the catalog for a built-in
+                  // ambience and from the sound's own fields otherwise.
                   div { class: "flex-1 min-w-0",
                     div { class: "text-sm font-medium text-base-content truncate",
-                      "{sound.name}"
+                      "{shown_text(&strings.mood, sound).name}"
                     }
                     div { class: "text-xs text-base-content/60 truncate",
-                      "{sound.description}"
+                      "{shown_text(&strings.mood, sound).description}"
                     }
                   }
                 }
@@ -227,7 +265,7 @@ fn SoundSelectionPanel(
                   if sound.custom {
                     button {
                       class: "btn btn-ghost btn-xs btn-square",
-                      title: "Remove this sound",
+                      title: "{strings.mood.remove_sound_title}",
                       onclick: {
                           let sound_id = sound.id.clone();
                           move |_| {
@@ -297,6 +335,9 @@ fn SoundSelectionPanel(
 #[component]
 fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
     let mut adding = use_signal(|| false);
+    // The button, the file picker's title and the notice that reports a failure
+    // are all copy, so they follow the language like the rest of the page.
+    let strings = use_strings();
 
     rsx! {
       div { class: "space-y-1",
@@ -306,8 +347,8 @@ fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
           onclick: move |_| {
               spawn(async move {
                   let picked = rfd::AsyncFileDialog::new()
-                      .add_filter("Sounds", crate::utils::mood_sounds::SUPPORTED_EXTENSIONS)
-                      .set_title("Add your own sound")
+                      .add_filter(strings.mood.sounds_filter, crate::utils::mood_sounds::SUPPORTED_EXTENSIONS)
+                      .set_title(strings.mood.add_sound_title)
                       .pick_file()
                       .await;
                   let Some(handle) = picked else {
@@ -316,41 +357,50 @@ fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
                   let source = handle.path().to_path_buf();
 
                   // Copying a long music file takes a moment, so it runs off
-                  // the window's thread.
+                  // the window's thread. The failure comes back typed, and the
+                  // sentence the user reads is worded here from the catalog.
                   adding.set(true);
                   let added = tokio::task
-                      ::spawn_blocking(move || crate::utils::mood_sounds::add(&source)).await
-                      .unwrap_or_else(|e| Err(format!("Could not add the sound: {}", e)));
+                      ::spawn_blocking(move || crate::utils::mood_sounds::add_typed(&source))
+                      .await;
                   adding.set(false);
 
                   match added {
-                      Ok(sound) => {
+                      Ok(Ok(sound)) => {
                           let mut is_new = false;
                           update_global_ambiance_player_state(|player| {
                               is_new = player.add_custom_sound(sound);
                           });
                           if !is_new {
-                              notice::report(NoticeKind::Info, "This sound is already in your list.", None);
+                              notice::report(NoticeKind::Info, strings.mood.already_added, None);
                           }
                           refresh_trigger.set(refresh_trigger() + 1);
                       }
-                      Err(e) => {
+                      Ok(Err(e)) => {
+                          // The log keeps the stable English description.
                           crate::always_eprint!("Failed to add a Mood sound: {}", e);
-                          notice::report(NoticeKind::Error, e, None);
+                          notice::report(NoticeKind::Error, e.ui_message(&strings.errors), None);
+                      }
+                      Err(e) => {
+                          // The copying task itself stopped; there is no typed
+                          // failure to word, so the page says so in its own words.
+                          let message = fill(strings.mood.add_failed, &[&e]);
+                          crate::always_eprint!("Failed to add a Mood sound: {}", message);
+                          notice::report(NoticeKind::Error, message, None);
                       }
                   }
               });
           },
           if adding() {
             span { class: "loading loading-spinner loading-xs" }
-            "Adding..."
+            "{strings.mood.adding}"
           } else {
             Plus { class: "w-4 h-4" }
-            "Add your own sound"
+            "{strings.mood.add_sound}"
           }
         }
         p { class: "text-xs text-base-content/50 text-center",
-          "MP3, WAV, OGG, FLAC or M4A. It plays on repeat."
+          "{strings.mood.sound_formats_hint}"
         }
       }
     }
@@ -360,6 +410,10 @@ fn AddSoundButton(refresh_trigger: Signal<i32>) -> Element {
 pub fn MoodPage() -> Element {
     // Use global state instead of local signal
     let mut ambiance_player = use_signal(|| AmbiancePlayerState::new());
+
+    // Reads the config signal, so choosing a language re-renders the page with
+    // the new text. Not memoized: a memo would keep the first language.
+    let strings = use_strings();
 
     // Force re-render when global state changes
     let refresh_trigger = use_signal(|| 0);
@@ -400,8 +454,8 @@ pub fn MoodPage() -> Element {
     rsx! {
       div { class: "{crate::utils::spacing::SECTION_SPACING_LG}",
         PageHeader {
-          title: "Mood".to_string(),
-          subtitle: "Ambient sounds to set the perfect atmosphere".to_string(),
+          title: strings.mood.page_title.to_string(),
+          subtitle: strings.mood.page_subtitle.to_string(),
           icon: Some(rsx! {
             CloudSunRain { class: "w-8 h-8 mx-auto" }
           }),

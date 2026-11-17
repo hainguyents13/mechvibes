@@ -3,6 +3,7 @@
 use crate::components::customize::look_editor::use_look_editor;
 use crate::components::customize::part_panel::{ edit_part, starting_point, PartPanel };
 use crate::components::ui::FillField;
+use crate::i18n::use_strings;
 use crate::libs::routes::background_style_for;
 use crate::state::config::BackgroundCustomization;
 use crate::utils::config::use_config;
@@ -13,6 +14,7 @@ use std::rc::Rc;
 pub fn BackgroundTab() -> Element {
     let (config, _) = use_config();
     let editor = use_look_editor();
+    let strings = use_strings();
     let enabled = config().enable_background_customization;
     let saved = config().background_customization.clone();
     // The theme's own background is the default one, so with nothing saved
@@ -54,7 +56,7 @@ pub fn BackgroundTab() -> Element {
 
     rsx! {
       PartPanel {
-        switch_label: "Use my own background".to_string(),
+        switch_label: strings.customize.use_my_background.to_string(),
         enabled,
         on_switch,
         on_start_over,
@@ -62,7 +64,7 @@ pub fn BackgroundTab() -> Element {
           div { class: "rounded-box border border-base-300 bg-base-100", style: "{preview_style}" }
         },
         FillField {
-          label: "Background".to_string(),
+          label: strings.customize.background_field.to_string(),
           description: None,
           use_image: background.use_image,
           color: background.background_color.clone(),

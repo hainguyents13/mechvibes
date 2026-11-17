@@ -21,17 +21,21 @@ fn open_app_directory() -> Result<(), String> {
 
 #[component]
 pub fn AppInfoDisplay() -> Element {
+    // Read at render time, never inside a memo: the config signal this reads is
+    // what re-renders the panel when the language changes.
+    let strings = crate::i18n::use_strings();
+
     // Get current executable path
     let exe_path = env
         ::current_exe()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "Unknown".to_string());
+        .unwrap_or_else(|_| strings.common.unknown.to_string());
 
     // Get current working directory
     let current_dir = env
         ::current_dir()
         .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| "Unknown".to_string());
+        .unwrap_or_else(|_| strings.common.unknown.to_string());
 
     // Get absolute paths for directories and files
     let data_dir_absolute = get_data_dir_absolute();
@@ -51,14 +55,14 @@ pub fn AppInfoDisplay() -> Element {
         div {
           h3 { class: "mb-2 flex items-center gap-2",
             Folder { class: "w-5 h-5" }
-            "Application Paths"
+            "{strings.chrome.application_paths}"
           }
           div { class: "mb-1",
-            span { class: "text-base-content/70", "Executable: " }
+            span { class: "text-base-content/70", "{strings.chrome.executable}: " }
             span { class: "break-all", "{exe_path}" }
           }
           div {
-            span { class: "text-base-content/70", "Working Dir: " }
+            span { class: "text-base-content/70", "{strings.chrome.working_dir}: " }
             span { class: "break-all", "{current_dir}" }
           }
         }
@@ -66,7 +70,7 @@ pub fn AppInfoDisplay() -> Element {
         div {
           h3 { class: "mb-2 flex items-center gap-2",
             FolderCog { class: "w-5 h-5" }
-            "File System Status"
+            "{strings.chrome.file_system_status}"
           }
           div { class: "space-y-1",
             div { class: "ml-1 text-base-content/70 flex gap-2 items-center break-all",
@@ -91,15 +95,15 @@ pub fn AppInfoDisplay() -> Element {
         div {
           h3 { class: "mb-2 flex items-center gap-2",
             LaptopMinimalCheck { class: "w-5 h-5" }
-            "System info"
+            "{strings.chrome.system_info}"
           }
           div { class: "space-y-1",
             div {
-              span { class: "text-base-content/70", "OS: " }
+              span { class: "text-base-content/70", "{strings.chrome.os}: " }
               span { class: "text-base-content", "{os}" }
             }
             div {
-              span { class: "text-base-content/70", "Arch: " }
+              span { class: "text-base-content/70", "{strings.chrome.arch}: " }
               span { class: "text-base-content", "{arch}" }
             }
           }
@@ -116,7 +120,7 @@ pub fn AppInfoDisplay() -> Element {
                     }
                 });
             },
-            "Open app directory"
+            "{strings.chrome.open_app_directory}"
           }
         }
       }

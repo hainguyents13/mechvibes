@@ -6,6 +6,7 @@
 //! same write, so there is no separate step to turn it on first.
 
 use crate::components::ui::Toggler;
+use crate::i18n::use_strings;
 use dioxus::prelude::*;
 use lucide_dioxus::RotateCcw;
 
@@ -46,15 +47,17 @@ pub fn PartPanel(
     preview: Element,
     children: Element,
 ) -> Element {
+    let strings = use_strings();
+
     rsx! {
       div { class: "space-y-4",
         div { class: "space-y-2",
-          div { class: "text-sm text-base-content", "Preview" }
+          div { class: "text-sm text-base-content", "{strings.customize.preview}" }
           {preview}
         }
         Toggler {
           title: switch_label,
-          description: Some("Changing anything below turns this on.".to_string()),
+          description: Some(strings.customize.part_panel_note.to_string()),
           checked: enabled,
           on_change: move |on: bool| on_switch.call(on),
         }
@@ -64,9 +67,9 @@ pub fn PartPanel(
             class: "btn btn-ghost btn-sm",
             onclick: move |_| on_start_over.call(()),
             RotateCcw { class: "w-4 h-4 mr-1" }
-            "Start over"
+            "{strings.customize.start_over}"
           }
-          div { class: "text-sm text-base-content/50", "Changes save on their own." }
+          div { class: "text-sm text-base-content/50", "{strings.customize.changes_save_themselves}" }
         }
       }
     }

@@ -16,12 +16,15 @@ use lucide_dioxus::Upload;
 /// write when a mutation leaves the data unchanged.
 #[component]
 pub fn ImagePicker(value: Option<String>, on_change: EventHandler<Option<String>>) -> Element {
+    // `&'static`, so it can be moved into the `spawn` below without cloning.
+    let strings = crate::i18n::use_strings();
+
     rsx! {
         div { class: "space-y-2",
             div { class: "flex gap-2",
                 input {
                     r#type: "text",
-                    placeholder: "Paste an image link",
+                    placeholder: "{strings.chrome.paste_image_link}",
                     class: "input w-full input-sm",
                     // Rendered straight from the config, so a Reset that clears
                     // the stored path empties the field with it.
@@ -34,12 +37,12 @@ pub fn ImagePicker(value: Option<String>, on_change: EventHandler<Option<String>
                 }
                 button {
                     class: "btn btn-neutral btn-sm",
-                    title: "Pick an image",
+                    title: "{strings.common.pick_an_image}",
                     onclick: move |_| {
                         spawn(async move {
                             let file_dialog = rfd::AsyncFileDialog::new()
-                                .add_filter("Images", &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
-                                .set_title("Pick an image")
+                                .add_filter(strings.chrome.images_filter, &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+                                .set_title(strings.common.pick_an_image)
                                 .pick_file()
                                 .await;
 
@@ -60,7 +63,7 @@ pub fn ImagePicker(value: Option<String>, on_change: EventHandler<Option<String>
                                         crate::always_eprint!("Failed to copy image: {}", e);
                                         notice::report(
                                             NoticeKind::Error,
-                                            "Could not use this image. Try another one.",
+                                            strings.chrome.image_unusable,
                                             None,
                                         );
                                     }
@@ -71,7 +74,7 @@ pub fn ImagePicker(value: Option<String>, on_change: EventHandler<Option<String>
                     Upload { class: "w-4 h-4" }
                 }
             }
-            div { class: "text-xs text-base-content/50", "Pick an image, or paste a web link" }
+            div { class: "text-xs text-base-content/50", "{strings.chrome.image_hint}" }
         }
     }
 }

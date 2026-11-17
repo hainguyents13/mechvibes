@@ -1,3 +1,5 @@
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use serde_json::Value;
 use std::fs::File;
 use std::io::Read;
@@ -52,11 +54,63 @@ pub fn is_archive_noise(entry_name: &str) -> bool {
         [".DS_Store", "Thumbs.db", "desktop.ini"].contains(&file)
 }
 
+/// Why an entry of a pack's archive, or the config inside it, cannot be used.
+///
+/// The wording is kept apart from the cause for the same reason as
+/// [`SoundpackZipError`]: `Display` is the stable English description, and
+/// [`PackArchiveError::ui_message`] is the sentence the import dialog shows once
+/// the caller's catalog is in hand. This module is compiled into the headless
+/// `pack-convert` tool as well, so it cannot read the language itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PackArchiveError {
+    /// `zip` refused to read the entry. The `String` is its description.
+    EntryUnreadable(String),
+    /// The entry's name is one the systems a pack installs on cannot store.
+    NameUnusable(String),
+    /// Two entries would land on one name, so which one wins is zip order.
+    NameRepeated(String),
+    /// Nothing in the archive is called `config.json`.
+    NoConfig,
+    /// `config.json` could not be read out of the archive.
+    ConfigUnreadable(String),
+    /// `config.json` unpacks past [`MAX_CONFIG_BYTES`].
+    ConfigTooLarge,
+}
+
+impl PackArchiveError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            PackArchiveError::EntryUnreadable(cause) =>
+                fill(errors.soundpack_entry_unreadable, &[cause]),
+            PackArchiveError::NameUnusable(name) =>
+                fill(errors.soundpack_entry_name_unusable, &[name]),
+            PackArchiveError::NameRepeated(name) =>
+                fill(errors.soundpack_entry_name_repeated, &[name]),
+            PackArchiveError::NoConfig => errors.soundpack_config_not_found.to_string(),
+            PackArchiveError::ConfigUnreadable(cause) =>
+                fill(errors.soundpack_config_read_failed, &[cause]),
+            PackArchiveError::ConfigTooLarge => errors.soundpack_config_too_large.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for PackArchiveError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
 /// The name an entry is installed under. Every file goes to the root of the
 /// pack's folder, so only the last segment counts; ZIPs made on Windows can
 /// separate folders with `\`, so both separators do. `Ok(None)` means a folder
 /// entry or archive clutter.
-pub fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
+pub fn entry_file_name_typed(entry_name: &str) -> Result<Option<&str>, PackArchiveError> {
     if is_archive_noise(entry_name) {
         return Ok(None);
     }
@@ -67,8 +121,18 @@ pub fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
     if is_portable_name(name) {
         Ok(Some(name))
     } else {
-        Err(format!("The ZIP contains a file with a name that cannot be used: '{}'", entry_name))
+        Err(PackArchiveError::NameUnusable(entry_name.to_string()))
     }
+}
+
+/// The `String` twin of [`entry_file_name_typed`], kept for
+/// `src/utils/soundpack_installer.rs`.
+///
+/// The installer raises its own `String` failures and prints this one as text,
+/// and it is not part of this slice: it takes the typed failure's English
+/// `Display` so its wording does not change.
+pub fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
+    entry_file_name_typed(entry_name).map_err(|e| e.to_string())
 }
 
 /// Check every entry name in `archive` and return the index of its
@@ -79,45 +143,151 @@ pub fn entry_file_name(entry_name: &str) -> Result<Option<&str>, String> {
 /// whose content depends on the order they are written in. That is refused,
 /// and so there is only ever one `config.json` to pick: the one checked here
 /// is the one installed.
-pub fn locate_pack_config<R: std::io::Read + std::io::Seek>(
+pub fn locate_pack_config_typed<R: std::io::Read + std::io::Seek>(
     archive: &mut ZipArchive<R>
-) -> Result<usize, String> {
+) -> Result<usize, PackArchiveError> {
     let mut seen = std::collections::HashSet::new();
     let mut config = None;
     for i in 0..archive.len() {
-        let entry = archive.by_index(i).map_err(|e| format!("Failed to read archive entry: {}", e))?;
-        let Some(name) = entry_file_name(entry.name())?.map(str::to_string) else {
+        let entry = archive
+            .by_index(i)
+            .map_err(|e| PackArchiveError::EntryUnreadable(e.to_string()))?;
+        let Some(name) = entry_file_name_typed(entry.name())?.map(str::to_string) else {
             continue;
         };
         let key = name.to_lowercase();
         if !seen.insert(key.clone()) {
-            return Err(
-                format!("The ZIP has more than one file named '{}'. Every file in a sound pack needs a name of its own.", name)
-            );
+            return Err(PackArchiveError::NameRepeated(name));
         }
         if key == "config.json" {
             config = Some(i);
         }
     }
-    config.ok_or_else(|| "No config.json found in ZIP file".to_string())
+    config.ok_or(PackArchiveError::NoConfig)
+}
+
+/// The `String` twin of [`locate_pack_config_typed`], kept for
+/// `src/utils/soundpack_installer.rs`, which reads the same archive through the
+/// same rules and reports failures as text.
+pub fn locate_pack_config<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>
+) -> Result<usize, String> {
+    locate_pack_config_typed(archive).map_err(|e| e.to_string())
 }
 
 /// Read the `config.json` at `index`, refusing one that unpacks past
 /// `MAX_CONFIG_BYTES` before it is held in memory.
-pub fn read_pack_config<R: std::io::Read + std::io::Seek>(
+pub fn read_pack_config_typed<R: std::io::Read + std::io::Seek>(
     archive: &mut ZipArchive<R>,
     index: usize
-) -> Result<String, String> {
-    let entry = archive.by_index(index).map_err(|e| format!("Failed to read archive entry: {}", e))?;
+) -> Result<String, PackArchiveError> {
+    let entry = archive
+        .by_index(index)
+        .map_err(|e| PackArchiveError::EntryUnreadable(e.to_string()))?;
     let mut content = String::new();
     entry
         .take(MAX_CONFIG_BYTES + 1)
         .read_to_string(&mut content)
-        .map_err(|e| format!("Failed to read config.json: {}", e))?;
+        .map_err(|e| PackArchiveError::ConfigUnreadable(e.to_string()))?;
     if (content.len() as u64) > MAX_CONFIG_BYTES {
-        return Err("The sound pack's config.json is too large.".to_string());
+        return Err(PackArchiveError::ConfigTooLarge);
     }
     Ok(content)
+}
+
+/// The `String` twin of [`read_pack_config_typed`], kept for
+/// `src/utils/soundpack_installer.rs`, which is the other reader of the same
+/// entry.
+pub fn read_pack_config<R: std::io::Read + std::io::Seek>(
+    archive: &mut ZipArchive<R>,
+    index: usize
+) -> Result<String, String> {
+    read_pack_config_typed(archive, index).map_err(|e| e.to_string())
+}
+
+/// One thing wrong in a config's V2 body.
+///
+/// The report keeps the finding rather than a finished sentence so the import
+/// dialog can word it in the user's language. It carries the values, and the key
+/// name and the index are placeholders the translator can move inside the
+/// sentence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructureIssue {
+    /// A key's entry has no timing array and is not a `multi` key with a file.
+    DefinitionEntry(String),
+    /// A timing pair whose length is not two.
+    TimingPair(String, usize),
+    /// A timing entry that is not an array.
+    TimingEntry(String, usize),
+    /// `definitions` is present but is not an object.
+    DefinitionsNotObject,
+    /// `mouse` is present but is not a boolean.
+    MouseNotBoolean,
+}
+
+impl StructureIssue {
+    /// The sentence for this finding in the language `errors` carries.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            StructureIssue::DefinitionEntry(key) =>
+                fill(errors.soundpack_issue_timing_expected, &[key]),
+            StructureIssue::TimingPair(key, index) =>
+                fill(errors.soundpack_issue_timing_pair, &[key, index]),
+            StructureIssue::TimingEntry(key, index) =>
+                fill(errors.soundpack_issue_timing_entry, &[key, index]),
+            StructureIssue::DefinitionsNotObject =>
+                errors.soundpack_issue_definitions_not_object.to_string(),
+            StructureIssue::MouseNotBoolean =>
+                errors.soundpack_issue_mouse_not_boolean.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for StructureIssue {
+    /// Always English, like [`PackArchiveError`]'s `Display`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
+/// What made a report say [`SoundpackValidationStatus::InvalidStructure`].
+///
+/// The two ways a config can be unreadable are kept apart from the list of
+/// findings because they are different sentences, not because they differ in
+/// behaviour: one cause, or every issue found, joined.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StructureProblem {
+    /// The config file could not be read. The `String` is the cause.
+    ConfigUnreadable(String),
+    /// The config is not valid JSON. The `String` is `serde_json`'s description.
+    InvalidJson(String),
+    /// The V2 body is unusable, as the findings explain.
+    Issues(Vec<StructureIssue>),
+}
+
+impl StructureProblem {
+    /// The sentence for this problem in the language `errors` carries.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            StructureProblem::ConfigUnreadable(cause) =>
+                fill(errors.soundpack_config_file_unreadable, &[cause]),
+            StructureProblem::InvalidJson(cause) =>
+                fill(errors.soundpack_config_json_invalid, &[cause]),
+            StructureProblem::Issues(issues) =>
+                issues
+                    .iter()
+                    .map(|issue| issue.ui_message(errors))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+        }
+    }
+}
+
+impl std::fmt::Display for StructureProblem {
+    /// Always English, like [`PackArchiveError`]'s `Display`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -125,7 +295,7 @@ pub fn read_pack_config<R: std::io::Read + std::io::Seek>(
 pub enum SoundpackValidationStatus {
     Valid,
     InvalidVersion,
-    InvalidStructure(String),
+    InvalidStructure(StructureProblem),
     MissingRequiredFields(Vec<String>),
     VersionOneNeedsConversion,
     /// The pack declares a config version this build does not understand.
@@ -169,6 +339,13 @@ pub struct SoundpackValidationResult {
     pub detected_version: Option<String>,
     pub is_valid_v2: bool,
     pub can_be_converted: bool,
+    /// The report in English, for the callers that only print it.
+    ///
+    /// That is the log, `src/bin/pack_convert.rs` (which formats it into its own
+    /// error line) and `src/utils/soundpack.rs`, which caches it in
+    /// `SoundpackMetadata::last_error` and never renders it. Nothing reads a
+    /// language here: the sentence a screen shows comes from
+    /// [`SoundpackValidationStatus`] through `validate_soundpack_structure`.
     pub message: String,
 }
 
@@ -179,10 +356,9 @@ pub fn validate_soundpack_config(config_path: &str) -> SoundpackValidationResult
         Ok(content) => content,
         Err(e) => {
             return SoundpackValidationResult {
-                status: SoundpackValidationStatus::InvalidStructure(format!(
-                    "Cannot read config file: {}",
-                    e
-                )),
+                status: SoundpackValidationStatus::InvalidStructure(
+                    StructureProblem::ConfigUnreadable(e.clone())
+                ),
                 config_version: None,
                 detected_version: None,
                 is_valid_v2: false,
@@ -196,7 +372,9 @@ pub fn validate_soundpack_config(config_path: &str) -> SoundpackValidationResult
         Ok(config) => config,
         Err(e) => {
             return SoundpackValidationResult {
-                status: SoundpackValidationStatus::InvalidStructure(format!("Invalid JSON: {}", e)),
+                status: SoundpackValidationStatus::InvalidStructure(
+                    StructureProblem::InvalidJson(e.to_string())
+                ),
                 config_version: None,
                 detected_version: None,
                 is_valid_v2: false,
@@ -323,10 +501,7 @@ fn validate_v2_structure(
                 let arr = match timings.as_array() {
                     Some(arr) => arr,
                     None => {
-                        issues.push(format!(
-                            "Invalid definitions entry for '{}': expected timing array",
-                            key
-                        ));
+                        issues.push(StructureIssue::DefinitionEntry(key.clone()));
                         continue;
                     }
                 };
@@ -334,28 +509,22 @@ fn validate_v2_structure(
                 for (i, timing) in arr.iter().enumerate() {
                     if let Some(timing_arr) = timing.as_array() {
                         if timing_arr.len() != 2 {
-                            issues.push(format!(
-                                "Invalid timing array for '{}[{}]': expected [start, end]",
-                                key, i
-                            ));
+                            issues.push(StructureIssue::TimingPair(key.clone(), i));
                         }
                     } else {
-                        issues.push(format!(
-                            "Invalid timing entry for '{}[{}]': expected array",
-                            key, i
-                        ));
+                        issues.push(StructureIssue::TimingEntry(key.clone(), i));
                     }
                 }
             }
         } else {
-            issues.push("definitions field should be an object".to_string());
+            issues.push(StructureIssue::DefinitionsNotObject);
         }
     }
 
     // Check mouse field
     if let Some(mouse) = config.get("mouse") {
         if !mouse.is_boolean() {
-            issues.push("mouse field should be boolean".to_string());
+            issues.push(StructureIssue::MouseNotBoolean);
         }
     }
 
@@ -370,13 +539,21 @@ fn validate_v2_structure(
             message: format!("Missing required V2 fields: {}", missing_fields.join(", ")),
         }
     } else if !issues.is_empty() {
+        // The same sentences, in English, for the report the log and
+        // `pack-convert` read. Rendered from the findings themselves, so the
+        // report and the dialog cannot disagree about what was wrong.
+        let issue_text = issues
+            .iter()
+            .map(|issue| issue.to_string())
+            .collect::<Vec<_>>()
+            .join("; ");
         SoundpackValidationResult {
-            status: SoundpackValidationStatus::InvalidStructure(issues.join("; ")),
+            status: SoundpackValidationStatus::InvalidStructure(StructureProblem::Issues(issues)),
             config_version,
             detected_version: package_version,
             is_valid_v2: false,
             can_be_converted: false,
-            message: format!("V2 structure issues: {}", issues.join("; ")),
+            message: format!("V2 structure issues: {}", issue_text),
         }
     } else {
         SoundpackValidationResult {
@@ -390,44 +567,155 @@ fn validate_v2_structure(
     }
 }
 
+/// Why a file was refused before it is even opened as a sound pack.
+///
+/// The same split as [`PackArchiveError`]: `Display` is the stable English
+/// description, [`SoundpackZipError::ui_message`] is the sentence the import
+/// dialog shows, and this layer never reads the language itself.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoundpackZipError {
+    /// Nothing is at the path the user picked.
+    Missing,
+    /// The path does not end in `.zip`.
+    NotArchive,
+    /// The OS refused to open it. The `String` is the cause.
+    OpenFailed(String),
+    /// `zip` refused to read it. The `String` is its description.
+    NotAZip(String),
+    /// The archive holds no entries at all.
+    Empty,
+}
+
+impl SoundpackZipError {
+    /// The sentence for this failure in the language `errors` carries.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            SoundpackZipError::Missing => errors.soundpack_zip_missing.to_string(),
+            SoundpackZipError::NotArchive => errors.soundpack_zip_not_archive.to_string(),
+            SoundpackZipError::OpenFailed(cause) =>
+                fill(errors.soundpack_zip_open_failed, &[cause]),
+            SoundpackZipError::NotAZip(cause) => fill(errors.soundpack_zip_invalid, &[cause]),
+            SoundpackZipError::Empty => errors.soundpack_zip_empty.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for SoundpackZipError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
 /// Validate ZIP file structure and basic requirements
-pub async fn validate_zip_file(file_path: &str) -> Result<(), String> {
+pub async fn validate_zip_file(file_path: &str) -> Result<(), SoundpackZipError> {
     // Check if file exists and is readable
     if !std::path::Path::new(file_path).exists() {
-        return Err("File does not exist".to_string());
+        return Err(SoundpackZipError::Missing);
     }
 
     // Check file extension
     if !file_path.to_lowercase().ends_with(".zip") {
-        return Err("File must be a ZIP archive".to_string());
+        return Err(SoundpackZipError::NotArchive);
     }
 
     // Try to open as ZIP
-    let file = File::open(file_path).map_err(|e| format!("Cannot open file: {}", e))?;
+    let file = File::open(file_path).map_err(|e| SoundpackZipError::OpenFailed(e.to_string()))?;
 
-    let archive = ZipArchive::new(file).map_err(|e| format!("Invalid ZIP file: {}", e))?;
+    let archive = ZipArchive::new(file)
+        .map_err(|e| SoundpackZipError::NotAZip(e.to_string()))?;
 
     // Check if ZIP is not empty
     if archive.len() == 0 {
-        return Err("ZIP file is empty".to_string());
+        return Err(SoundpackZipError::Empty);
     }
 
     Ok(())
 }
 
-/// Validate soundpack structure within ZIP file and return soundpack name and config content
-pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, String), String> {
-    let file = File::open(file_path).map_err(|e| format!("Cannot open ZIP file: {}", e))?;
+/// Why a pack's contents were refused by [`validate_soundpack_structure`].
+///
+/// Same split again, and here the wording matters most: this is the sentence the
+/// import dialog and the library install dialog print as the whole message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoundpackStructureError {
+    /// The archive, or the config inside it, could not be used.
+    Archive(PackArchiveError),
+    /// The file could not be opened as a ZIP. The `String` is the OS cause.
+    OpenFailed(String),
+    /// `zip` could not read an entry. The `String` is its description.
+    EntryUnreadable(String),
+    /// `zip` could not read it. The `String` is its description.
+    NotAZip(String),
+    /// Nothing in the archive is an audio file a pack can play.
+    NoAudio,
+    /// The config could not be written to a temp file to be validated.
+    TempConfig(String),
+    /// The config itself is not a usable sound pack.
+    Invalid(StructureProblem),
+    /// Required fields are absent. The `Vec` holds the JSON keys to add.
+    MissingFields(Vec<String>),
+    /// The config declares a version this build refuses.
+    UnsupportedVersion,
+    /// The config needs a newer Mechvibes than this build.
+    RequiresNewerApp,
+}
 
-    let mut archive = ZipArchive::new(file).map_err(|e| format!("Invalid ZIP archive: {}", e))?;
+impl SoundpackStructureError {
+    /// The sentence for this failure in the language `errors` carries.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            SoundpackStructureError::Archive(cause) => cause.ui_message(errors),
+            SoundpackStructureError::OpenFailed(cause) =>
+                fill(errors.soundpack_archive_open_failed, &[cause]),
+            SoundpackStructureError::EntryUnreadable(cause) =>
+                fill(errors.soundpack_archive_entry_unreadable, &[cause]),
+            SoundpackStructureError::NotAZip(cause) =>
+                fill(errors.soundpack_archive_invalid, &[cause]),
+            SoundpackStructureError::NoAudio => errors.soundpack_no_audio_files.to_string(),
+            SoundpackStructureError::TempConfig(cause) =>
+                fill(errors.soundpack_temp_config_failed, &[cause]),
+            SoundpackStructureError::Invalid(problem) =>
+                fill(errors.soundpack_structure_invalid, &[&problem.ui_message(errors)]),
+            SoundpackStructureError::MissingFields(fields) =>
+                fill(errors.soundpack_fields_missing, &[&fields.join(", ")]),
+            SoundpackStructureError::UnsupportedVersion =>
+                errors.soundpack_version_unsupported.to_string(),
+            SoundpackStructureError::RequiresNewerApp =>
+                errors.soundpack_requires_newer_app.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for SoundpackStructureError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
+/// Validate soundpack structure within ZIP file and return soundpack name and config content
+pub async fn validate_soundpack_structure(
+    file_path: &str
+) -> Result<(String, String), SoundpackStructureError> {
+    let file = File::open(file_path)
+        .map_err(|e| SoundpackStructureError::OpenFailed(e.to_string()))?;
+
+    let mut archive = ZipArchive::new(file)
+        .map_err(|e| SoundpackStructureError::NotAZip(e.to_string()))?;
 
     let mut audio_found = false;
     let mut config_method = "single".to_string();
     let mut soundpack_name = "Unknown".to_string();
 
     // The same entry the installer will read, found by the same rules.
-    let config_index = locate_pack_config(&mut archive)?;
-    let config_content = read_pack_config(&mut archive, config_index)?;
+    let config_index = locate_pack_config_typed(&mut archive)
+        .map_err(SoundpackStructureError::Archive)?;
+    let config_content = read_pack_config_typed(&mut archive, config_index).map_err(
+        SoundpackStructureError::Archive
+    )?;
     if let Ok(config) = serde_json::from_str::<Value>(&config_content) {
         if let Some(name) = config.get("name").and_then(|v| v.as_str()) {
             soundpack_name = name.to_string();
@@ -441,7 +729,7 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
     for i in 0..archive.len() {
         let file = archive
             .by_index(i)
-            .map_err(|e| format!("Cannot read file in archive: {}", e))?;
+            .map_err(|e| SoundpackStructureError::EntryUnreadable(e.to_string()))?;
         let file_name = file.name().to_string();
         if is_archive_noise(&file_name) {
             continue;
@@ -458,7 +746,7 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
 
     // If single method, ensure at least one audio file is present
     if config_method == "single" && !audio_found {
-        return Err("No audio files found in soundpack".to_string());
+        return Err(SoundpackStructureError::NoAudio);
     }
 
     // Use existing validator to validate config content
@@ -468,8 +756,9 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
         .join(format!("mechvibes-validate-{}.json", Uuid::new_v4()))
         .to_string_lossy()
         .to_string();
-    std::fs::write(&temp_config_path, &config_content)
-        .map_err(|e| format!("Cannot write temp config: {}", e))?;
+    std::fs::write(&temp_config_path, &config_content).map_err(|e|
+        SoundpackStructureError::TempConfig(e.to_string())
+    )?;
 
     let validation_result = validate_soundpack_config(&temp_config_path);
 
@@ -482,17 +771,17 @@ pub async fn validate_soundpack_structure(file_path: &str) -> Result<(String, St
         SoundpackValidationStatus::VersionOneNeedsConversion => {
             Ok((soundpack_name, config_content)) // V1 is acceptable, will be converted
         }
-        SoundpackValidationStatus::InvalidStructure(msg) => {
-            Err(format!("Invalid soundpack structure: {}", msg))
+        SoundpackValidationStatus::InvalidStructure(problem) => {
+            Err(SoundpackStructureError::Invalid(problem))
         }
         SoundpackValidationStatus::MissingRequiredFields(fields) => {
-            Err(format!("Missing required fields: {}", fields.join(", ")))
+            Err(SoundpackStructureError::MissingFields(fields))
         }
         SoundpackValidationStatus::InvalidVersion => {
-            Err("Invalid or unsupported soundpack version".to_string())
+            Err(SoundpackStructureError::UnsupportedVersion)
         }
         SoundpackValidationStatus::RequiresNewerAppVersion(_) => {
-            Err("This soundpack requires a newer version of Mechvibes".to_string())
+            Err(SoundpackStructureError::RequiresNewerApp)
         }
     }
 }
@@ -808,6 +1097,12 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread().build().expect("runtime");
         let result = runtime.block_on(validate_soundpack_structure(path.to_str().unwrap()));
         let _ = std::fs::remove_file(&path);
-        assert!(result.expect_err("oversized config").contains("too large"));
+        let error = result.expect_err("oversized config");
+        assert_eq!(
+            error,
+            SoundpackStructureError::Archive(PackArchiveError::ConfigTooLarge),
+            "the validator has to stop at the same limit the installer does"
+        );
+        assert!(error.to_string().contains("too large"), "got: {error}");
     }
 }

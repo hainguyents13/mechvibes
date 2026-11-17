@@ -1,6 +1,6 @@
 use crate::libs::audio::{ AudioCommand, AudioContext };
 use crate::libs::device_manager::{ DeviceInfo, DeviceManager };
-use crate::libs::input_device_manager::{ InputDeviceInfo, InputDeviceManager };
+use crate::libs::input_device_manager::{ InputDeviceInfo, InputDeviceManager, InputDeviceType };
 use crate::utils::config::use_config;
 use dioxus::prelude::*;
 use lucide_dioxus::{ Headphones, Keyboard, Mouse, RefreshCw };
@@ -61,6 +61,27 @@ fn notify_input_filter_changed() {
     crate::libs::input_worker_host::notify_config_changed();
 }
 
+/// Why a device list could not be produced.
+///
+/// Kept typed rather than as words: the sentence around it is read from the
+/// catalog where it is drawn, so a language change reaches the message and a
+/// `use_memo` cannot freeze it.
+#[derive(Clone, PartialEq)]
+enum LoadFailure {
+    Audio(crate::libs::device_manager::DeviceError),
+    Input(crate::libs::input_device_manager::InputDeviceError),
+}
+
+impl LoadFailure {
+    /// The cause of the failure, in the language `errors` carries.
+    fn ui_message(&self, errors: &crate::i18n::catalog::ErrorStrings) -> String {
+        match self {
+            LoadFailure::Audio(e) => e.ui_message(errors),
+            LoadFailure::Input(e) => e.ui_message(errors).to_string(),
+        }
+    }
+}
+
 #[derive(Props, Clone, PartialEq)]
 pub struct DeviceSelectorProps {
     device_type: DeviceType,
@@ -68,14 +89,35 @@ pub struct DeviceSelectorProps {
     description: Option<String>,
 }
 
+/// The label for the device-type line under a device's name.
+///
+/// The enum's `Debug` output used to be rendered straight into the list, which
+/// put an English layer token on a translated page (and broke the moment the
+/// variant was renamed). The mapping lives here, where the catalog is, and the
+/// device's name and id keep coming from the OS untranslated.
+fn input_device_type_label(
+    device_type: &InputDeviceType,
+    strings: &'static crate::i18n::Strings,
+) -> &'static str {
+    match device_type {
+        InputDeviceType::Keyboard => strings.devices.type_keyboard,
+        InputDeviceType::Mouse => strings.devices.type_mouse,
+        InputDeviceType::Unknown => strings.devices.type_unknown,
+    }
+}
+
 #[component]
 pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
     let (config, update_config) = use_config();
+    // Read at render time, never inside a `use_memo`: this read of the config
+    // signal is what re-renders the list when the language changes. The
+    // count-dependent sentences below go through `plural` / `fill`.
+    let strings = crate::i18n::use_strings();
     let audio_devices = use_signal(|| Vec::<DeviceInfo>::new());
     let input_devices = use_signal(|| Vec::<InputDeviceInfo>::new());
     let is_loading = use_signal(|| false);
     let has_loaded = use_signal(|| false); // Track if devices have been loaded at least once
-    let error_message = use_signal(String::new);
+    let error_message = use_signal(|| None::<LoadFailure>);
     let device_status = use_signal(|| std::collections::HashMap::<String, bool>::new());
 
     // Get current selected/enabled devices
@@ -114,12 +156,12 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
             spawn(async move {
                 crate::always_print!("📋 [DeviceSelector] Loading devices...");
                 is_loading.set(true);
-                error_message.set(String::new());
+                error_message.set(None);
 
                 match device_type {
                     DeviceType::AudioOutput => {
                         // Use cached audio devices to avoid enumeration interference
-                        match DeviceManager::get_cached_output_devices() {
+                        match DeviceManager::get_cached_output_devices_typed() {
                             Ok(device_list) => {
                                 crate::always_print!("✅ [DeviceSelector] Loaded {} cached audio devices", device_list.len());
                                 audio_devices.set(device_list);
@@ -128,7 +170,10 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             }
                             Err(e) => {
                                 crate::always_print!("❌ [DeviceSelector] Failed to load cached devices: {}", e);
-                                error_message.set(format!("Failed to load audio devices: {}", e));
+                                // Only the typed failure is stored. The sentence
+                                // around it is read from the catalog where it is
+                                // drawn, so a `use_memo` cannot freeze it.
+                                error_message.set(Some(LoadFailure::Audio(e)));
                                 mark_devices_enumerated();
                                 has_loaded.set(true);
                             }
@@ -136,7 +181,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                     }
                     DeviceType::Keyboard | DeviceType::Mouse => {
                         // Input devices don't interfere with audio, load fresh
-                        match InputDeviceManager::get_devices() {
+                        match InputDeviceManager::get_devices_typed() {
                             Ok(device_list) => {
                                 crate::always_print!("✅ [DeviceSelector] Loaded {} input devices", device_list.len());
                                 store_input_devices(&device_list);
@@ -146,7 +191,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             }
                             Err(e) => {
                                 crate::always_print!("❌ [DeviceSelector] Failed to load input devices: {}", e);
-                                error_message.set(format!("Failed to load input devices: {}", e));
+                                error_message.set(Some(LoadFailure::Input(e)));
                                 mark_devices_enumerated();
                                 has_loaded.set(true);
                             }
@@ -170,7 +215,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                 match device_type {
                     DeviceType::AudioOutput => {
                         // Refresh audio device cache
-                        match DeviceManager::refresh_cache() {
+                        match DeviceManager::refresh_cache_typed() {
                             Ok(_) => {
                                 crate::always_print!("✅ [DeviceSelector] Audio cache refreshed successfully");
                                 // Reload from refreshed cache
@@ -212,7 +257,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                 DeviceType::AudioOutput => {
                     // Reading the cache is a plain clone; it only enumerates
                     // if this is the first read of the session.
-                    if let Ok(device_list) = DeviceManager::get_cached_output_devices() {
+                    if let Ok(device_list) = DeviceManager::get_cached_output_devices_typed() {
                         audio_devices.set(device_list);
                         mark_devices_enumerated();
                         has_loaded.set(true);
@@ -328,45 +373,65 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
         })
     };
 
-    // Get current device name for display
-    let _current_device_name = use_memo(move || {
+    // The label the selector would put on the current selection. Nothing renders
+    // it today (hence the underscore), but it is the one place that spells out
+    // the three count-dependent sentences, so the grammar stays here and now
+    // comes from the catalog: `All {}` takes the noun pair's plural member,
+    // `{} {} Selected` takes it for the count. It is a plain render-time value
+    // rather than a `use_memo`: a memo recomputes only when a signal read
+    // *inside* it changes, and the catalog is read outside, so it would keep the
+    // first language until the component unmounted.
+    let _current_device_name = {
         let (selected_device, enabled_devices) = current_selection();
+
+        // The noun as the sentence needs it: lower-case in Spanish, and the
+        // plural form when the count is not one (Chinese writes both the same).
+        let noun = |count: usize| -> &'static str {
+            match props.device_type {
+                DeviceType::Keyboard =>
+                    crate::i18n::plural(
+                        strings.devices.keyboard_one,
+                        strings.devices.keyboard_other,
+                        count,
+                    ),
+                DeviceType::Mouse =>
+                    crate::i18n::plural(
+                        strings.devices.mouse_one,
+                        strings.devices.mouse_other,
+                        count,
+                    ),
+                // Audio outputs do not use either count sentence.
+                DeviceType::AudioOutput => "",
+            }
+        };
 
         match props.device_type {
             DeviceType::AudioOutput => {
-                if selected_device.is_none() {
-                    return "System Default".to_string();
+                match selected_device {
+                    None => strings.devices.system_default.to_string(),
+                    Some(current_id) =>
+                        audio_devices()
+                            .iter()
+                            .find(|d| d.id == current_id)
+                            .map(|d| d.name.clone())
+                            .unwrap_or_else(|| strings.devices.unknown_device.to_string()),
                 }
-
-                let current_id = selected_device.unwrap();
-                audio_devices()
-                    .iter()
-                    .find(|d| d.id == current_id)
-                    .map(|d| d.name.clone())
-                    .unwrap_or_else(|| "Unknown Device".to_string())
             }
             DeviceType::Keyboard | DeviceType::Mouse => {
                 let device_count = enabled_devices.len();
                 if device_count == 0 {
-                    format!("All {}s", match props.device_type {
-                        DeviceType::Keyboard => "Keyboard",
-                        DeviceType::Mouse => "Mouse",
-                        _ => "Device",
-                    })
+                    // The noun's plural member, so English reads `All Mice`
+                    // instead of the `All Mouses` an appended `s` produced.
+                    crate::i18n::fill(strings.devices.all_devices, &[&noun(0)])
                 } else {
-                    format!("{} {} Selected", device_count, match props.device_type {
-                        DeviceType::Keyboard => if device_count == 1 {
-                            "Keyboard"
-                        } else {
-                            "Keyboards"
-                        }
-                        DeviceType::Mouse => if device_count == 1 { "Mouse" } else { "Mice" }
-                        _ => "Devices",
-                    })
+                    crate::i18n::fill(
+                        strings.devices.selected_summary,
+                        &[&device_count, &noun(device_count)],
+                    )
                 }
             }
         }
-    });
+    };
 
     // Get device status for display
     let show_error_status = use_memo(move || {
@@ -381,43 +446,47 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
         false
     });
 
-    // Get no devices message
-    let no_devices_message = use_memo(move || {
-        match props.device_type {
-            DeviceType::AudioOutput => "No audio devices found".to_string(),
-            DeviceType::Keyboard => "No keyboard devices found".to_string(),
-            DeviceType::Mouse => "No mouse devices found".to_string(),
-        }
-    });
+    // A catalog string, so it is read where it is drawn rather than memoized: a
+    // `use_memo` would keep the language it first rendered in.
+    let no_devices_message = match props.device_type {
+        DeviceType::AudioOutput => strings.devices.no_audio_devices,
+        DeviceType::Keyboard => strings.devices.no_keyboard_devices,
+        DeviceType::Mouse => strings.devices.no_mouse_devices,
+    };
 
-    // Combined device list for audio (includes system default)
-    let all_audio_devices = use_memo(move || {
-        if props.device_type == DeviceType::AudioOutput {
-            let mut devices = Vec::new();
+    // Combined device list for audio (includes system default).
+    //
+    // Built at render time, not in a `use_memo`: two of its fields are catalog
+    // strings, and a memo would have frozen the language they were first built
+    // in. The ids and names of the hardware devices are the OS's and are not
+    // translated; only the pseudo-device's own labels come from the catalog.
+    let all_audio_devices = if props.device_type == DeviceType::AudioOutput {
+        let mut devices = Vec::new();
 
-            // Add system default as the first "device"
+        // The system default is a pseudo-device, and `"default"` is its id: the
+        // sentinel stays untranslated because it is compared against config.
+        devices.push((
+            "default".to_string(),
+            strings.devices.system_default.to_string(),
+            strings.devices.system_default_hint.to_string(),
+            true,
+        ));
+
+        // Add hardware devices
+        for device in audio_devices().iter() {
             devices.push((
-                "default".to_string(),
-                "System Default".to_string(),
-                "Use system default audio device".to_string(),
-                true,
+                device.id.clone(),
+                device.name.clone(),
+                // Hardware devices carry no sub-line; the badge is `Default`.
+                String::new(),
+                device.is_default,
             ));
-
-            // Add hardware devices
-            for device in audio_devices().iter() {
-                devices.push((
-                    device.id.clone(),
-                    device.name.clone(),
-                    "".to_string(),
-                    device.is_default,
-                ));
-            }
-
-            devices
-        } else {
-            Vec::new()
         }
-    });
+
+        devices
+    } else {
+        Vec::new()
+    };
 
     // Helper function to render device icon
     let device_icon = move || {
@@ -447,7 +516,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                     class: "btn btn-ghost btn-xs",
                     onclick: move |_| refresh_device_cache.call(()),
                     disabled: is_loading(),
-                    title: "Refresh device list",
+                    title: strings.devices.refresh_device_list,
                     if is_loading() {
                         RefreshCw { class: "w-3 h-3 animate-spin" }
                     } else {
@@ -467,15 +536,15 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             div { class: "text-center text-base-content/50 py-8",
                                 {device_icon()}
                                 if !has_loaded() {
-                                    div { class: "mt-2 text-sm", "Loading devices..." }
+                                    div { class: "mt-2 text-sm", "{strings.devices.loading_devices}" }
                                 } else {
-                                    div { class: "mt-2 text-sm", "{no_devices_message()}" }
+                                    div { class: "mt-2 text-sm", "{no_devices_message}" }
                                 }
                             }
                         } else {
                             div { class: "space-y-2",
                                 // Unified device list (system default + hardware devices)
-                                for (device_id, device_name, badge_text, is_default) in all_audio_devices().iter() {
+                                for (device_id, device_name, badge_text, is_default) in all_audio_devices.iter() {
                                     label {
                                         key: "{device_id}",
                                         class: "flex items-center gap-3 rounded-lg hover:bg-base-100 cursor-pointer transition-colors",
@@ -508,7 +577,7 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                                                 div { class: "text-xs font-medium flex items-center gap-2",
                                                     span { class: "line-clamp-1", "{device_name}" }
                                                     if device_id == "default" {
-                                                        span { class: "badge badge-xs badge-outline", "Default" }
+                                                        span { class: "badge badge-xs badge-outline", "{strings.devices.default_badge}" }
                                                     } else if *is_default && !badge_text.is_empty() {
                                                         span { class: "badge badge-xs badge-outline", "{badge_text}" }
                                                     }
@@ -516,7 +585,9 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                                                 if device_id == "default" {
                                                     div { class: "text-xs text-base-content/60", "{badge_text}" }
                                                 } else {
-                                                    div { class: "text-xs text-base-content/60", "Device ID: {device_id}" }
+                                                    div { class: "text-xs text-base-content/60",
+                                                        {crate::i18n::fill(strings.devices.device_id, &[&device_id])}
+                                                    }
                                                 }
                                             }
                                         }
@@ -530,9 +601,9 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                             div { class: "text-center text-base-content/50 py-8",
                                 {device_icon()}
                                 if !has_loaded() {
-                                    div { class: "mt-2 text-sm", "Loading devices..." }
+                                    div { class: "mt-2 text-sm", "{strings.devices.loading_devices}" }
                                 } else {
-                                    div { class: "mt-2 text-sm", "{no_devices_message()}" }
+                                    div { class: "mt-2 text-sm", "{no_devices_message}" }
                                 }
                             }
                         } else {
@@ -557,9 +628,11 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                                             {device_icon()}
                                             div { class: "flex-1 min-w-0",
                                                 div { class: "text-sm font-medium truncate", "{device.name}" }
-                                                div { class: "text-xs text-base-content/60", "{device.device_type:?}" }
+                                                div { class: "text-xs text-base-content/60",
+                                                    {input_device_type_label(&device.device_type, strings)}
+                                                }
                                             }
-                                            div { class: "badge badge-success badge-sm", "Available" }
+                                            div { class: "badge badge-success badge-sm", "{strings.devices.available_badge}" }
                                         }
                                     }
                                 }
@@ -570,15 +643,23 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
             }
 
             // Error message
-            if !error_message().is_empty() {
-                div { class: "text-xs text-error mt-2", "{error_message()}" }
+            if let Some(failure) = error_message() {
+                div { class: "text-xs text-error mt-2",
+                    {crate::i18n::fill(
+                        match props.device_type {
+                            DeviceType::AudioOutput => strings.devices.load_audio_failed,
+                            DeviceType::Keyboard | DeviceType::Mouse => strings.devices.load_input_failed,
+                        },
+                        &[&failure.ui_message(&strings.errors)],
+                    )}
+                }
             }
 
             // Device status warning
             if show_error_status() {
                 div { class: "alert alert-warning mt-2",
                     div { class: "text-sm",
-                        "⚠️ Selected device may not be available. Audio may not work properly."
+                        "⚠️ {strings.devices.selection_unavailable}"
                     }
                 }
             }
@@ -588,9 +669,9 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
                 div { class: "alert alert-info mt-2",
                     div { class: "text-xs",
                         if !has_loaded() {
-                            "ℹ️ Linux: Click refresh to load available devices. This may briefly interrupt audio playback due to ALSA device enumeration."
+                            "ℹ️ {strings.devices.linux_click_refresh}"
                         } else {
-                            "ℹ️ Linux: Refresh button will briefly interrupt audio playback (ALSA limitation)."
+                            "ℹ️ {strings.devices.linux_refresh_warning}"
                         }
                     }
                 }
@@ -601,11 +682,13 @@ pub fn DeviceSelector(props: DeviceSelectorProps) -> Element {
 
 #[component]
 pub fn AudioOutputSelector() -> Element {
+    // Read at render time so the selector's own label follows a language change.
+    let strings = crate::i18n::use_strings();
     rsx! {
         DeviceSelector {
             device_type: DeviceType::AudioOutput,
-            label: "Audio Output Device".to_string(),
-            description: Some("Select the audio device for soundpack playback".to_string()),
+            label: strings.devices.audio_output_label.to_string(),
+            description: Some(strings.devices.audio_output_description.to_string()),
         }
     }
 }
@@ -613,11 +696,12 @@ pub fn AudioOutputSelector() -> Element {
 #[allow(dead_code)]
 #[component]
 pub fn KeyboardSelector() -> Element {
+    let strings = crate::i18n::use_strings();
     rsx! {
         DeviceSelector {
             device_type: DeviceType::Keyboard,
-            label: "Keyboard Devices".to_string(),
-            description: Some("Select which keyboards should generate sound effects".to_string()),
+            label: strings.devices.keyboard_devices_label.to_string(),
+            description: Some(strings.devices.keyboard_devices_description.to_string()),
         }
     }
 }
@@ -625,11 +709,12 @@ pub fn KeyboardSelector() -> Element {
 #[allow(dead_code)]
 #[component]
 pub fn MouseSelector() -> Element {
+    let strings = crate::i18n::use_strings();
     rsx! {
         DeviceSelector {
             device_type: DeviceType::Mouse,
-            label: "Mouse Devices".to_string(),
-            description: Some("Select which mice should generate sound effects".to_string()),
+            label: strings.devices.mouse_devices_label.to_string(),
+            description: Some(strings.devices.mouse_devices_description.to_string()),
         }
     }
 }

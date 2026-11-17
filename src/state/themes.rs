@@ -1,3 +1,5 @@
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::config::{preserve_corrupt_config, Preserved};
 use crate::state::paths;
 use crate::utils::notice::{self, NoticeAction, NoticeKind};
@@ -46,19 +48,72 @@ pub enum ThemesLoad {
     KeptAside(PathBuf),
     /// The file could not be read, or a damaged one could not be moved. It is
     /// left exactly as it is, and nothing is saved over it this session.
+    /// The `String` is what went wrong, for the log.
     ReadOnly(String),
 }
 
 /// Set when the list could not be read at startup, so every save refuses.
 static READ_ONLY: AtomicBool = AtomicBool::new(false);
-const READ_ONLY_ERROR: &str =
-    "Could not read your colors list, so nothing in it was changed. Restart Mechvibes to try again.";
+
+/// Why a change to the colors list was refused or not written.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description the log and the callers that only print keep using, and
+/// it never follows the UI language. [`ThemesError::ui_message`] is the sentence
+/// the screen shows, composed from the catalog the caller hands in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemesError {
+    /// The list could not be read at startup, so nothing may be written over it.
+    ReadOnly,
+    /// The folder the list lives in could not be created.
+    DataDirectory(path::DirectoryError),
+    /// The name offered for a new or edited entry is blank.
+    NameRequired,
+    /// Another entry already uses that name.
+    NameTaken,
+    /// No entry has that id.
+    NotFound,
+    /// The file could not be written.
+    Storage(data::WriteJsonError),
+}
+
+impl ThemesError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            ThemesError::ReadOnly => errors.colors_list_read_only.to_string(),
+            ThemesError::DataDirectory(cause) =>
+                fill(errors.data_directory_unavailable, &[&cause.ui_message(errors)]),
+            ThemesError::NameRequired => errors.theme_name_required.to_string(),
+            ThemesError::NameTaken => errors.theme_name_taken.to_string(),
+            ThemesError::NotFound => errors.theme_not_found.to_string(),
+            // The storage helper words its own cause from the same catalog.
+            ThemesError::Storage(cause) => cause.ui_message(errors),
+        }
+    }
+}
+
+impl std::fmt::Display for ThemesError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
 
 impl ThemesConfig {
     /// The colors list from disk. Never writes over a file it could not read:
     /// a damaged one is moved aside first, and one that cannot be read at all
     /// (locked, no permission) makes the list read-only for this session.
-    pub fn load() -> Self {
+    ///
+    /// `errors` is the `errors` zone of the language in effect, so the two
+    /// notices this can report are worded from the catalog. The load runs
+    /// before the window exists, so whoever owns the `Lazy` resolves the zone
+    /// (see `utils::theme`); this module never reads the config itself.
+    pub fn load(errors: &ErrorStrings) -> Self {
         let themes_path = paths::data::themes_json();
 
         // Ensure data directory exists
@@ -78,7 +133,7 @@ impl ThemesConfig {
             }
             ThemesLoad::Fresh | ThemesLoad::KeptAside(_) => {
                 crate::always_print!("📝 Creating new themes configuration");
-                if let Err(e) = config.save_at(&themes_path, false) {
+                if let Err(e) = config.save_at_typed(&themes_path, false) {
                     crate::always_eprint!("❌ Failed to create initial themes.json: {}", e);
                 }
             }
@@ -93,13 +148,14 @@ impl ThemesConfig {
                 crate::always_eprint!("   The damaged themes.json was kept at: {}", copy.display());
                 notice::report(
                     NoticeKind::Error,
-                    format!("Your colors list was damaged. A copy was kept at {}.", copy.display()),
+                    notice::colors_list_damaged(errors, &copy),
                     Some(NoticeAction::ShowFile(copy))
                 );
             }
             // Saved colors are missing from the screen this session, so say
             // why now rather than only at the next save.
-            ThemesLoad::ReadOnly(_) => notice::report(NoticeKind::Error, READ_ONLY_ERROR, None),
+            ThemesLoad::ReadOnly(_) =>
+                notice::report(NoticeKind::Error, notice::colors_list_read_only(errors), None),
             ThemesLoad::Fresh | ThemesLoad::Loaded => {}
         }
         config
@@ -133,40 +189,45 @@ impl ThemesConfig {
         }
     }
 
-    pub fn save(&self) -> Result<(), String> {
-        self.save_at(&paths::data::themes_json(), READ_ONLY.load(Ordering::Acquire))
+    /// Save the list where the app keeps it, with the failure typed so the
+    /// screen can word it from the catalog.
+    pub fn save_typed(&self) -> Result<(), ThemesError> {
+        self.save_at_typed(&paths::data::themes_json(), READ_ONLY.load(Ordering::Acquire))
     }
 
-    fn save_at(&self, themes_path: &Path, read_only: bool) -> Result<(), String> {
+    fn save_at_typed(&self, themes_path: &Path, read_only: bool) -> Result<(), ThemesError> {
         if read_only {
-            return Err(READ_ONLY_ERROR.to_string());
+            return Err(ThemesError::ReadOnly);
         }
 
         // Ensure the data directory exists
         if let Some(parent) = themes_path.parent() {
-            path::ensure_directory_exists(parent)
-                .map_err(|e| format!("Failed to create data directory: {}", e))?;
+            path::ensure_directory_exists_typed(parent).map_err(ThemesError::DataDirectory)?;
         }
 
         // Atomic, so a failed write leaves the old list rather than half of one.
-        data::save_json_to_file_atomically(self, themes_path)?;
+        data::save_json_to_file_atomically_typed(self, themes_path).map_err(ThemesError::Storage)?;
         crate::always_print!("💾 Saved themes configuration to {}", themes_path.display());
         Ok(())
     }
-    pub fn add_theme(
+
+    /// Add a theme. The `String` returned is its id.
+    ///
+    /// The failure is typed so the screen can word it from the catalog.
+    pub fn add_theme_typed(
         &mut self,
         name: String,
         description: String,
         css: String,
-    ) -> Result<String, String> {
+    ) -> Result<String, ThemesError> {
         if name.trim().is_empty() {
-            return Err("Give it a name first.".to_string());
+            return Err(ThemesError::NameRequired);
         }
 
         // Check for duplicate names
         for theme in self.custom_themes.values() {
             if theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("You already have one with this name. Pick another name.".to_string());
+                return Err(ThemesError::NameTaken);
             }
         }
 
@@ -188,21 +249,23 @@ impl ThemesConfig {
 
         Ok(id)
     }
-    pub fn update_theme(
+    /// Change an entry. The failure is typed so the screen can word it from the
+    /// catalog.
+    pub fn update_theme_typed(
         &mut self,
         id: &str,
         name: String,
         description: String,
         css: String,
-    ) -> Result<(), String> {
+    ) -> Result<(), ThemesError> {
         if name.trim().is_empty() {
-            return Err("Give it a name first.".to_string());
+            return Err(ThemesError::NameRequired);
         }
 
         // Check for duplicate names (excluding current theme)
         for (theme_id, theme) in &self.custom_themes {
             if theme_id != id && theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("You already have one with this name. Pick another name.".to_string());
+                return Err(ThemesError::NameTaken);
             }
         }
 
@@ -214,16 +277,24 @@ impl ThemesConfig {
             self.last_updated = Utc::now();
             Ok(())
         } else {
-            Err("Theme not found".to_string())
+            Err(ThemesError::NotFound)
         }
     }
 
+    /// Kept in its `String` shape for the callers outside this slice that only
+    /// report it as a reason (`customize::colors_tab`); delegates to
+    /// [`ThemesConfig::delete_theme_typed`].
     pub fn delete_theme(&mut self, id: &str) -> Result<(), String> {
+        self.delete_theme_typed(id).map_err(|e| e.to_string())
+    }
+
+    /// The same removal as [`ThemesConfig::delete_theme`], with the failure typed.
+    pub fn delete_theme_typed(&mut self, id: &str) -> Result<(), ThemesError> {
         if self.custom_themes.remove(id).is_some() {
             self.last_updated = Utc::now();
             Ok(())
         } else {
-            Err("Theme not found".to_string())
+            Err(ThemesError::NotFound)
         }
     }
 
@@ -241,7 +312,7 @@ impl ThemesConfig {
             unique = format!("{} ({})", name, number);
             number += 1;
         }
-        self.add_theme(unique, String::new(), css.to_string())
+        self.add_theme_typed(unique, String::new(), css.to_string()).map_err(|e| e.to_string())
     }
 
     /// The id of colors whose CSS is exactly `css`, the newest when there are
@@ -271,6 +342,108 @@ impl ThemesConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The description a read-only save gives has to stay the catalog's English
+    /// sentence, or the log and the notice drift apart and the user reads one
+    /// of each depending on which path reported.
+    #[test]
+    fn the_read_only_sentence_matches_the_catalog() {
+        assert_eq!(
+            ThemesError::ReadOnly.to_string(),
+            crate::i18n::Language::En.strings().errors.colors_list_read_only
+        );
+    }
+
+    /// The descriptions are the contract: the log reads the same in every
+    /// language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let directory = path::DirectoryError {
+            path: PathBuf::from("/x"),
+            cause: "denied".to_string(),
+        };
+        let storage = data::WriteJsonError::WriteFile {
+            path: PathBuf::from("/x/themes.json.7.tmp"),
+            cause: "no space left on device".to_string(),
+        };
+        let failures = [
+            ThemesError::ReadOnly,
+            ThemesError::DataDirectory(directory.clone()),
+            ThemesError::NameRequired,
+            ThemesError::NameTaken,
+            ThemesError::NotFound,
+            ThemesError::Storage(storage.clone()),
+        ];
+        for failure in &failures {
+            let english = failure.to_string();
+            assert_eq!(
+                english,
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        // The wording the log had before the catalog was involved.
+        assert_eq!(ThemesError::NameRequired.to_string(), "Give it a name first.");
+        assert_eq!(
+            ThemesError::NameTaken.to_string(),
+            "You already have one with this name. Pick another name."
+        );
+        assert_eq!(ThemesError::NotFound.to_string(), "Theme not found");
+        assert_eq!(
+            ThemesError::DataDirectory(directory.clone()).to_string(),
+            "Failed to create data directory: Failed to create directory '/x': denied"
+        );
+        // The storage helper owns its sentence, and English is unchanged by it
+        // moving into the catalog.
+        assert_eq!(
+            ThemesError::Storage(storage.clone()).to_string(),
+            "Failed to write file '/x/themes.json.7.tmp': no space left on device"
+        );
+        // What the user reads does follow the language, cause included.
+        assert_eq!(
+            ThemesError::Storage(storage).ui_message(&Language::Es.strings().errors),
+            "No se pudo escribir el archivo '/x/themes.json.7.tmp': no space left on device"
+        );
+        assert_eq!(
+            ThemesError::DataDirectory(directory).ui_message(&Language::Zh.strings().errors),
+            "无法创建数据目录：无法创建目录 '/x'：denied"
+        );
+        assert_eq!(
+            ThemesError::NameTaken.ui_message(&Language::Es.strings().errors),
+            "Ya tienes uno con este nombre. Elige otro nombre."
+        );
+    }
+
+    /// The two notices the load can report, in all three languages. The
+    /// outcomes that say nothing report nothing: `load` simply calls no
+    /// builder for them.
+    #[test]
+    fn a_load_outcome_is_worded_from_the_catalog() {
+        use crate::i18n::Language;
+
+        let copy = PathBuf::from("/tmp/themes.json.corrupt");
+        assert_eq!(
+            notice::colors_list_damaged(&Language::En.strings().errors, &copy),
+            "Your colors list was damaged. A copy was kept at /tmp/themes.json.corrupt."
+        );
+        assert_eq!(
+            notice::colors_list_read_only(&Language::Zh.strings().errors),
+            "无法读取你的颜色列表，因此其中的内容未被更改。请重启 Mechvibes 再试一次。"
+        );
+        assert_eq!(
+            notice::colors_list_read_only(&Language::Es.strings().errors),
+            "No se pudo leer tu lista de colores, así que no se cambió nada en ella. Reinicia Mechvibes para volver a intentarlo."
+        );
+    }
 
     #[test]
     fn importing_reuses_the_same_theme_and_numbers_a_different_one() {
@@ -339,7 +512,7 @@ mod tests {
 
         let mut themes = themes;
         themes.import_theme("Night", "--color-primary: red;").unwrap();
-        themes.save_at(&path, false).unwrap();
+        themes.save_at_typed(&path, false).unwrap();
         assert_eq!(ThemesConfig::load_from(&path), (themes, ThemesLoad::Loaded));
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -374,7 +547,7 @@ mod tests {
 
         // While read-only, a save refuses and writes nothing.
         let file = dir.join("other.json");
-        assert_eq!(ThemesConfig::default().save_at(&file, true), Err(READ_ONLY_ERROR.to_string()));
+        assert_eq!(ThemesConfig::default().save_at_typed(&file, true), Err(ThemesError::ReadOnly));
         assert!(!file.exists());
         let _ = std::fs::remove_dir_all(&dir);
     }

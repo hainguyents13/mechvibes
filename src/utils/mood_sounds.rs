@@ -8,6 +8,8 @@
 //! sample before it is kept, so the list never holds something the player
 //! cannot play.
 
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::config::CustomMoodSound;
 use sha2::{ Digest, Sha256 };
 use std::fs::{ self, File };
@@ -20,11 +22,68 @@ pub const SUPPORTED_EXTENSIONS: &[&str] = &["mp3", "wav", "ogg", "flac", "m4a"];
 /// The longest name kept from the picked file, in characters.
 const MAX_NAME_CHARS: usize = 60;
 
-/// Shown in place of a file name that has nothing printable left.
-const FALLBACK_NAME: &str = "My sound";
+/// Why a picked file was not added to the list.
+///
+/// The two halves of every failure live apart on purpose. `Display` is the
+/// stable English description the log gets, and it never follows the UI
+/// language. [`MoodSoundError::ui_message`] is the sentence the user reads,
+/// composed from the catalog the caller hands in — this module has no way to
+/// know which language is in effect, and asking it would put a config read on
+/// the path that runs in a background task.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum MoodSoundError {
+    /// The extension is not one the player decodes.
+    UnsupportedFile,
+    /// The Mood sounds folder could not be created. The path helper that owns
+    /// the sentence words it from the same catalog.
+    Directory(crate::utils::path::DirectoryError),
+    /// The picked file could not be read.
+    FileOpen(String),
+    /// Reading it stopped halfway.
+    FileRead(String),
+    /// The copy could not be written, or could not be moved into its final name.
+    SaveFailed(String),
+    /// The copy is there but could not be opened for decoding.
+    SoundOpen(String),
+    /// The file opened but is not a format the decoder accepts.
+    NotPlayable,
+    /// The file decodes to no samples at all.
+    EmptySound,
+}
+
+impl MoodSoundError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            MoodSoundError::UnsupportedFile => errors.mood_sound_pick_supported_file.to_string(),
+            // The folder's own sentence, which the path helper words.
+            MoodSoundError::Directory(cause) => cause.ui_message(errors),
+            MoodSoundError::FileOpen(cause) => fill(errors.mood_sound_open_failed, &[cause]),
+            MoodSoundError::FileRead(cause) => fill(errors.mood_sound_read_failed, &[cause]),
+            MoodSoundError::SaveFailed(cause) => fill(errors.mood_sound_save_failed, &[cause]),
+            MoodSoundError::SoundOpen(cause) => fill(errors.mood_sound_open_sound_failed, &[cause]),
+            MoodSoundError::NotPlayable => errors.mood_sound_not_playable.to_string(),
+            MoodSoundError::EmptySound => errors.mood_sound_empty.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for MoodSoundError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
 
 /// Copy `source` into the Mood sounds folder and describe it for the list.
-pub fn add(source: &Path) -> Result<CustomMoodSound, String> {
+///
+/// The failure is typed so the screen can word it from the catalog with
+/// [`MoodSoundError::ui_message`].
+pub fn add_typed(source: &Path) -> Result<CustomMoodSound, MoodSoundError> {
     add_in(&crate::state::paths::data::mood_sounds_dir(), source)
 }
 
@@ -38,12 +97,10 @@ pub fn remove(file_name: &str) {
     remove_in(&crate::state::paths::data::mood_sounds_dir(), file_name);
 }
 
-/// `add` into `dir`.
-pub(crate) fn add_in(dir: &Path, source: &Path) -> Result<CustomMoodSound, String> {
-    let extension = supported_extension(source).ok_or_else(||
-        "Pick an MP3, WAV, OGG, FLAC or M4A file.".to_string()
-    )?;
-    crate::utils::path::ensure_directory_exists(dir)?;
+/// [`add_typed`] into `dir`.
+pub(crate) fn add_in(dir: &Path, source: &Path) -> Result<CustomMoodSound, MoodSoundError> {
+    let extension = supported_extension(source).ok_or(MoodSoundError::UnsupportedFile)?;
+    crate::utils::path::ensure_directory_exists_typed(dir).map_err(MoodSoundError::Directory)?;
 
     // Copy and hash in one pass, so a long music file is read only once.
     let partial = dir.join(format!("sound-{}.partial", uuid::Uuid::new_v4().simple()));
@@ -67,7 +124,7 @@ pub(crate) fn add_in(dir: &Path, source: &Path) -> Result<CustomMoodSound, Strin
         let _ = fs::remove_file(&partial);
     } else if let Err(e) = fs::rename(&partial, &path) {
         let _ = fs::remove_file(&partial);
-        return Err(format!("Could not save the sound: {}", e));
+        return Err(MoodSoundError::SaveFailed(e.to_string()));
     }
 
     Ok(CustomMoodSound {
@@ -98,33 +155,49 @@ fn supported_extension(source: &Path) -> Option<String> {
 }
 
 /// Copy `source` to `target` and return the hex SHA-256 of what was copied.
-fn copy_hashing(source: &Path, target: &Path) -> Result<String, String> {
-    let mut reader = File::open(source).map_err(|e| format!("Could not open the file: {}", e))?;
-    let mut writer = File::create(target).map_err(|e| format!("Could not save the sound: {}", e))?;
+fn copy_hashing(source: &Path, target: &Path) -> Result<String, MoodSoundError> {
+    let mut reader = File::open(source).map_err(|e| MoodSoundError::FileOpen(e.to_string()))?;
+    let mut writer = File::create(target).map_err(|e| MoodSoundError::SaveFailed(e.to_string()))?;
     let mut hasher = Sha256::new();
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
-        let read = reader.read(&mut buffer).map_err(|e| format!("Could not read the file: {}", e))?;
+        let read = reader
+            .read(&mut buffer)
+            .map_err(|e| MoodSoundError::FileRead(e.to_string()))?;
         if read == 0 {
             break;
         }
         hasher.update(&buffer[..read]);
-        writer.write_all(&buffer[..read]).map_err(|e| format!("Could not save the sound: {}", e))?;
+        writer
+            .write_all(&buffer[..read])
+            .map_err(|e| MoodSoundError::SaveFailed(e.to_string()))?;
     }
-    writer.flush().map_err(|e| format!("Could not save the sound: {}", e))?;
+    writer.flush().map_err(|e| MoodSoundError::SaveFailed(e.to_string()))?;
     Ok(crate::utils::update_installer::hex_encode(&hasher.finalize()))
 }
 
 /// Whether the player can decode `path`: it opens, and gives a first sample.
-fn check_playable(path: &Path) -> Result<(), String> {
-    let file = File::open(path).map_err(|e| format!("Could not open the sound: {}", e))?;
+fn check_playable(path: &Path) -> Result<(), MoodSoundError> {
+    let file = File::open(path).map_err(|e| MoodSoundError::SoundOpen(e.to_string()))?;
     let mut decoder = rodio::Decoder
         ::new(BufReader::new(file))
-        .map_err(|_| "This file is not a sound Mechvibes can play.".to_string())?;
+        .map_err(|_| MoodSoundError::NotPlayable)?;
     match decoder.next() {
         Some(_) => Ok(()),
-        None => Err("This sound file is empty.".to_string()),
+        None => Err(MoodSoundError::EmptySound),
     }
+}
+
+/// Shown in place of a file name that has nothing printable left.
+///
+/// It comes from the **English** catalog on purpose. `CustomMoodSound::name` is
+/// data: it is written to `config.json` when the sound is added, so taking it
+/// from the language in effect would put the language of that moment into the
+/// user's list for good. The wording still lives in the catalog, next to the
+/// notices this module produces. A translated fallback belongs at the render
+/// site, which is the only place that can follow a language change.
+fn fallback_name() -> &'static str {
+    crate::i18n::Language::En.strings().errors.mood_sound_fallback_name
 }
 
 /// The picked file's name without its extension, trimmed and kept short.
@@ -142,7 +215,7 @@ fn display_name(source: &Path) -> String {
         .take(MAX_NAME_CHARS)
         .collect();
     let cleaned = cleaned.trim().to_string();
-    if cleaned.is_empty() { FALLBACK_NAME.to_string() } else { cleaned }
+    if cleaned.is_empty() { fallback_name().to_string() } else { cleaned }
 }
 
 /// Whether `name` is `sound-<32 lowercase hex>.<supported extension>`.
@@ -278,8 +351,47 @@ mod tests {
     #[test]
     fn names_are_trimmed_kept_short_and_never_empty() {
         assert_eq!(display_name(Path::new("  Chill Mix  .mp3")), "Chill Mix");
-        assert_eq!(display_name(Path::new("   .ogg")), FALLBACK_NAME);
+        assert_eq!(display_name(Path::new("   .ogg")), fallback_name());
         let long = format!("{}.mp3", "a".repeat(200));
         assert_eq!(display_name(Path::new(&long)).chars().count(), MAX_NAME_CHARS);
+    }
+
+    /// The descriptions are the contract: the log and the cached metadata read
+    /// the same in every language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let failures = [
+            MoodSoundError::UnsupportedFile,
+            MoodSoundError::Directory(crate::utils::path::DirectoryError {
+                path: PathBuf::from("/x"),
+                cause: "denied".to_string(),
+            }),
+            MoodSoundError::FileOpen("no such file".to_string()),
+            MoodSoundError::FileRead("interrupted".to_string()),
+            MoodSoundError::SaveFailed("disk full".to_string()),
+            MoodSoundError::SoundOpen("denied".to_string()),
+            MoodSoundError::NotPlayable,
+            MoodSoundError::EmptySound,
+        ];
+        for failure in &failures {
+            let english = failure.to_string();
+            let from_catalog = failure.ui_message(&Language::En.strings().errors);
+            assert_eq!(english, from_catalog, "the English catalog is the description");
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        assert_eq!(
+            MoodSoundError::UnsupportedFile
+                .ui_message(&Language::Es.strings().errors),
+            "Elige un archivo MP3, WAV, OGG, FLAC o M4A.",
+            "what the user reads does follow the language"
+        );
     }
 }

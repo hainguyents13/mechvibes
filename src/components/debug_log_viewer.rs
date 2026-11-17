@@ -30,6 +30,10 @@ const POLL_INTERVAL_MS: u64 = 250;
 
 #[component]
 pub fn DebugLogViewer() -> Element {
+    // Read at render time, never inside a memo: the config signal this reads is
+    // what re-renders the viewer when the language changes.
+    let strings = crate::i18n::use_strings();
+
     // The rendered tail. Replaced wholesale per refresh, never appended to
     // per line, so a burst of output costs one re-render rather than one per
     // line.
@@ -53,7 +57,7 @@ pub fn DebugLogViewer() -> Element {
     rsx! {
       div { class: "space-y-4",
         p { class: "text-sm text-base-content/70",
-          "Recent activity from the app, kept in memory only. Installed builds have no console, so this is where log lines go. Nothing is written to disk and nothing leaves your device unless you press Export."
+          "{strings.chrome.debug_log_blurb}"
         }
 
         // The terminal-style tail.
@@ -70,7 +74,7 @@ pub fn DebugLogViewer() -> Element {
           style: "display: flex; flex-direction: column-reverse; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;",
           div {
             if lines().is_empty() {
-              div { class: "opacity-60", "No log lines captured yet." }
+              div { class: "opacity-60", "{strings.chrome.no_log_lines}" }
             }
             for line in lines() {
               div { class: "whitespace-pre-wrap break-all leading-relaxed", "{line}" }
@@ -96,10 +100,10 @@ pub fn DebugLogViewer() -> Element {
                     }
                 }
             },
-            "Export logs"
+            "{strings.chrome.export_logs}"
           }
           div { class: "text-xs text-base-content/60",
-            "{lines().len()} shown, {log_buffer::len()} kept"
+            "{crate::i18n::fill(strings.chrome.log_counts, &[&lines().len(), &log_buffer::len()])}"
           }
         }
 
@@ -109,14 +113,14 @@ pub fn DebugLogViewer() -> Element {
               Ok(path) => rsx! {
                 div { class: "alert alert-success alert-soft text-xs",
                   div {
-                    p { "Log file saved." }
+                    p { "{strings.chrome.log_saved}" }
                     p { class: "break-all opacity-80", "{path}" }
                   }
                 }
               },
               Err(message) => rsx! {
                 div { class: "alert alert-error alert-soft text-xs",
-                  "Could not save the log file: {message}"
+                  "{crate::i18n::fill(strings.chrome.log_save_failed, &[&message])}"
                 }
               },
           }
@@ -124,11 +128,8 @@ pub fn DebugLogViewer() -> Element {
 
         div { class: "pt-2 border-t border-base-300",
           Toggler {
-            title: "Verbose logging".to_string(),
-            description: Some(
-                "Adds per-keystroke timing lines, useful for latency reports. Key identities are always masked. Resets to off every time the app starts."
-                    .to_string(),
-            ),
+            title: strings.chrome.verbose_logging.to_string(),
+            description: Some(strings.chrome.verbose_logging_description.to_string()),
             checked: verbose(),
             on_change: move |new_value: bool| {
                 verbose.set(new_value);

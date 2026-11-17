@@ -16,6 +16,12 @@ pub fn HomePage(audio_ctx: Arc<AudioContext>) -> Element {
     // Use shared config hook
     let (config, update_config) = use_config();
 
+    // Read at render time, never inside a memo: the config signal this reads is
+    // what re-renders the page when the language changes. The one memo below
+    // holds `enable_sound`, a bool, so there is no translated value to go stale
+    // in it.
+    let strings = crate::i18n::use_strings();
+
     // Volume states from config
     let mut volume = use_signal(|| config().volume);
     let mut mouse_volume = use_signal(|| config().mouse_volume);
@@ -156,7 +162,8 @@ pub fn HomePage(audio_ctx: Arc<AudioContext>) -> Element {
                 span { class: "text-primary",
                   Volume2 { class: "w-4 h-4" }
                 }
-                "Enable all sounds"
+                "{strings.home.enable_all_sounds}"
+                // A key combination is not a sentence: it stays untranslated.
                 span { class: "text-xs font-normal text-base-content/50", "Ctrl+Alt+M" }
               }
               input {
@@ -190,13 +197,13 @@ pub fn HomePage(audio_ctx: Arc<AudioContext>) -> Element {
                 span { class: "text-primary",
                   Pencil { class: "w-4 h-4" }
                 }
-                "Sound pack editor"
+                "{strings.home.sound_pack_editor}"
               }
               a {
                 class: "btn btn-soft btn-xs rounded-box",
                 href: "https://editor.mechvibes.com/?utm_source=mechvibes&utm_medium=app&utm_campaign=home",
                 target: "_blank",
-                "Open"
+                "{strings.home.editor_open}"
                 ExternalLink { class: "w-3 h-3 ml-1" }
               }
             }

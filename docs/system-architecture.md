@@ -307,6 +307,16 @@ For `definition_method: "multi"`, each sound can have its own audio file:
 - `enabled_keyboards`, `enabled_mice` — device instance IDs for per-device filtering (Windows).
 - `ambiance_active_sounds` — sounds currently playing in ambiance player (HashMap key = sound_id).
 - `ambiance_custom_sounds` — sounds the user added to Mood. The files are copied into `mood_sounds/` in the writable data folder, named `sound-<32 hex of the SHA-256>.<ext>` (`src/utils/mood_sounds.rs`).
+- `language` — `Option<Language>` (`En` / `Zh` / `Es`). `None` follows the system language; see Languages below.
+
+### Languages (i18n)
+
+The language lives in the config, not in a global: `AppConfig::language`, where `None` means "follow the system" (and is also what a config written before the field means). The Settings selector writes `Some(...)` or `None`, and `i18n::resolve` turns either into the language actually in use.
+
+- **The catalog is embedded.** `src/i18n/` is a struct of `&'static str` per zone, with the three translations side by side in `src/i18n/catalog/`. No runtime files and no i18n crate — the only dependency added is `sys-locale`, for detection. A misspelled key at a call site does not compile, a key cannot exist in one language only, and nothing is allocated per render.
+- **Detection is two-layer.** `src/i18n/detect.rs` reads `LC_ALL` / `LC_MESSAGES` / `LANG` first, then asks the platform through `sys-locale` (preferred UI language on Windows, `NSLocale` on macOS, `setlocale` on Unix). The second layer is required, not a refinement: an app started from the Windows desktop or from Finder inherits no `LANG` at all. The answer is cached once by `system_language`, so a render never queries the OS. Telemetry keeps its own private copy of the environment read; that duplication is deliberate.
+- **Reactivity comes from the config signal.** `use_strings()` / `use_language()` read the config through `use_config` (`src/utils/config.rs`), so a language change re-renders the component tree. The tray is not a Dioxus component and cannot use the hooks: it resolves the catalog from the config and is re-labelled through `request_tray_update()` (`src/libs/tray_service.rs`).
+- **Hard rule:** never capture a translated value in a `use_memo`. A memo does not see the language change and freezes the first one.
 
 ### Channel Contracts
 
@@ -365,6 +375,8 @@ Note: `DeviceLost` was removed in Phase 7 (watchdog removal). On device unplug, 
 | **No device watchdog** | Previous design: 1s poll timer with auto-fallback | Polling cost hundreds of milliseconds per check, stalling keystrokes. User decision: go silent on unplug instead of polling. Manual switch (Settings) remains the only way to change devices. |
 | **No device config in worker** | Worker reads config directly | Config lives in UI (persistence, multi-process coordination). Pipe remains one-directional. Host applies filtering post-capture. |
 | **Ambiance on separate thread** | Ambiance sharing keyboard engine stream | Ambiance is long-lived (can play for minutes). Sharing a stream would mix device-switch logic. Separate `OutputStream` is cleaner; only downside is 2 audio threads. |
+| **Embedded typed catalog, no i18n crate** | `rust-i18n`, `dioxus-i18n`, Fluent with runtime bundles | A catalog crate falls back silently on a missing key; here the compiler refuses it. One file per zone (struct plus EN/ZH/ES) rather than runtime bundles: no file I/O, nothing allocated per render, and a key cannot exist in one language only. Cost: a new language touches the `zone!` macro and every zone file, not one new file. |
+| **Two-layer language detection** | POSIX environment only (`LC_ALL` / `LC_MESSAGES` / `LANG`) | A Windows app started from the desktop and a macOS app started from Finder inherit no `LANG`, so the environment alone would answer "unknown" on the platforms where most people launch the app from an icon. `sys-locale` asks the platform once the environment says nothing. |
 
 ## Startup Sequence
 

@@ -151,6 +151,13 @@ pub struct AppConfig {
     pub enabled_keyboards: Vec<String>, // Enabled physical keyboards (by device instance ID)
     pub enabled_mice: Vec<String>, // Enabled physical mice (by device instance ID)
     // UI settings
+    /// The language the window is shown in.
+    ///
+    /// `None` means "follow the system", which is also what a config written
+    /// before this field existed means: an upgrade keeps the OS language
+    /// instead of silently pinning English. The Settings selector writes
+    /// `Some(...)` for an explicit choice and `None` for "System".
+    pub language: Option<crate::i18n::Language>,
     pub theme: Theme,
     pub custom_css: String, // Legacy field for existing custom CSS
     pub logo_customization: LogoCustomization,
@@ -330,6 +337,7 @@ impl AppConfig {
             && self.pinned_soundpacks == other.pinned_soundpacks
             && self.enabled_keyboards == other.enabled_keyboards
             && self.enabled_mice == other.enabled_mice
+            && self.language == other.language
             && self.theme == other.theme
             && self.custom_css == other.custom_css
             && self.logo_customization == other.logo_customization
@@ -516,6 +524,7 @@ impl Default for AppConfig {
             selected_audio_device: None, // Default to system default audio device
             enabled_keyboards: Vec::new(), // Default to no keyboards enabled (all keyboards will work)
             enabled_mice: Vec::new(), // Default to no mice enabled (all mice will work)
+            language: None, // Follow the system language until the user chooses one
             theme: Theme::BuiltIn(BuiltInTheme::System), // Default to System theme
             custom_css: String::new(),
             logo_customization: LogoCustomization::default(),
@@ -639,6 +648,57 @@ mod tests {
         toggled.enable_telemetry = !original.enable_telemetry;
 
         assert!(!toggled.data_equals(&original), "the toggle must mark the config dirty");
+    }
+
+    /// The value written is the language's subtag, so the file stays readable
+    /// and the identifier outlives any reordering of the enum.
+    #[test]
+    fn the_chosen_language_round_trips_as_its_subtag() {
+        use crate::i18n::Language;
+
+        let document = config_json_with(&[("language", serde_json::json!("zh"))]);
+        let restored = parse_lenient(&document).expect("an explicit language must parse");
+        assert_eq!(restored.language, Some(Language::Zh));
+
+        let serialized = serde_json::to_value(&restored).expect("config serializes");
+        assert_eq!(serialized["language"], serde_json::json!("zh"));
+    }
+
+    /// A config written before `language` existed must load on the system
+    /// language, not pinned to English and not reset.
+    #[test]
+    fn a_config_without_the_language_field_follows_the_system() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("language");
+
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating the language field must deserialize, not reset");
+
+        assert_eq!(restored.language, None, "no stored choice means follow the system");
+    }
+
+    /// The selector stores `null` for "System", so an explicit null has to read
+    /// back as no preference rather than as a damaged entry.
+    #[test]
+    fn a_null_language_means_follow_the_system() {
+        let document = config_json_with(&[("language", serde_json::Value::Null)]);
+        let restored = parse_lenient(&document).expect("a null language must not fail the document");
+
+        assert_eq!(restored.language, None);
+    }
+
+    /// A hand-edited or damaged value costs only that field, and the fallback is
+    /// the system language rather than a silent English pin.
+    #[test]
+    fn a_damaged_language_value_falls_back_to_the_system() {
+        for damaged in [serde_json::json!("klingon"), serde_json::json!(7)] {
+            let document = config_json_with(&[("language", damaged.clone())]);
+            let restored = parse_lenient(&document)
+                .unwrap_or_else(|_| panic!("a damaged language {damaged} must not fail the document"));
+
+            assert_eq!(restored.language, None, "damaged value {damaged} must follow the system");
+        }
     }
 
     /// A config from before "Start hidden" loads with the window shown, and
@@ -1041,6 +1101,7 @@ mod tests {
         // or map has nothing to change, and a built-in theme's name cannot
         // just grow a letter.
         let overrides: HashMap<&str, Value> = HashMap::from([
+            ("language", json!("es")),
             ("theme", json!({ "Custom": "my-colors" })),
             ("selected_audio_device", json!("output_name:0b3a976597860826")),
             ("soundpack_added_at", json!({ "keyboard/one": 1_700_000_000u64 })),

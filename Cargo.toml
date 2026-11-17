@@ -57,6 +57,10 @@ zip = "2.2.0"
 device_query = "4.0.1"
 directories = "6.0.0"
 sha2 = "0.11.0"
+# Reads the preferred UI language from the OS (Windows, macOS, Unix). The app
+# cannot rely on the POSIX environment alone: an app started from the Windows
+# desktop or from Finder inherits no `LANG` at all.
+sys-locale = "0.3"
 # Turns a `file://` URL from a Linux file manager into a path. Already in the
 # tree via tao.
 url = "2"

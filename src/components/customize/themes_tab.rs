@@ -17,6 +17,7 @@ use crate::components::customize::theme_card::{
 };
 use crate::components::theme_share::share_card;
 use crate::components::ui::ConfirmModal;
+use crate::i18n::{ fill, Strings, use_strings };
 use crate::state::saved_themes::{ SavedThemes, ThemeKind };
 use crate::utils::config::use_config;
 use crate::utils::notice::{ self, NoticeAction, NoticeKind };
@@ -24,20 +25,21 @@ use crate::utils::starter_themes;
 use dioxus::prelude::*;
 use lucide_dioxus::ExternalLink;
 
-/// How to use a theme file. A double-click opens one in Mechvibes on Windows
-/// and Linux only: macOS has no file type registered for it yet.
-const THEME_FILE_HINT: &str = if cfg!(target_os = "macos") {
-    "Got a theme file? Drop it on this window, or use Import."
-} else {
-    "Got a theme file? Double-click it, or drop it on this window."
-};
-
-/// What a theme is, since the Colors tab next to it could pass for one.
-const THEMES_INTRO: &str =
-    "A theme is a whole look: colors, logo and background. Put one on, then change any part in the Colors, Logo and Background tabs.";
-
 /// As many cards a row as fit, two in the default window.
 const GRID_STYLE: &str = "grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));";
+
+/// How to use a theme file: a double-click opens one in Mechvibes on Windows
+/// and Linux only, since macOS has no file type registered for it yet.
+///
+/// The two sentences are two catalog keys, not one with a word swapped: on
+/// macOS the hint has to name Import instead.
+fn theme_file_hint(can_double_click: bool, strings: &Strings) -> &'static str {
+    if can_double_click {
+        strings.customize.themes_file_hint_double_click
+    } else {
+        strings.customize.themes_file_hint_drop
+    }
+}
 
 /// A group of cards under a title, in the order the gallery shows them.
 #[derive(Debug, PartialEq)]
@@ -48,8 +50,9 @@ struct Group {
 
 /// The gallery's groups: the default look and the themes that come with the
 /// app, the user's own themes, then the installed ones, each newest first. A
-/// group with no cards is left out.
-fn gallery(store: &SavedThemes) -> Vec<Group> {
+/// group with no cards is left out. The titles are the catalog's, so they
+/// follow the language like everything else.
+fn gallery(store: &SavedThemes, strings: &Strings) -> Vec<Group> {
     let mut ready_made = vec![Card::Default];
     ready_made.extend(starter_themes::all().iter().map(Card::Starter));
     let newest_first = |kinds: &[ThemeKind]| {
@@ -61,9 +64,12 @@ fn gallery(store: &SavedThemes) -> Vec<Group> {
         saved.into_iter().cloned().map(Card::Saved).collect::<Vec<_>>()
     };
     [
-        Group { title: "Ready-made", cards: ready_made },
-        Group { title: "My themes", cards: newest_first(&[ThemeKind::Mine]) },
-        Group { title: "Installed", cards: newest_first(&[ThemeKind::Imported, ThemeKind::Library]) },
+        Group { title: strings.customize.group_ready_made, cards: ready_made },
+        Group { title: strings.customize.group_my_themes, cards: newest_first(&[ThemeKind::Mine]) },
+        Group {
+            title: strings.customize.group_installed,
+            cards: newest_first(&[ThemeKind::Imported, ThemeKind::Library]),
+        },
     ]
         .into_iter()
         .filter(|group| !group.cards.is_empty())
@@ -98,6 +104,7 @@ pub fn ThemesTab() -> Element {
     let (config, _) = use_config();
     let saved_themes = use_saved_themes();
     let editor = use_look_editor();
+    let strings = use_strings();
     // The id and name of the saved theme being renamed, or waiting for the
     // user to confirm its deletion.
     let mut renaming = use_signal(|| None::<(String, String)>);
@@ -113,7 +120,11 @@ pub fn ThemesTab() -> Element {
         let editor = editor.clone();
         move |card: Card| {
             if editor.apply_card(&card) == Ok(true) && card == Card::Default {
-                notice::report(NoticeKind::Info, "Default look is on.", Some(NoticeAction::Undo));
+                notice::report(
+                    NoticeKind::Info,
+                    strings.customize.default_look_is_on,
+                    Some(NoticeAction::Undo)
+                );
             }
         }
     };
@@ -142,7 +153,7 @@ pub fn ThemesTab() -> Element {
     };
 
     let config = config();
-    let groups: Vec<(&'static str, Vec<Shown>)> = gallery(&saved_themes())
+    let groups: Vec<(&'static str, Vec<Shown>)> = gallery(&saved_themes(), strings)
         .into_iter()
         .map(|group| {
             let shown = group.cards
@@ -159,10 +170,12 @@ pub fn ThemesTab() -> Element {
         })
         .collect();
     let last = groups.len().saturating_sub(1);
+    // Read once, before the `rsx!`, so the platform test stays in plain Rust.
+    let file_hint = theme_file_hint(!cfg!(target_os = "macos"), strings);
 
     rsx! {
       div { class: "space-y-4",
-        div { class: "text-sm text-base-content/70", "{THEMES_INTRO}" }
+        div { class: "text-sm text-base-content/70", "{strings.customize.themes_intro}" }
         for (index, (title, cards)) in groups.into_iter().enumerate() {
           div { key: "{title}", class: "space-y-2",
             div { class: "text-xs font-semibold text-base-content/60", "{title}" }
@@ -191,15 +204,15 @@ pub fn ThemesTab() -> Element {
             }
           }
         }
-        div { class: "text-sm text-base-content/70", "{THEME_FILE_HINT}" }
+        div { class: "text-sm text-base-content/70", "{file_hint}" }
         if let Some((id, name)) = renaming() {
           RenameModal { id, name, on_close: move |_| renaming.set(None) }
         }
         if let Some((id, name)) = deleting() {
           ConfirmModal {
-            title: format!("Delete {}?", name),
-            message: "This cannot be undone.".to_string(),
-            confirm_label: "Delete".to_string(),
+            title: fill(strings.customize.delete_title, &[&name]),
+            message: strings.customize.delete_message.to_string(),
+            confirm_label: strings.common.delete.to_string(),
             on_confirm: {
                 let editor = editor.clone();
                 move |_| {
@@ -218,6 +231,8 @@ pub fn ThemesTab() -> Element {
 /// Opens the theme library on the website, shaped like the cards around it.
 #[component]
 fn FindMoreCard() -> Element {
+    let strings = use_strings();
+
     rsx! {
       a {
         class: "{FRAME_CLASS} border-base-300",
@@ -229,9 +244,11 @@ fn FindMoreCard() -> Element {
           class: "flex flex-col items-center justify-center gap-2 bg-base-100 text-base-content/70",
           style: PICTURE_STYLE,
           ExternalLink { class: "w-5 h-5" }
-          div { class: "text-xs px-3 text-center", "Themes made by other people" }
+          div { class: "text-xs px-3 text-center", "{strings.customize.themes_made_by_others}" }
         }
-        div { class: "bg-base-200 px-2 py-2 text-sm font-medium text-base-content", "Find more" }
+        div { class: "bg-base-200 px-2 py-2 text-sm font-medium text-base-content",
+          "{strings.customize.find_more}"
+        }
       }
     }
 }
@@ -239,14 +256,27 @@ fn FindMoreCard() -> Element {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::i18n::Language;
     use crate::libs::theme::BuiltInTheme;
     use crate::state::saved_themes::SavedTheme;
     use crate::utils::theme_share::SharedColors;
     use chrono::{ Duration, Utc };
 
+    /// The catalog the assertions below compare against. The tests used to
+    /// spell the English text out; they now name the same key the screen reads,
+    /// so a wording change is one decision instead of two.
+    fn en() -> &'static Strings {
+        Language::En.strings()
+    }
+
     #[test]
     fn the_theme_file_hint_offers_a_double_click_only_where_it_opens_the_file() {
-        assert_eq!(THEME_FILE_HINT.contains("Double-click"), !cfg!(target_os = "macos"));
+        // Both hints keep saying what to do with the file; only the platform
+        // decides which one shows.
+        assert!(theme_file_hint(true, en()).contains("Double-click"));
+        assert!(theme_file_hint(false, en()).contains("Drop it on this window"));
+        assert_eq!(theme_file_hint(true, en()), en().customize.themes_file_hint_double_click);
+        assert_eq!(theme_file_hint(false, en()), en().customize.themes_file_hint_drop);
     }
 
     fn saved(id: &str, kind: ThemeKind, minutes_ago: i64) -> SavedTheme {
@@ -273,9 +303,9 @@ mod tests {
 
     #[test]
     fn a_new_user_sees_only_the_ready_made_themes() {
-        let groups = gallery(&SavedThemes::default());
+        let groups = gallery(&SavedThemes::default(), en());
         assert_eq!(groups.len(), 1, "empty groups are left out");
-        assert_eq!(groups[0].title, "Ready-made");
+        assert_eq!(groups[0].title, en().customize.group_ready_made);
         assert_eq!(pointers(&groups[0]), [
             None,
             Some("starter:retro-beige".to_string()),
@@ -293,9 +323,17 @@ mod tests {
         store.insert(saved("new mine", ThemeKind::Mine, 1));
         store.insert(saved("library", ThemeKind::Library, 5));
 
-        let groups = gallery(&store);
+        let groups = gallery(&store, en());
         let titles: Vec<&str> = groups.iter().map(|group| group.title).collect();
-        assert_eq!(titles, ["Ready-made", "My themes", "Installed"]);
+        assert_eq!(
+            titles,
+            [
+                en().customize.group_ready_made,
+                en().customize.group_my_themes,
+                en().customize.group_installed,
+            ],
+            "the three groups are the catalog's, in the order the gallery shows them"
+        );
         assert_eq!(pointers(&groups[1]), [Some("new mine".to_string()), Some("old mine".to_string())]);
         assert_eq!(pointers(&groups[2]), [Some("library".to_string()), Some("file".to_string())]);
     }

@@ -40,6 +40,7 @@ fn activate_soundpack(
     pack_id: String,
     audio_ctx: Arc<AudioContext>,
     update_config: Rc<dyn Fn(Box<dyn FnOnce(&mut AppConfig)>)>,
+    strings: &'static crate::i18n::Strings,
     mut error: Signal<String>,
     mut is_loading: Signal<bool>
 ) {
@@ -75,11 +76,11 @@ fn activate_soundpack(
             SelectorType::Mouse => { crate::libs::audio::load_mouse_soundpack(&audio_ctx, &pack_id) }
         };
         if let Err(e) = result {
-            let type_str = match soundpack_type {
-                SelectorType::Keyboard => "keyboard",
-                SelectorType::Mouse => "mouse",
+            let category = match soundpack_type {
+                SelectorType::Keyboard => strings.soundpacks.keyboard_noun,
+                SelectorType::Mouse => strings.soundpacks.mouse_noun,
             };
-            error.set(format!("Failed to load {} soundpack: {}", type_str, e));
+            error.set(crate::i18n::fill(strings.soundpacks.load_failed, &[&category, &e]));
         }
         is_loading.set(false);
     });
@@ -89,6 +90,18 @@ fn activate_soundpack(
 fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String) -> Element {
     // Use audio context from the layout provider
     let audio_ctx: Arc<AudioContext> = use_context();
+
+    // The catalog, read at render time. `use_memo` would freeze the language.
+    let strings = crate::i18n::use_strings();
+    // The categories are prose here, not identifiers: the noun takes the form it
+    // has inside a sentence (lower-case in Spanish, un-inflected in Chinese).
+    let category = match soundpack_type {
+        SelectorType::Keyboard => strings.soundpacks.keyboard_noun,
+        SelectorType::Mouse => strings.soundpacks.mouse_noun,
+    };
+    let select_placeholder = crate::i18n::fill(strings.soundpacks.select_placeholder, &[&category]);
+    let search_placeholder = crate::i18n::fill(strings.soundpacks.search_hint, &[&category]);
+    let not_found_text = crate::i18n::fill(strings.soundpacks.not_found, &[&category]);
 
     // Use the new event-driven app state
     use crate::state::app::use_app_state;
@@ -173,25 +186,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
             soundpacks()
                 .into_iter()
                 .find(|pack| pack.folder_path == current()) // Use folder_path for comparison
-    ); // Get appropriate placeholder and search text based on type
-    let (placeholder_text, search_placeholder, not_found_text, no_soundpack_text) = match
-        soundpack_type
-    {
-        SelectorType::Keyboard =>
-            (
-                "Select a keyboard sound pack...",
-                "Search keyboard sound packs...",
-                "No keyboard sound packs found",
-                "No sound packs available",
-            ),
-        SelectorType::Mouse =>
-            (
-                "Select a mouse sound pack...",
-                "Search mouse sound packs...",
-                "No mouse sound packs found",
-                "No sound packs available",
-            ),
-    };
+    );
 
     // Check if there are any soundpacks available for this type
     let has_soundpacks = use_memo(move || {
@@ -242,7 +237,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
           }
           button {
             class: "btn btn-ghost btn-xs btn-circle",
-            title: "Pick a random sound pack",
+            title: "{strings.soundpacks.random_pack_title}",
             disabled: is_loading() || random_candidates.read().is_empty(),
             onclick: {
                 let audio_ctx = audio_ctx.clone();
@@ -258,6 +253,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                         pack_id,
                         audio_ctx.clone(),
                         update_config.clone(),
+                        strings,
                         error,
                         is_loading,
                     );
@@ -283,7 +279,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
             },
             div { class: "flex items-center gap-3 flex-1 ",
               if !has_soundpacks() {
-                div { class: "text-base-content/50 text-sm", "{no_soundpack_text}" }
+                div { class: "text-base-content/50 text-sm", "{strings.soundpacks.no_soundpacks_available}" }
               } else if let Some(pack) = current_soundpack() {
                 div { class: "flex-shrink-0 overflow-hidden  w-11 h-11 bg-base-200 rounded-lg flex items-center justify-center",
                   if is_loading() {
@@ -309,14 +305,14 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                   }
                   div { class: "text-xs font-normal truncate text-base-content/50",
                     if let Some(author) = &pack.author {
-                      "by {author}"
+                      {crate::i18n::fill(strings.soundpacks.by_author, &[author])}
                     } else {
-                      "by N/A"
+                      "{strings.soundpacks.by_unknown}"
                     }
                   }
                 }
               } else {
-                div { class: "text-base-content/50 text-sm", "{placeholder_text}" }
+                div { class: "text-base-content/50 text-sm", "{select_placeholder}" }
               }
             }
             ChevronDown {
@@ -380,6 +376,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                                   pack_id.clone(),
                                   audio_ctx.clone(),
                                   update_config.clone(),
+                                  strings,
                                   error,
                                   is_loading,
                               );
@@ -415,14 +412,14 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                                 &seen_soundpacks(),
                                 &pack.folder_path,
                             ) {
-                              span { class: "badge badge-primary badge-xs shrink-0 ml-0.5", "New" }
+                              span { class: "badge badge-primary badge-xs shrink-0 ml-0.5", "{strings.soundpacks.new_badge}" }
                             }
                           }
                           div { class: "text-xs font-normal line-clamp-1 text-base-content/50",
                             if let Some(author) = &pack.author {
-                              "by {author}"
+                              {crate::i18n::fill(strings.soundpacks.by_author, &[author])}
                             } else {
-                              "by N/A"
+                              "{strings.soundpacks.by_unknown}"
                             }
                           }
                         }
@@ -432,7 +429,7 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
                 }
               }
               div { class: "px-4 py-2 border-t border-base-300 text-xs text-base-content/50",
-                "Star more packs on the Sound packs page to list them here."
+                "{strings.soundpacks.starred_hint}"
               }
             }
           }
@@ -460,10 +457,11 @@ fn SoundpackDropdown(soundpack_type: SelectorType, icon: Element, label: String)
 
 #[component]
 pub fn KeyboardSoundpackSelector() -> Element {
+    let strings = crate::i18n::use_strings();
     rsx! {
         SoundpackSelector {
             soundpack_type: SelectorType::Keyboard,
-            label: "Keyboard".to_string(),
+            label: strings.soundpacks.keyboard_label.to_string(),
             icon: rsx! {
                 Keyboard { class: "w-4 h-4" }
             },
@@ -473,10 +471,11 @@ pub fn KeyboardSoundpackSelector() -> Element {
 
 #[component]
 pub fn MouseSoundpackSelector() -> Element {
+    let strings = crate::i18n::use_strings();
     rsx! {
         SoundpackSelector {
             soundpack_type: SelectorType::Mouse,
-            label: "Mouse".to_string(),
+            label: strings.soundpacks.mouse_label.to_string(),
             icon: rsx! {
                 Mouse { class: "w-4 h-4" }
             },

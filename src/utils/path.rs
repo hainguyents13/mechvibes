@@ -1,6 +1,9 @@
 /// Path and file system utility functions
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::paths;
 use std::fs;
+use std::path::{ Path, PathBuf };
 use std::process::Command;
 
 /// Check if data directory exists
@@ -61,15 +64,57 @@ pub fn directory_exists(path: &str) -> bool {
     std::path::Path::new(path).exists()
 }
 
-/// Create directory recursively if it doesn't exist
-pub fn ensure_directory_exists(path: impl AsRef<std::path::Path>) -> Result<(), String> {
+/// Why a folder could not be created.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description a log and the callers that only print it keep using, and
+/// it never follows the UI language. [`DirectoryError::ui_message`] is the
+/// sentence the screen shows, composed from the catalog the caller hands in:
+/// this helper runs from the UI, from a background task and from startup, and
+/// cannot know which language is in effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirectoryError {
+    /// The folder that could not be created.
+    pub path: PathBuf,
+    /// The OS description of the failure.
+    pub cause: String,
+}
+
+impl DirectoryError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        fill(errors.directory_create_failed, &[&self.path.display(), &self.cause])
+    }
+}
+
+impl std::fmt::Display for DirectoryError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
+/// Create directory recursively if it doesn't exist.
+///
+/// Kept in its `String` shape for the callers that only log or pass it on;
+/// delegates to [`ensure_directory_exists_typed`], so the wording is not
+/// duplicated. A caller that shows the failure calls that one and words it with
+/// [`DirectoryError::ui_message`].
+pub fn ensure_directory_exists(path: impl AsRef<Path>) -> Result<(), String> {
+    ensure_directory_exists_typed(path).map_err(|e| e.to_string())
+}
+
+/// The same create as [`ensure_directory_exists`], with the failure typed so the
+/// screen can word it from the catalog.
+pub fn ensure_directory_exists_typed(path: impl AsRef<Path>) -> Result<(), DirectoryError> {
     let path_ref = path.as_ref();
-    fs::create_dir_all(path_ref).map_err(|e| {
-        format!(
-            "Failed to create directory '{}': {}",
-            path_ref.display(),
-            e
-        )
+    fs::create_dir_all(path_ref).map_err(|e| DirectoryError {
+        path: path_ref.to_path_buf(),
+        cause: e.to_string(),
     })
 }
 

@@ -45,12 +45,16 @@ pub fn Soundpacks() -> Element {
     // Get access to audio context for reloading soundpacks
     let audio_ctx: Arc<crate::libs::audio::AudioContext> = use_context();
 
+    // Reads the config signal, so choosing a language in Settings re-renders this
+    // page with the new text. Not memoized: a memo would keep the first language.
+    let strings = crate::i18n::use_strings();
+
     rsx! {
       div { class: "",
         // Page header
         PageHeader {
-          title: "Sound Packs".to_string(),
-          subtitle: "Manage your sound packs".to_string(),
+          title: strings.soundpacks.page_title.to_string(),
+          subtitle: strings.soundpacks.page_subtitle.to_string(),
           icon: Some(rsx! {
             Music { class: "w-8 h-8 mx-auto" }
           }),
@@ -66,12 +70,12 @@ pub fn Soundpacks() -> Element {
               },
             }
             Keyboard { class: "w-5 h-5 mr-2" }
-            "Keyboard"
+            "{strings.soundpacks.keyboard_label}"
           }
           div { class: "tab-content overflow-hidden bg-base-200 border-base-300 py-4 px-0",
             SoundpackTable {
               soundpacks: keyboard_soundpacks,
-              soundpack_type: "Keyboard",
+              soundpack_type: crate::state::soundpack::SoundpackType::Keyboard,
               on_add_click: Some(
                   EventHandler::new(move |_| {
                       current_tab.set(TabType::Keyboard);
@@ -92,12 +96,12 @@ pub fn Soundpacks() -> Element {
               },
             }
             Mouse { class: "w-5 h-5 mr-2" }
-            "Mouse"
+            "{strings.soundpacks.mouse_label}"
           }
           div { class: "tab-content overflow-hidden bg-base-200 border-base-300 py-4 px-0",
             SoundpackTable {
               soundpacks: mouse_soundpacks,
-              soundpack_type: "Mouse",
+              soundpack_type: crate::state::soundpack::SoundpackType::Mouse,
               on_add_click: Some(
                   EventHandler::new(move |_| {
                       current_tab.set(TabType::Mouse);
@@ -118,7 +122,7 @@ pub fn Soundpacks() -> Element {
               },
             }
             Settings2 { class: "w-5 h-5 mr-2" }
-            "Manage"
+            "{strings.soundpacks.tab_manage}"
           }
           div { class: "tab-content overflow-hidden bg-base-200 border-base-300 {crate::utils::spacing::CARD_PADDING}",
             SoundpackManager {

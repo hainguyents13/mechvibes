@@ -11,6 +11,9 @@ pub fn TitleBar() -> Element {
     let window = use_window();
     let window_drag = window.clone();
     let update_info = use_update_info();
+    // Read at render time, never inside a memo: the config signal this reads is
+    // what re-renders the bar when the language changes.
+    let strings = crate::i18n::use_strings();
 
     // Get current version for display
     let current_version = crate::utils::constants::APP_VERSION;
@@ -59,7 +62,7 @@ pub fn TitleBar() -> Element {
             if update.update_available {
               div {
                 class: "tooltip tooltip-bottom ml-2",
-                "data-tip": "New version {update.latest_version} available!",
+                "data-tip": crate::i18n::fill(strings.chrome.new_version_available, &[&update.latest_version]),
                 button {
                   class: "btn btn-success btn-xs",
                   // Notification only: this routes to Settings, where the
@@ -79,7 +82,7 @@ pub fn TitleBar() -> Element {
           // Minimize to taskbar button
           div {
             class: "tooltip tooltip-bottom",
-            "data-tip": "Minimize",
+            "data-tip": "{strings.chrome.minimize}",
             button {
               class: "p-1.5 rounded-box hover:bg-neutral/70 text-base-content/70 hover:text-neutral-content transition-colors",
               onclick: minimize,
@@ -89,7 +92,7 @@ pub fn TitleBar() -> Element {
           // Minimize to tray button
           div {
             class: "tooltip tooltip-bottom",
-            "data-tip": "Hide to tray",
+            "data-tip": "{strings.chrome.hide_to_tray}",
             button {
               class: "p-1.5 rounded-box hover:bg-neutral/70 text-base-content/70 hover:text-neutral-content transition-colors",
               onclick: minimize_to_tray,
@@ -97,10 +100,10 @@ pub fn TitleBar() -> Element {
             }
           }
           // Close button
-          div { class: "tooltip tooltip-bottom", "data-tip": "Quit",
+          div { class: "tooltip tooltip-bottom", "data-tip": "{strings.chrome.quit}",
             button {
               class: "p-1.5 rounded-box hover:bg-error text-base-content/70 hover:text-error-content transition-colors",
-              title: "Close",
+              title: "{strings.common.close}",
               onclick: close,
               X { class: "w-4 h-4" }
             }
