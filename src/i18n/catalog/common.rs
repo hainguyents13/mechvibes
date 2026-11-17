@@ -23,5 +23,12 @@ zone! {
         search: "Search", "搜索", "Buscar",
         browse: "Browse…", "浏览…", "Examinar…",
         not_now: "Not now", "以后再说", "Ahora no",
+        undo: "Undo", "撤销", "Deshacer",
+        // The fill controls: a shape is either a solid colour or an image, and
+        // the same two words label that choice on every screen that has one.
+        color: "Color", "颜色", "Color",
+        image: "Image", "图片", "Imagen",
+        pick_a_color: "Pick a color", "选择颜色", "Elige un color",
+        pick_an_image: "Pick an image", "选择图片", "Elige una imagen",
     }
 }

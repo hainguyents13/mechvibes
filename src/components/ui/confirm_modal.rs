@@ -10,13 +10,15 @@ pub fn ConfirmModal(
     on_confirm: EventHandler<()>,
     on_cancel: EventHandler<()>,
 ) -> Element {
+    let strings = crate::i18n::use_strings();
+
     rsx! {
       div { class: "modal modal-open",
         div { class: "modal-box",
           h3 { class: "font-bold text-lg", "{title}" }
           div { class: "text-sm text-base-content/70 mt-3", "{message}" }
           div { class: "modal-action",
-            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_cancel.call(()), "Cancel" }
+            button { class: "btn btn-sm btn-ghost", onclick: move |_| on_cancel.call(()), "{strings.common.cancel}" }
             button {
               class: "btn btn-sm btn-error",
               onclick: move |_| on_confirm.call(()),

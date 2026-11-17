@@ -49,6 +49,9 @@ pub fn Toasts() -> Element {
     let mut shown: Signal<Vec<Notice>> = use_context();
     let (_, update_config) = use_config();
     let theme_signal = use_theme();
+    // Before the early return below: a hook that runs on some renders only would
+    // change the hook order. The catalog read is cheap and allocates nothing.
+    let strings = crate::i18n::use_strings();
     let notices = shown();
     if notices.is_empty() {
         return rsx! {};
@@ -71,7 +74,7 @@ pub fn Toasts() -> Element {
                 button {
                   class: "btn btn-xs btn-ghost shrink-0",
                   onclick: move |_| crate::utils::log_buffer::reveal_in_file_manager(&path),
-                  "Show file"
+                  "{strings.chrome.show_file}"
                 }
               }
               if notice.action == Some(NoticeAction::Undo) {
@@ -84,12 +87,12 @@ pub fn Toasts() -> Element {
                           undo_look(&update_config, theme_signal);
                       }
                   },
-                  "Undo"
+                  "{strings.common.undo}"
                 }
               }
               button {
                 class: "btn btn-xs btn-ghost shrink-0",
-                title: "Close",
+                title: "{strings.common.close}",
                 onclick: move |_| shown.write().retain(|other| other.id != notice.id),
                 X { class: "w-3 h-3" }
               }

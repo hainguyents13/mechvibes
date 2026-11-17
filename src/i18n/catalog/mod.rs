@@ -115,6 +115,9 @@ pub(super) const IDENTICAL_IS_INTENTIONAL: &[(&str, &str)] = &[
     // Spanish spells it the same; German (Fehler) and French (Erreur) do not, so
     // it has to be in the catalog rather than inlined at the call site.
     ("error", "es: `Error` is also the correct Spanish word"),
+    // Same reason: the Spanish for it is `Color`. A hardcoded literal could not
+    // be translated where the word differs at all, so it stays a catalog key.
+    ("color", "es: `Color` is also the correct Spanish word"),
 ];
 
 #[cfg(test)]
