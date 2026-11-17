@@ -118,6 +118,9 @@ pub(super) const IDENTICAL_IS_INTENTIONAL: &[(&str, &str)] = &[
     // Same reason: the Spanish for it is `Color`. A hardcoded literal could not
     // be translated where the word differs at all, so it stays a catalog key.
     ("color", "es: `Color` is also the correct Spanish word"),
+    // `General` names the section identically in Spanish. The allowlist records
+    // the decision so the next reader does not "fix" it into a worse word.
+    ("section_general", "es: `General` is also the correct Spanish word"),
 ];
 
 #[cfg(test)]
