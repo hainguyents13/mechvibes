@@ -63,6 +63,7 @@ macro_rules! zone {
     };
 }
 
+pub mod chrome;
 pub mod common;
 pub mod customize;
 pub mod devices;
@@ -74,6 +75,7 @@ pub mod settings;
 pub mod soundpacks;
 pub mod tray;
 
+pub use chrome::ChromeStrings;
 pub use common::CommonStrings;
 pub use customize::CustomizeStrings;
 pub use devices::DevicesStrings;
@@ -89,6 +91,7 @@ pub use tray::TrayStrings;
 /// catalog and a failure names where the entry lives.
 #[cfg(test)]
 pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[
+    ("chrome", chrome::ENTRIES),
     ("common", common::ENTRIES),
     ("customize", customize::ENTRIES),
     ("devices", devices::ENTRIES),

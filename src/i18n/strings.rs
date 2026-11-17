@@ -13,6 +13,8 @@ use super::Language;
 /// language (`i18n::use_strings`), and non-component code such as the tray
 /// through [`crate::i18n::Language::strings`].
 pub struct Strings {
+    /// The application shell: title bar, header, volume slider, app info.
+    pub chrome: catalog::ChromeStrings,
     /// Words shared by several screens.
     pub common: catalog::CommonStrings,
     /// The dock's labels.
@@ -36,6 +38,7 @@ pub struct Strings {
 }
 
 const STRINGS_EN: Strings = Strings {
+    chrome: catalog::chrome::EN,
     common: catalog::common::EN,
     nav: catalog::nav::EN,
     settings: catalog::settings::EN,
@@ -48,6 +51,7 @@ const STRINGS_EN: Strings = Strings {
     errors: catalog::errors::EN,
 };
 const STRINGS_ZH: Strings = Strings {
+    chrome: catalog::chrome::ZH,
     common: catalog::common::ZH,
     nav: catalog::nav::ZH,
     settings: catalog::settings::ZH,
@@ -60,6 +64,7 @@ const STRINGS_ZH: Strings = Strings {
     errors: catalog::errors::ZH,
 };
 const STRINGS_ES: Strings = Strings {
+    chrome: catalog::chrome::ES,
     common: catalog::common::ES,
     nav: catalog::nav::ES,
     settings: catalog::settings::ES,
