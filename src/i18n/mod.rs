@@ -75,7 +75,14 @@ impl Language {
     /// English, which would be worse for a Traditional reader than Simplified
     /// text. Returns `None` for a language the app does not speak.
     pub fn from_bcp47(locale: &str) -> Option<Self> {
-        let primary = locale
+        // A POSIX locale is `language[_TERRITORY][.CODESET][@MODIFIER]`, and its
+        // separator is not always the `_` BCP-47 uses: `es.UTF-8` carries no
+        // territory at all. Splitting only on `-`/`_` reads that as `es.utf8`,
+        // finds no language and falls back to English — which is exactly what a
+        // reviewer caught here. Strip the codeset and the modifier first.
+        let language_and_territory = locale.split(['.', '@']).next().unwrap_or_default();
+
+        let primary = language_and_territory
             .split(['-', '_'])
             .next()
             .unwrap_or_default()
@@ -243,6 +250,12 @@ mod tests {
             ("zh_CN.UTF-8", Language::Zh),
             ("en-US", Language::En),
             ("en_GB.UTF-8", Language::En),
+            // No territory, which is the shape that used to fall through.
+            ("es.UTF-8", Language::Es),
+            ("zh.UTF-8", Language::Zh),
+            ("en.UTF-8", Language::En),
+            ("es@valencia", Language::Es),
+            ("zh_Hans_CN.UTF-8@mod", Language::Zh),
         ] {
             assert_eq!(Language::from_bcp47(locale), Some(expected), "locale {locale}");
         }
@@ -255,12 +268,13 @@ mod tests {
         }
     }
 
+    /// What this can prove is that an unsupported locale is not a language; the
+    /// English fallback itself lives in `system_language`, which reads the OS and
+    /// cannot be driven from a test. The old name claimed more than that.
     #[test]
-    fn an_unsupported_system_locale_falls_back_to_english() {
-        // `resolve` cannot be tested directly (it reads the OS), so this pins the
-        // fallback that `system_language` applies to an unknown locale.
-        let unknown = Language::from_bcp47("pt-BR").unwrap_or(Language::En);
-        assert_eq!(unknown, Language::En);
+    fn an_unsupported_locale_is_not_a_language() {
+        assert_eq!(Language::from_bcp47("pt-BR"), None);
+        assert_eq!(Language::from_bcp47("pt-BR").unwrap_or(Language::En), Language::En);
     }
 
     #[test]
@@ -268,10 +282,19 @@ mod tests {
         assert_eq!(resolve(Some(Language::Zh)), Language::Zh);
     }
 
+    /// The serde rename and [`Language::tag`] are two sources for the same
+    /// identifier, so the test compares them instead of hardcoding one and
+    /// hoping. A future variant missing from either fails here.
     #[test]
     fn languages_serialize_as_their_tag() {
-        assert_eq!(serde_json::to_string(&Language::Zh).unwrap(), "\"zh\"");
-        assert_eq!(serde_json::from_str::<Language>("\"es\"").unwrap(), Language::Es);
+        for language in Language::ALL {
+            let serialized = serde_json::to_string(&language).expect("a language serializes");
+            assert_eq!(serialized, format!("\"{}\"", language.tag()), "{}", language.tag());
+            assert_eq!(
+                serde_json::from_str::<Language>(&serialized).expect("it reads back"),
+                language
+            );
+        }
         assert!(serde_json::from_str::<Language>("\"klingon\"").is_err());
     }
 

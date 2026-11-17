@@ -31,7 +31,14 @@ const PREFERENCE_ORDER: [&str; 3] = ["LC_ALL", "LC_MESSAGES", "LANG"];
 /// A value that means "no language chosen": an empty string (some setups export
 /// `LC_ALL=` explicitly) or the two C-locale spellings.
 fn is_no_language(value: &str) -> bool {
-    value.is_empty() || value.eq_ignore_ascii_case("C") || value.eq_ignore_ascii_case("POSIX")
+    // `C.UTF-8` and `POSIX.UTF-8` are the same "no language" as `C`, and stripping
+    // the codeset first is what lets them fall through to `LANG` and then to the
+    // platform. Matching the whole string would treat them as a language named
+    // `C.UTF-8`, which no catalog has, so the answer would be English anyway —
+    // but it would answer before the platform got its chance.
+    let base = value.split(['.', '@']).next().unwrap_or(value).trim();
+
+    base.is_empty() || base.eq_ignore_ascii_case("C") || base.eq_ignore_ascii_case("POSIX")
 }
 
 /// Layer 1: the first environment variable that names a language.
@@ -86,6 +93,12 @@ mod tests {
     #[test]
     fn a_literal_c_locale_falls_through_to_the_next_variable() {
         let get = env(&[("LC_ALL", "C"), ("LANG", "es_AR.UTF-8")]);
+        assert_eq!(env_locale_from(&get).as_deref(), Some("es_AR.UTF-8"));
+    }
+
+    #[test]
+    fn a_c_locale_with_a_codeset_also_falls_through() {
+        let get = env(&[("LC_ALL", "C.UTF-8"), ("LANG", "es_AR.UTF-8")]);
         assert_eq!(env_locale_from(&get).as_deref(), Some("es_AR.UTF-8"));
     }
 

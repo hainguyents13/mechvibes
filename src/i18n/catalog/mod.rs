@@ -113,16 +113,25 @@ pub(super) const ZONES: &[(&str, &[(&str, &str, &str, &str)])] = &[
 /// correct translation happens to coincide in that language. Each entry needs a
 /// reason on the same line, so the next reader can judge it.
 #[cfg(test)]
-pub(super) const IDENTICAL_IS_INTENTIONAL: &[(&str, &str)] = &[
-    // Spanish spells it the same; German (Fehler) and French (Erreur) do not, so
-    // it has to be in the catalog rather than inlined at the call site.
-    ("error", "es: `Error` is also the correct Spanish word"),
-    // Same reason: the Spanish for it is `Color`. A hardcoded literal could not
-    // be translated where the word differs at all, so it stays a catalog key.
-    ("color", "es: `Color` is also the correct Spanish word"),
-    // `General` names the section identically in Spanish. The allowlist records
-    // the decision so the next reader does not "fix" it into a worse word.
-    ("section_general", "es: `General` is also the correct Spanish word"),
+pub(super) const IDENTICAL_IS_INTENTIONAL: &[(&str, &str, &str)] = &[
+    // (key, language tag, reason). The language is part of the entry on purpose:
+    // a Spanish coincidence says nothing about Chinese, and exempting the key
+    // outright would let an untranslated Chinese value through.
+    (
+        "error",
+        "es",
+        "Spanish spells it `Error`; German (Fehler) and French (Erreur) do not, so it stays a catalog key",
+    ),
+    (
+        "color",
+        "es",
+        "the Spanish for it is `Color`; a hardcoded literal could not be translated where the word differs at all",
+    ),
+    (
+        "section_general",
+        "es",
+        "`General` names the section identically in Spanish; recorded so the next reader does not `fix` it into a worse word",
+    ),
 ];
 
 #[cfg(test)]
@@ -130,8 +139,10 @@ mod tests {
     use super::*;
     use crate::i18n::Language;
 
-    fn is_allowlisted(key: &str) -> bool {
-        IDENTICAL_IS_INTENTIONAL.iter().any(|(allowed, _)| *allowed == key)
+    fn is_allowlisted(key: &str, language: &str) -> bool {
+        IDENTICAL_IS_INTENTIONAL
+            .iter()
+            .any(|(allowed, allowed_language, _)| *allowed == key && *allowed_language == language)
     }
 
     #[test]
@@ -194,15 +205,15 @@ mod tests {
     fn every_translation_differs_from_the_base_language() {
         for (zone, entries) in ZONES {
             for (key, en, zh, es) in *entries {
-                if is_allowlisted(key) {
-                    continue;
-                }
                 for (language, value) in [("zh", zh), ("es", es)] {
+                    if is_allowlisted(key, language) {
+                        continue;
+                    }
                     assert_ne!(
                         value, en,
                         "{zone}.{key} is identical to the English text in {language}. Either \
-                         translate it, or add `(\"{key}\", \"why\")` to IDENTICAL_IS_INTENTIONAL \
-                         as a reviewed decision."
+                         translate it, or add `(\"{key}\", \"{language}\", \"why\")` to \
+                         IDENTICAL_IS_INTENTIONAL as a reviewed decision."
                     );
                 }
             }
@@ -215,8 +226,12 @@ mod tests {
             .iter()
             .flat_map(|(_, entries)| entries.iter().map(|(key, ..)| *key))
             .collect();
-        for (key, reason) in IDENTICAL_IS_INTENTIONAL {
+        for (key, language, reason) in IDENTICAL_IS_INTENTIONAL {
             assert!(keys.contains(key), "IDENTICAL_IS_INTENTIONAL names `{key}`, which is not a catalog key");
+            assert!(
+                crate::i18n::Language::ALL.iter().any(|l| l.tag() == *language),
+                "`{key}` names `{language}`, which is not a language tag"
+            );
             assert!(!reason.trim().is_empty(), "`{key}` needs a reason in IDENTICAL_IS_INTENTIONAL");
         }
     }
