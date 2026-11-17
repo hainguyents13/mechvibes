@@ -221,11 +221,21 @@ mod tests {
         }
     }
 
+    /// Each language must reach its **own** catalog. A `for_language` arm that
+    /// returned the wrong `const` (or a copy-pasted one) would keep compiling and
+    /// would silently show English to a Chinese reader, which no textual
+    /// assertion on a single key would catch.
     #[test]
-    fn every_language_resolves_to_a_catalog() {
-        for language in Language::ALL {
-            let strings = language.strings();
-            assert!(!strings.common.loading.is_empty());
+    fn every_language_resolves_to_its_own_catalog() {
+        for (index, language) in Language::ALL.iter().enumerate() {
+            for other in &Language::ALL[index + 1..] {
+                assert!(
+                    !std::ptr::eq(language.strings(), other.strings()),
+                    "{} and {} resolve to the same catalog",
+                    language.tag(),
+                    other.tag()
+                );
+            }
         }
     }
 }
