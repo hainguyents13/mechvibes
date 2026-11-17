@@ -1,3 +1,5 @@
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::paths;
 use crate::state::soundpack::SoundPack;
 use crate::state::soundpack::{ SoundpackCache, SoundpackMetadata };
@@ -5,6 +7,77 @@ use std::sync::Arc;
 
 use super::audio_context::AudioContext;
 use super::engine::{ AudioCommand, EngineState };
+
+/// Why a sound pack could not be loaded.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description the log, the trace and the on-disk soundpack cache get,
+/// and it never follows the UI language: a cached `last_error` must read the
+/// same after the user changes language. [`SoundpackLoadError::ui_message`] is
+/// the sentence the screen shows, composed from the catalog the caller hands
+/// in; this layer runs on the engine thread and cannot know which language is
+/// in effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SoundpackLoadError {
+    /// The caller asked for a pack by an empty id, which names no folder.
+    EmptyId,
+    /// `config.json` inside the pack could not be read.
+    ConfigUnreadable(String),
+    /// The keyboard loader's `config.json` is not valid JSON.
+    ConfigInvalidV2(String),
+    /// The mouse loader's `config.json` is not valid JSON. Kept apart from the
+    /// keyboard one so the English description stays exactly what it was.
+    ConfigInvalid(String),
+    /// A keyboard slot holds a pack whose config says it is a mouse pack.
+    NotAKeyboardPack,
+    /// A mouse slot holds a pack whose config says it is a keyboard pack.
+    NotAMousePack,
+    /// The config names neither a pack-wide `audio_file` nor per-key files.
+    AudioFieldMissing,
+    /// The file the config names is not on disk. The `String` is its path.
+    AudioFileMissing(String),
+    /// The file is there but the decoder failed. The `String` is its cause.
+    AudioUnreadable(String),
+    /// A "multi" pack names no file at all.
+    NoNamedAudioFile,
+    /// A "multi" pack's files are all unreadable, so nothing could be combined.
+    NoAudioLoadable,
+}
+
+impl SoundpackLoadError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            SoundpackLoadError::EmptyId => errors.soundpack_id_empty.to_string(),
+            SoundpackLoadError::ConfigUnreadable(cause) =>
+                fill(errors.soundpack_config_unreadable, &[cause]),
+            SoundpackLoadError::ConfigInvalidV2(cause) =>
+                fill(errors.soundpack_config_invalid_v2, &[cause]),
+            SoundpackLoadError::ConfigInvalid(cause) =>
+                fill(errors.soundpack_config_invalid, &[cause]),
+            SoundpackLoadError::NotAKeyboardPack => errors.soundpack_is_mouse.to_string(),
+            SoundpackLoadError::NotAMousePack => errors.soundpack_is_keyboard.to_string(),
+            SoundpackLoadError::AudioFieldMissing => errors.soundpack_audio_field_missing.to_string(),
+            SoundpackLoadError::AudioFileMissing(path) =>
+                fill(errors.soundpack_audio_file_missing, &[path]),
+            SoundpackLoadError::AudioUnreadable(cause) =>
+                fill(errors.soundpack_audio_unreadable, &[cause]),
+            SoundpackLoadError::NoNamedAudioFile => errors.soundpack_no_named_audio_file.to_string(),
+            SoundpackLoadError::NoAudioLoadable => errors.soundpack_no_audio_loadable.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for SoundpackLoadError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so the log and the cached `last_error` read the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
 
 /// Determine soundpack type based on the soundpack path
 fn determine_soundpack_type(soundpack_id: &str) -> crate::state::soundpack::SoundpackType {
@@ -105,23 +178,22 @@ fn load_audio_file(
     soundpack_path: &str,
     soundpack: &mut SoundPack,
     device_rate: Option<u32>
-) -> Result<(DecodedAudio, DecodedAudio), String> {
+) -> Result<(DecodedAudio, DecodedAudio), SoundpackLoadError> {
     let (samples, channels, file_rate) = if soundpack.definition_method == "multi" {
         decode_multi_pack(soundpack_path, soundpack, device_rate)?
     } else {
         let sound_file_path = soundpack.audio_file
             .as_ref()
             .map(|src| pack_file_path(soundpack_path, src))
-            .ok_or_else(|| "No audio_file field in soundpack config".to_string())?;
+            .ok_or(SoundpackLoadError::AudioFieldMissing)?;
 
         if !std::path::Path::new(&sound_file_path).exists() {
-            return Err(format!("Sound file not found: {}", sound_file_path));
+            return Err(SoundpackLoadError::AudioFileMissing(sound_file_path));
         }
 
         // Use Symphonia for audio loading instead of Rodio
-        load_audio_with_symphonia(&sound_file_path).map_err(|e|
-            format!("Failed to load audio: {}", e)
-        )?
+        load_audio_with_symphonia(&sound_file_path)
+            .map_err(SoundpackLoadError::AudioUnreadable)?
     };
 
     match device_rate {
@@ -182,7 +254,7 @@ fn decode_multi_pack(
     soundpack_path: &str,
     soundpack: &mut SoundPack,
     device_rate: Option<u32>
-) -> Result<DecodedAudio, String> {
+) -> Result<DecodedAudio, SoundpackLoadError> {
     let mut files: Vec<String> = soundpack.definitions
         .values()
         .filter_map(|key_def| {
@@ -192,7 +264,7 @@ fn decode_multi_pack(
     files.sort();
     files.dedup();
     if files.is_empty() {
-        return Err("The pack names no audio file".to_string());
+        return Err(SoundpackLoadError::NoNamedAudioFile);
     }
 
     let mut decoded = Vec::new();
@@ -203,8 +275,8 @@ fn decode_multi_pack(
         }
     }
 
-    let (combined, placements) = combine_decoded(decoded, device_rate).ok_or_else(||
-        "None of the pack's audio files could be loaded".to_string()
+    let (combined, placements) = combine_decoded(decoded, device_rate).ok_or(
+        SoundpackLoadError::NoAudioLoadable
     )?;
     place_multi_timings(soundpack, &placements);
     Ok(combined)
@@ -790,20 +862,36 @@ fn create_mouse_mappings(
 /// Mirrors `load_keyboard_soundpack_optimized` but writes to `EngineState`
 /// fields instead of an `&AudioContext`, since the engine thread owns its
 /// data as plain fields rather than `Arc<Mutex<...>>`.
+/// Kept in its `String` shape for the engine's `UiEvent::PackLoaded`, which
+/// still carries `Result<String, String>`. Delegates to
+/// [`load_keyboard_pack_into_engine_typed`], so the wording is not duplicated:
+/// the screen can migrate by calling the typed one and mapping its error.
 pub(super) fn load_keyboard_pack_into_engine(
     state: &mut EngineState,
     soundpack_id: &str,
     update_cache_on_error: bool
 ) -> Result<String, String> {
+    load_keyboard_pack_into_engine_typed(state, soundpack_id, update_cache_on_error).map_err(|e|
+        e.to_string()
+    )
+}
+
+/// The same load as [`load_keyboard_pack_into_engine`], with the failure typed
+/// so the screen can word it from the catalog.
+pub(super) fn load_keyboard_pack_into_engine_typed(
+    state: &mut EngineState,
+    soundpack_id: &str,
+    update_cache_on_error: bool
+) -> Result<String, SoundpackLoadError> {
     if soundpack_id.is_empty() {
-        return Err("empty soundpack ID".to_string());
+        return Err(SoundpackLoadError::EmptyId);
     }
 
     match load_keyboard_pack_into_engine_inner(state, soundpack_id) {
         Ok(name) => Ok(name),
         Err(e) => {
             if update_cache_on_error {
-                capture_soundpack_loading_error(soundpack_id, &e);
+                capture_soundpack_loading_error(soundpack_id, &e.to_string());
             }
             Err(e)
         }
@@ -813,19 +901,19 @@ pub(super) fn load_keyboard_pack_into_engine(
 fn load_keyboard_pack_into_engine_inner(
     state: &mut EngineState,
     soundpack_id: &str
-) -> Result<String, String> {
+) -> Result<String, SoundpackLoadError> {
     let soundpack_path = paths::soundpacks::soundpack_dir(soundpack_id);
     let config_path = paths::soundpacks::config_json(soundpack_id);
     let config_content = std::fs
         ::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+        .map_err(|e| SoundpackLoadError::ConfigUnreadable(e.to_string()))?;
     let mut soundpack: SoundPack = serde_json
         ::from_str(&config_content)
-        .map_err(|e| format!("Failed to parse V2 soundpack config: {}", e))?;
+        .map_err(|e| SoundpackLoadError::ConfigInvalidV2(e.to_string()))?;
     soundpack.soundpack_type = determine_soundpack_type(soundpack_id);
 
     if soundpack.soundpack_type != crate::state::soundpack::SoundpackType::Keyboard {
-        return Err("This is a mouse soundpack, not a keyboard soundpack".to_string());
+        return Err(SoundpackLoadError::NotAKeyboardPack);
     }
 
     let (original, resampled) = load_audio_file(&soundpack_path, &mut soundpack, state.device_rate)?;
@@ -853,20 +941,33 @@ fn load_keyboard_pack_into_engine_inner(
 
 /// Loads a mouse soundpack directly into engine-owned state (Phase 3).
 /// See `load_keyboard_pack_into_engine` for the rationale.
+/// The mouse half of [`load_keyboard_pack_into_engine`], kept in the same
+/// `String` shape for the same reason.
 pub(super) fn load_mouse_pack_into_engine(
     state: &mut EngineState,
     soundpack_id: &str,
     update_cache_on_error: bool
 ) -> Result<String, String> {
+    load_mouse_pack_into_engine_typed(state, soundpack_id, update_cache_on_error).map_err(|e|
+        e.to_string()
+    )
+}
+
+/// The mouse half of [`load_keyboard_pack_into_engine_typed`].
+pub(super) fn load_mouse_pack_into_engine_typed(
+    state: &mut EngineState,
+    soundpack_id: &str,
+    update_cache_on_error: bool
+) -> Result<String, SoundpackLoadError> {
     if soundpack_id.is_empty() {
-        return Err("empty soundpack ID".to_string());
+        return Err(SoundpackLoadError::EmptyId);
     }
 
     match load_mouse_pack_into_engine_inner(state, soundpack_id) {
         Ok(name) => Ok(name),
         Err(e) => {
             if update_cache_on_error {
-                capture_soundpack_loading_error(soundpack_id, &e);
+                capture_soundpack_loading_error(soundpack_id, &e.to_string());
             }
             Err(e)
         }
@@ -876,19 +977,19 @@ pub(super) fn load_mouse_pack_into_engine(
 fn load_mouse_pack_into_engine_inner(
     state: &mut EngineState,
     soundpack_id: &str
-) -> Result<String, String> {
+) -> Result<String, SoundpackLoadError> {
     let soundpack_path = paths::soundpacks::soundpack_dir(soundpack_id);
     let config_path = paths::soundpacks::config_json(soundpack_id);
     let config_content = std::fs
         ::read_to_string(&config_path)
-        .map_err(|e| format!("Failed to read config: {}", e))?;
+        .map_err(|e| SoundpackLoadError::ConfigUnreadable(e.to_string()))?;
     let mut soundpack: SoundPack = serde_json
         ::from_str(&config_content)
-        .map_err(|e| format!("Failed to parse config: {}", e))?;
+        .map_err(|e| SoundpackLoadError::ConfigInvalid(e.to_string()))?;
     soundpack.soundpack_type = determine_soundpack_type(soundpack_id);
 
     if soundpack.soundpack_type != crate::state::soundpack::SoundpackType::Mouse {
-        return Err("This is a keyboard soundpack, not a mouse soundpack".to_string());
+        return Err(SoundpackLoadError::NotAMousePack);
     }
 
     let (original, resampled) = load_audio_file(&soundpack_path, &mut soundpack, state.device_rate)?;
@@ -981,7 +1082,11 @@ fn capture_soundpack_loading_error(soundpack_id: &str, error: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{ mouse_button_for_definition, relative_soundpack_id };
+    use super::{
+        mouse_button_for_definition,
+        relative_soundpack_id,
+        SoundpackLoadError,
+    };
 
     /// Joins with the running platform's separator. `Path::components` only
     /// splits on the native one, so a hard-coded `\` is a single component on
@@ -1205,7 +1310,7 @@ mod tests {
             r#"{ "id": "multi", "name": "Multi", "definition_method": "multi", "definitions": { "KeyA": { "timing": [[0, 40]] } } }"#
         );
         let error = super::decode_multi_pack("nowhere", &mut pack, None).expect_err("no file");
-        assert_eq!(error, "The pack names no audio file");
+        assert_eq!(error.to_string(), "The pack names no audio file");
     }
 
     fn write_silence_wav(path: &std::path::Path, sample_rate: u32, channels: u16, duration_ms: u32) {
@@ -1251,5 +1356,56 @@ mod tests {
         assert_eq!(ms, 300.0, "200 ms of a.wav, then 100 ms of b.wav at the shared rate");
         assert_eq!(pack.definitions["KeyB"].timing, vec![[210.0, 260.0]]);
         assert_eq!(std::fs::read_to_string(dir.join("config.json")).expect("config"), config);
+    }
+
+    /// The descriptions are the contract: the log, the trace and the on-disk
+    /// `last_error` read the same in every language, and only `ui_message`
+    /// follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let failures = [
+            SoundpackLoadError::EmptyId,
+            SoundpackLoadError::ConfigUnreadable("denied".to_string()),
+            SoundpackLoadError::ConfigInvalidV2("expected value".to_string()),
+            SoundpackLoadError::ConfigInvalid("expected value".to_string()),
+            SoundpackLoadError::NotAKeyboardPack,
+            SoundpackLoadError::NotAMousePack,
+            SoundpackLoadError::AudioFieldMissing,
+            SoundpackLoadError::AudioFileMissing("/packs/keyboard/x/1.wav".to_string()),
+            SoundpackLoadError::AudioUnreadable("bad codec".to_string()),
+            SoundpackLoadError::NoNamedAudioFile,
+            SoundpackLoadError::NoAudioLoadable,
+        ];
+        for failure in &failures {
+            let english = failure.to_string();
+            assert_eq!(
+                english,
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        // The exact wording the log had before the catalog was involved.
+        assert_eq!(SoundpackLoadError::EmptyId.to_string(), "empty soundpack ID");
+        assert_eq!(
+            SoundpackLoadError::NotAKeyboardPack.to_string(),
+            "This is a mouse soundpack, not a keyboard soundpack"
+        );
+        assert_eq!(
+            SoundpackLoadError::AudioFileMissing("/x/1.wav".to_string()).to_string(),
+            "Sound file not found: /x/1.wav"
+        );
+        assert_eq!(
+            SoundpackLoadError::NoAudioLoadable.ui_message(&Language::Es.strings().errors),
+            "No se pudo cargar ninguno de los archivos de audio del paquete"
+        );
     }
 }

@@ -1,5 +1,7 @@
 use cpal::traits::{ DeviceTrait, HostTrait };
 use cpal::{ Device, Host };
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use std::sync::{ Mutex, OnceLock };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -7,6 +9,49 @@ pub struct DeviceInfo {
     pub id: String,
     pub name: String,
     pub is_default: bool,
+}
+
+/// Why a device list could not be produced.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description the log and the callers that only print keep using, and
+/// it never follows the UI language. [`DeviceError::ui_message`] is the sentence
+/// the screen shows, composed from the catalog the caller hands in: this layer
+/// runs on the audio thread and cannot know which language is in effect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DeviceError {
+    /// `cpal` refused to list the speakers. The `String` is its description.
+    OutputDevices(String),
+    /// `cpal` refused to list the microphones.
+    InputDevices(String),
+    /// `cpal` refused to enumerate, for the callers that do not tell the two
+    /// directions apart.
+    Devices(String),
+    /// The process-wide cache was never built and could not be built now.
+    CacheUnavailable,
+}
+
+impl DeviceError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            DeviceError::OutputDevices(cause) => fill(errors.output_devices_unavailable, &[cause]),
+            DeviceError::InputDevices(cause) => fill(errors.input_devices_unavailable, &[cause]),
+            DeviceError::Devices(cause) => fill(errors.devices_unavailable, &[cause]),
+            DeviceError::CacheUnavailable => errors.device_cache_unavailable.to_string(),
+        }
+    }
+}
+
+impl std::fmt::Display for DeviceError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
 }
 
 // Global device cache to avoid repeated enumeration
@@ -115,8 +160,17 @@ impl DeviceManager {
         }
     }
 
-    /// Get all available audio output devices
+    /// Get all available audio output devices.
+    ///
+    /// Kept in its `String` shape because `DeviceSelector` still stores the
+    /// reason and words the sentence where it draws it. Delegates to
+    /// [`DeviceManager::get_output_devices_typed`], so nothing is duplicated;
+    /// the selector migrates by calling that one.
     pub fn get_output_devices(&self) -> Result<Vec<DeviceInfo>, String> {
+        self.get_output_devices_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn get_output_devices_typed(&self) -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("🔍 [DeviceManager] Starting audio output device enumeration...");
         let mut devices = Vec::new();
         let default_device = self.host.default_output_device();
@@ -179,7 +233,7 @@ impl DeviceManager {
             }
             Err(e) => {
                 crate::always_print!("❌ [DeviceManager] Failed to enumerate: {}", e);
-                return Err(format!("Failed to enumerate output devices: {}", e));
+                return Err(DeviceError::OutputDevices(e.to_string()));
             }
         }
 
@@ -197,8 +251,15 @@ impl DeviceManager {
         Ok(devices)
     }
 
-    /// Get all available audio input devices
+    /// Get all available audio input devices.
+    ///
+    /// The input half of [`DeviceManager::get_output_devices`], kept in the same
+    /// `String` shape for the same reason.
     pub fn get_input_devices(&self) -> Result<Vec<DeviceInfo>, String> {
+        self.get_input_devices_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn get_input_devices_typed(&self) -> Result<Vec<DeviceInfo>, DeviceError> {
         let mut devices = Vec::new();
         let default_device = self.host.default_input_device();
         let default_name = default_device
@@ -245,7 +306,7 @@ impl DeviceManager {
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to enumerate input devices: {}", e));
+                return Err(DeviceError::InputDevices(e.to_string()));
             }
         }
 
@@ -261,8 +322,12 @@ impl DeviceManager {
         Ok(devices)
     }
 
-    /// Get device by ID for output devices
-    pub fn get_output_device_by_id(&self, device_id: &str) -> Result<Option<Device>, String> {
+    /// Get device by ID for output devices.
+    ///
+    /// The output half of [`DeviceManager::get_output_devices`]. The audio
+    /// engine calls this one: it only prints the failure, so it takes the typed
+    /// error and formats it as it is.
+    pub fn get_output_device_by_id(&self, device_id: &str) -> Result<Option<Device>, DeviceError> {
         if device_id == "output_default" {
             return Ok(self.host.default_output_device());
         }
@@ -292,7 +357,7 @@ impl DeviceManager {
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to enumerate devices: {}", e));
+                return Err(DeviceError::Devices(e.to_string()));
             }
         }
 
@@ -300,7 +365,8 @@ impl DeviceManager {
     }
 
     /// Get device by ID for input devices
-    pub fn get_input_device_by_id(&self, device_id: &str) -> Result<Option<Device>, String> {
+    /// The input half of [`DeviceManager::get_output_device_by_id`].
+    pub fn get_input_device_by_id(&self, device_id: &str) -> Result<Option<Device>, DeviceError> {
         if device_id == "input_default" {
             return Ok(self.host.default_input_device());
         }
@@ -329,7 +395,7 @@ impl DeviceManager {
                 }
             }
             Err(e) => {
-                return Err(format!("Failed to enumerate devices: {}", e));
+                return Err(DeviceError::Devices(e.to_string()));
             }
         }
 
@@ -342,7 +408,7 @@ impl DeviceManager {
         #[cfg(target_os = "linux")]
         let _alsa_suppressor = AlsaErrorSuppressor::new();
 
-        match self.get_output_device_by_id(device_id)? {
+        match self.get_output_device_by_id(device_id).map_err(|e| e.to_string())? {
             Some(device) => {
                 // Try to get supported configurations to test device availability
                 match device.supported_output_configs() {
@@ -360,7 +426,7 @@ impl DeviceManager {
         #[cfg(target_os = "linux")]
         let _alsa_suppressor = AlsaErrorSuppressor::new();
 
-        match self.get_input_device_by_id(device_id)? {
+        match self.get_input_device_by_id(device_id).map_err(|e| e.to_string())? {
             Some(device) => {
                 // Try to get supported configurations to test device availability
                 match device.supported_input_configs() {
@@ -409,7 +475,7 @@ impl DeviceManager {
         let manager = DeviceManager::new();
 
         // Load output devices
-        match manager.get_output_devices() {
+        match manager.get_output_devices_typed() {
             Ok(devices) => {
                 crate::always_print!("✅ [DeviceCache] Cached {} output devices", devices.len());
                 CACHED_OUTPUT_DEVICES.get_or_init(|| Mutex::new(devices));
@@ -421,7 +487,7 @@ impl DeviceManager {
         }
 
         // Load input devices
-        match manager.get_input_devices() {
+        match manager.get_input_devices_typed() {
             Ok(devices) => {
                 crate::always_print!("✅ [DeviceCache] Cached {} input devices", devices.len());
                 CACHED_INPUT_DEVICES.get_or_init(|| Mutex::new(devices));
@@ -433,8 +499,15 @@ impl DeviceManager {
         }
     }
 
-    /// Get cached output devices (no enumeration - instant)
+    /// Get cached output devices (no enumeration - instant).
+    ///
+    /// Kept in its `String` shape because `DeviceSelector` stores the reason;
+    /// delegates to [`DeviceManager::get_cached_output_devices_typed`].
     pub fn get_cached_output_devices() -> Result<Vec<DeviceInfo>, String> {
+        Self::get_cached_output_devices_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn get_cached_output_devices_typed() -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("📋 [DeviceCache] Returning cached output devices...");
         if let Some(cache) = CACHED_OUTPUT_DEVICES.get() {
             if let Ok(devices) = cache.lock() {
@@ -452,11 +525,20 @@ impl DeviceManager {
             }
         }
 
-        Err("Failed to access device cache".to_string())
+        Err(DeviceError::CacheUnavailable)
     }
 
     /// Get cached input devices (no enumeration - instant)
+    /// The input half of [`DeviceManager::get_cached_output_devices`].
     pub fn get_cached_input_devices() -> Result<Vec<DeviceInfo>, String> {
+        Self::get_cached_input_devices_typed().map_err(|e| e.to_string())
+    }
+
+    /// No caller: nothing in the window reads the input cache (input devices are
+    /// listed fresh). Kept beside the output pair so the two stay symmetrical,
+    /// and allowed for the same reason its `String` twin is.
+    #[allow(dead_code)]
+    pub fn get_cached_input_devices_typed() -> Result<Vec<DeviceInfo>, DeviceError> {
         crate::always_print!("📋 [DeviceCache] Returning cached input devices...");
         if let Some(cache) = CACHED_INPUT_DEVICES.get() {
             if let Ok(devices) = cache.lock() {
@@ -474,16 +556,22 @@ impl DeviceManager {
             }
         }
 
-        Err("Failed to access device cache".to_string())
+        Err(DeviceError::CacheUnavailable)
     }
 
     /// Force refresh cache (re-enumerate and update)
+    /// Kept in its `String` shape because `DeviceSelector` only logs this one;
+    /// delegates to [`DeviceManager::refresh_cache_typed`].
     pub fn refresh_cache() -> Result<(), String> {
+        Self::refresh_cache_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn refresh_cache_typed() -> Result<(), DeviceError> {
         crate::always_print!("🔄 [DeviceCache] Force refreshing device cache...");
         let manager = DeviceManager::new();
 
         // Refresh output devices
-        match manager.get_output_devices() {
+        match manager.get_output_devices_typed() {
             Ok(devices) => {
                 if let Some(cache) = CACHED_OUTPUT_DEVICES.get() {
                     if let Ok(mut cached) = cache.lock() {
@@ -499,7 +587,7 @@ impl DeviceManager {
         }
 
         // Refresh input devices
-        match manager.get_input_devices() {
+        match manager.get_input_devices_typed() {
             Ok(devices) => {
                 if let Some(cache) = CACHED_INPUT_DEVICES.get() {
                     if let Ok(mut cached) = cache.lock() {
@@ -559,5 +647,40 @@ mod tests {
         assert!(!is_legacy_index_device_id(&device_id_from_name("output", "Headphones")));
         assert!(!is_legacy_index_device_id("default"));
         assert!(!is_legacy_index_device_id("output_default"));
+    }
+
+    /// The descriptions are the contract: the log reads the same in every
+    /// language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let failures = [
+            DeviceError::OutputDevices("ALSA error".to_string()),
+            DeviceError::InputDevices("ALSA error".to_string()),
+            DeviceError::Devices("ALSA error".to_string()),
+            DeviceError::CacheUnavailable,
+        ];
+        for failure in &failures {
+            let english = failure.to_string();
+            assert_eq!(
+                english,
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        assert_eq!(DeviceError::OutputDevices("ALSA error".to_string()).to_string(), "Failed to enumerate output devices: ALSA error");
+        assert_eq!(DeviceError::CacheUnavailable.to_string(), "Failed to access device cache");
+        assert_eq!(
+            DeviceError::CacheUnavailable.ui_message(&Language::Es.strings().errors),
+            "No se pudo acceder a la caché de dispositivos"
+        );
     }
 }

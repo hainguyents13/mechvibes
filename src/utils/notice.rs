@@ -5,8 +5,11 @@
 //! also runs on the audio thread and in tokio tasks), and the window's poll
 //! loop picks the messages up with `take_new` and shows them as toasts.
 
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use std::collections::VecDeque;
-use std::path::PathBuf;
+use std::fmt::Display;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{ AtomicBool, AtomicU64, Ordering };
 use std::sync::Mutex;
 
@@ -61,6 +64,75 @@ pub fn report(kind: NoticeKind, text: impl Into<String>, action: Option<NoticeAc
     }
     // After the push, so a reader that sees the flag also sees the notice.
     HAS_WAITING.store(true, Ordering::Release);
+}
+
+// The wording of every notice the app reports. Each one takes the catalog of
+// the language in effect: **this module never reads the config**, so it stays
+// usable from the audio thread and from a startup path that runs before the
+// window exists. The caller resolves the language (a component through
+// `use_strings()`, anything else through `Language::strings()`) and passes the
+// `errors` zone in.
+//
+// Still called with English literals at the sites named on each function: the
+// notice queue holds a `String`, so the text has to be worded where it is
+// reported, and those sites are outside the slice that added these builders.
+// The literal to replace is named on each one.
+
+/// A change that could not be written. `cause` is the save error's description.
+///
+/// Replaces `format!("Could not save your changes. {}", e)` in
+/// `state::config_writer` and `utils::theme`.
+#[allow(dead_code)] // call sites still pass the literal; see the note above
+pub fn could_not_save_your_changes(errors: &ErrorStrings, cause: impl Display) -> String {
+    fill(errors.could_not_save_your_changes, &[&cause])
+}
+
+/// A saved theme that could not be written. `cause` is the save error.
+///
+/// Replaces the literal in `state::saved_themes`.
+#[allow(dead_code)] // see the note above
+pub fn could_not_save_your_theme(errors: &ErrorStrings, cause: impl Display) -> String {
+    fill(errors.could_not_save_your_theme, &[&cause])
+}
+
+/// A colors list that was damaged and moved aside, and where the copy went.
+///
+/// Replaces the literal in `state::themes`'s load.
+#[allow(dead_code)] // see the note above
+pub fn colors_list_damaged(errors: &ErrorStrings, copy: &Path) -> String {
+    fill(errors.colors_list_damaged, &[&copy.display()])
+}
+
+/// A colors list that could not be read at all this session.
+///
+/// Replaces `state::themes`'s `READ_ONLY_ERROR` and the notice it reports.
+#[allow(dead_code)] // see the note above
+pub fn colors_list_read_only(errors: &ErrorStrings) -> String {
+    fill(errors.colors_list_read_only, &[])
+}
+
+/// A saved-themes list that was damaged and moved aside.
+///
+/// Replaces the literal in `state::saved_themes`'s load.
+#[allow(dead_code)] // see the note above
+pub fn saved_themes_damaged(errors: &ErrorStrings, copy: &Path) -> String {
+    fill(errors.saved_themes_damaged, &[&copy.display()])
+}
+
+/// A saved-themes list that could not be written this session.
+///
+/// Replaces `state::saved_themes::ReadOnly::CouldNotRead`'s message.
+#[allow(dead_code)] // see the note above
+pub fn saved_themes_read_only(errors: &ErrorStrings) -> String {
+    fill(errors.saved_themes_read_only, &[])
+}
+
+/// A saved-themes list written by a newer Mechvibes.
+///
+/// Replaces `state::saved_themes::ReadOnly::MadeByNewerApp`'s message.
+#[allow(dead_code)] // see the note above
+pub fn saved_themes_from_newer_app(errors: &ErrorStrings) -> String {
+    fill(errors.saved_themes_from_newer_app, &[])
 }
 
 /// The messages reported since the last call, oldest first.

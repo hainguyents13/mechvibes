@@ -1,3 +1,4 @@
+use crate::i18n::catalog::ErrorStrings;
 use std::collections::HashMap;
 use std::ptr::null_mut;
 use std::ffi::OsString;
@@ -27,6 +28,62 @@ pub enum InputDeviceType {
     Unknown,
 }
 
+/// Why the raw input device list could not be read.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description the log gets and never follows the UI language;
+/// [`InputDeviceError::ui_message`] is the sentence the screen shows, composed
+/// from the catalog the caller hands in. This layer runs while the window is
+/// enumerating devices and cannot know which language is in effect.
+///
+/// Allowed to be unconstructed: every variant but the last is raised by the
+/// Win32 raw input calls, so on other platforms only the catalog match below
+/// mentions them.
+#[allow(dead_code)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InputDeviceError {
+    /// `GetRawInputDeviceList` could not report how many devices there are.
+    RawInputCount,
+    /// `GetRawInputDeviceList` could not fill the list.
+    RawInputList,
+    /// The size of a device name was not reported.
+    DeviceNameSize,
+    /// The device name was not returned.
+    DeviceName,
+    /// The device's info record was not returned.
+    DeviceInfo,
+    /// The friendly name lookup failed after trying the usual paths.
+    FriendlyName,
+    /// The friendly name lookup does not exist outside Windows.
+    FriendlyNameUnsupported,
+}
+
+impl InputDeviceError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> &'static str {
+        match self {
+            InputDeviceError::RawInputCount => errors.raw_input_count_unavailable,
+            InputDeviceError::RawInputList => errors.raw_input_list_unavailable,
+            InputDeviceError::DeviceNameSize => errors.device_name_size_unavailable,
+            InputDeviceError::DeviceName => errors.device_name_unavailable,
+            InputDeviceError::DeviceInfo => errors.device_info_unavailable,
+            InputDeviceError::FriendlyName => errors.device_name_retrieval_failed,
+            InputDeviceError::FriendlyNameUnsupported => errors.friendly_name_unsupported,
+        }
+    }
+}
+
+impl std::fmt::Display for InputDeviceError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
+
 #[allow(dead_code)]
 pub struct InputDeviceManager {
     devices: HashMap<String, InputDeviceInfo>,
@@ -44,8 +101,15 @@ impl InputDeviceManager {
         }
     }
 
-    /// Enumerate all input devices
+    /// Enumerate all input devices.
+    ///
+    /// Kept in its `String` shape for the callers outside the window that only
+    /// log it; delegates to [`InputDeviceManager::enumerate_devices_typed`].
     pub fn enumerate_devices(&mut self) -> Result<(), String> {
+        self.enumerate_devices_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn enumerate_devices_typed(&mut self) -> Result<(), InputDeviceError> {
         #[cfg(windows)]
         {
             self.enumerate_windows_devices()
@@ -60,7 +124,7 @@ impl InputDeviceManager {
     }
 
     #[cfg(windows)]
-    fn enumerate_windows_devices(&mut self) -> Result<(), String> {
+    fn enumerate_windows_devices(&mut self) -> Result<(), InputDeviceError> {
         unsafe {
             let mut num_devices = 0u32;
 
@@ -72,7 +136,7 @@ impl InputDeviceManager {
                     std::mem::size_of::<RAWINPUTDEVICELIST>() as u32
                 ) == u32::MAX
             {
-                return Err("Failed to get raw input device count".to_string());
+                return Err(InputDeviceError::RawInputCount);
             }
 
             if num_devices == 0 {
@@ -94,7 +158,7 @@ impl InputDeviceManager {
                     std::mem::size_of::<RAWINPUTDEVICELIST>() as u32
                 ) == u32::MAX
             {
-                return Err("Failed to get raw input device list".to_string());
+                return Err(InputDeviceError::RawInputList);
             }
 
             // Process each device
@@ -121,13 +185,13 @@ impl InputDeviceManager {
     /// `AppConfig.enabled_keyboards`/`enabled_mice` without re-implementing
     /// the lookup. Used by `rawinput_listener.rs`'s per-device filtering.
     #[cfg(windows)]
-    pub fn device_id_for_handle(device_handle: HANDLE) -> Result<String, String> {
+    pub fn device_id_for_handle(device_handle: HANDLE) -> Result<String, InputDeviceError> {
         let manager = InputDeviceManager::new();
         unsafe { manager.get_device_info(device_handle) }.map(|info| info.id)
     }
 
     #[cfg(windows)]
-    unsafe fn get_device_info(&self, device_handle: HANDLE) -> Result<InputDeviceInfo, String> {
+    unsafe fn get_device_info(&self, device_handle: HANDLE) -> Result<InputDeviceInfo, InputDeviceError> {
         let mut name_size = 0u32;
 
         // Get device name size
@@ -136,7 +200,7 @@ impl InputDeviceManager {
         }
 
         if name_size == 0 {
-            return Err("Failed to get device name size".to_string());
+            return Err(InputDeviceError::DeviceNameSize);
         }
 
         // Get device name
@@ -150,7 +214,7 @@ impl InputDeviceManager {
             )
         } == u32::MAX
         {
-            return Err("Failed to get device name".to_string());
+            return Err(InputDeviceError::DeviceName);
         }
 
         // Convert name to String
@@ -173,7 +237,7 @@ impl InputDeviceManager {
             )
         } == u32::MAX
         {
-            return Err("Failed to get device info".to_string());
+            return Err(InputDeviceError::DeviceInfo);
         }
 
         let (device_type, vendor_id, product_id) = match device_info.dwType {
@@ -274,7 +338,7 @@ impl InputDeviceManager {
     }
 
     #[cfg(windows)]
-    fn get_friendly_device_name(&self, device_path: &str) -> Result<String, String> {
+    fn get_friendly_device_name(&self, device_path: &str) -> Result<String, InputDeviceError> {
         use winapi::um::cfgmgr32::*;
 
         unsafe {
@@ -351,12 +415,12 @@ impl InputDeviceManager {
             }
         }
 
-        Err("Could not retrieve device name".to_string())
+        Err(InputDeviceError::FriendlyName)
     }
 
     #[cfg(not(windows))]
-    fn get_friendly_device_name(&self, _device_path: &str) -> Result<String, String> {
-        Err("Not supported on non-Windows platforms".to_string())
+    fn get_friendly_device_name(&self, _device_path: &str) -> Result<String, InputDeviceError> {
+        Err(InputDeviceError::FriendlyNameUnsupported)
     }
 
     fn get_manufacturer_name(&self, vid: &str) -> String {
@@ -465,9 +529,16 @@ impl InputDeviceManager {
     }
 
     /// Static method to get all input devices (keyboards + mice)
+    /// Kept in its `String` shape because `DeviceSelector` still stores the
+    /// reason and words the sentence where it draws it. Delegates to
+    /// [`InputDeviceManager::get_devices_typed`], so nothing is duplicated.
     pub fn get_devices() -> Result<Vec<InputDeviceInfo>, String> {
+        Self::get_devices_typed().map_err(|e| e.to_string())
+    }
+
+    pub fn get_devices_typed() -> Result<Vec<InputDeviceInfo>, InputDeviceError> {
         let mut manager = InputDeviceManager::new();
-        manager.enumerate_devices()?;
+        manager.enumerate_devices_typed()?;
 
         let mut all_devices = Vec::new();
         all_devices.extend(manager.get_keyboards());
@@ -533,5 +604,47 @@ impl InputDeviceManager {
 impl Default for InputDeviceManager {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The descriptions are the contract: the log reads the same in every
+    /// language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let failures = [
+            InputDeviceError::RawInputCount,
+            InputDeviceError::RawInputList,
+            InputDeviceError::DeviceNameSize,
+            InputDeviceError::DeviceName,
+            InputDeviceError::DeviceInfo,
+            InputDeviceError::FriendlyName,
+            InputDeviceError::FriendlyNameUnsupported,
+        ];
+        for failure in failures {
+            let english = failure.to_string();
+            assert_eq!(
+                english,
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        assert_eq!(InputDeviceError::DeviceName.to_string(), "Failed to get device name");
+        assert_eq!(
+            InputDeviceError::DeviceName.ui_message(&Language::Zh.strings().errors),
+            "无法获取设备名称"
+        );
     }
 }

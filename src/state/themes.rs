@@ -1,3 +1,5 @@
+use crate::i18n::catalog::ErrorStrings;
+use crate::i18n::fill;
 use crate::state::config::{preserve_corrupt_config, Preserved};
 use crate::state::paths;
 use crate::utils::notice::{self, NoticeAction, NoticeKind};
@@ -46,13 +48,94 @@ pub enum ThemesLoad {
     KeptAside(PathBuf),
     /// The file could not be read, or a damaged one could not be moved. It is
     /// left exactly as it is, and nothing is saved over it this session.
+    /// The `String` is what went wrong, for the log.
     ReadOnly(String),
+}
+
+impl ThemesLoad {
+    /// The sentence to report for this outcome, in the language `errors`
+    /// carries, or `None` when nothing needs saying.
+    ///
+    /// The failure itself is `Debug`/log material (it names the path and the OS
+    /// error, in English, and is the same in every language); what the user
+    /// reads comes from the catalog here. The caller resolves the language and
+    /// passes the `errors` zone: this module never reads the config, so it can
+    /// run during startup before there is a window.
+    ///
+    /// Unused until the two report calls in [`ThemesConfig::load`] pass a
+    /// catalog; they cannot yet, because the site that loads the list has none
+    /// and resolving one there would mean reading the config inside this layer.
+    #[allow(dead_code)]
+    pub fn ui_message(&self, errors: &ErrorStrings) -> Option<String> {
+        match self {
+            ThemesLoad::Fresh | ThemesLoad::Loaded => None,
+            ThemesLoad::KeptAside(copy) =>
+                Some(fill(errors.colors_list_damaged, &[&copy.display()])),
+            ThemesLoad::ReadOnly(_) => Some(errors.colors_list_read_only.to_string()),
+        }
+    }
 }
 
 /// Set when the list could not be read at startup, so every save refuses.
 static READ_ONLY: AtomicBool = AtomicBool::new(false);
+/// [The catalog's sentence](crate::i18n::catalog::ErrorStrings::colors_list_read_only),
+/// kept as a constant because the places that still show it (the notice below
+/// and the `String` the save returns) are outside this slice and have no
+/// catalog in hand. `the_read_only_sentence_matches_the_catalog` keeps the two
+/// from drifting apart.
 const READ_ONLY_ERROR: &str =
     "Could not read your colors list, so nothing in it was changed. Restart Mechvibes to try again.";
+
+/// Why a change to the colors list was refused or not written.
+///
+/// The wording is split from the cause on purpose. `Display` is the stable
+/// English description the log and the callers that only print keep using, and
+/// it never follows the UI language. [`ThemesError::ui_message`] is the sentence
+/// the screen shows, composed from the catalog the caller hands in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ThemesError {
+    /// The list could not be read at startup, so nothing may be written over it.
+    ReadOnly,
+    /// The folder the list lives in could not be created. The `String` is the
+    /// OS description.
+    DataDirectory(String),
+    /// The name offered for a new or edited entry is blank.
+    NameRequired,
+    /// Another entry already uses that name.
+    NameTaken,
+    /// No entry has that id.
+    NotFound,
+    /// The file could not be written. The `String` is the storage layer's own
+    /// description, which owns its wording.
+    Storage(String),
+}
+
+impl ThemesError {
+    /// The sentence for this failure in the language `errors` carries.
+    ///
+    /// The caller resolves the language and passes the `errors` zone; nothing
+    /// here reads the config.
+    pub fn ui_message(&self, errors: &ErrorStrings) -> String {
+        match self {
+            ThemesError::ReadOnly => errors.colors_list_read_only.to_string(),
+            ThemesError::DataDirectory(cause) =>
+                fill(errors.data_directory_unavailable, &[cause]),
+            ThemesError::NameRequired => errors.theme_name_required.to_string(),
+            ThemesError::NameTaken => errors.theme_name_taken.to_string(),
+            ThemesError::NotFound => errors.theme_not_found.to_string(),
+            // Already a whole sentence from the storage helper, which owns it.
+            ThemesError::Storage(description) => description.clone(),
+        }
+    }
+}
+
+impl std::fmt::Display for ThemesError {
+    /// Always English: the catalog for it is named here, never read from config,
+    /// so a log line or a test reads the same in every language.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.ui_message(&crate::i18n::Language::En.strings().errors))
+    }
+}
 
 impl ThemesConfig {
     /// The colors list from disk. Never writes over a file it could not read:
@@ -133,40 +216,69 @@ impl ThemesConfig {
         }
     }
 
+    /// Kept in its `String` shape because `utils::theme`'s `UpdateThemes` still
+    /// hands out `Result<(), String>`. Delegates to [`ThemesConfig::save_typed`],
+    /// so the wording is not duplicated; the screen migrates by calling that one.
     pub fn save(&self) -> Result<(), String> {
-        self.save_at(&paths::data::themes_json(), READ_ONLY.load(Ordering::Acquire))
+        self.save_typed().map_err(|e| e.to_string())
+    }
+
+    /// The same save as [`ThemesConfig::save`], with the failure typed so the
+    /// screen can word it from the catalog.
+    pub fn save_typed(&self) -> Result<(), ThemesError> {
+        self.save_at_typed(&paths::data::themes_json(), READ_ONLY.load(Ordering::Acquire))
     }
 
     fn save_at(&self, themes_path: &Path, read_only: bool) -> Result<(), String> {
+        self.save_at_typed(themes_path, read_only).map_err(|e| e.to_string())
+    }
+
+    fn save_at_typed(&self, themes_path: &Path, read_only: bool) -> Result<(), ThemesError> {
         if read_only {
-            return Err(READ_ONLY_ERROR.to_string());
+            return Err(ThemesError::ReadOnly);
         }
 
         // Ensure the data directory exists
         if let Some(parent) = themes_path.parent() {
             path::ensure_directory_exists(parent)
-                .map_err(|e| format!("Failed to create data directory: {}", e))?;
+                .map_err(|e| ThemesError::DataDirectory(e.to_string()))?;
         }
 
         // Atomic, so a failed write leaves the old list rather than half of one.
-        data::save_json_to_file_atomically(self, themes_path)?;
+        data::save_json_to_file_atomically(self, themes_path)
+            .map_err(ThemesError::Storage)?;
         crate::always_print!("💾 Saved themes configuration to {}", themes_path.display());
         Ok(())
     }
+
+    /// Kept in its `String` shape for `colors_editor_modal`, whose outcome slot
+    /// is typed `Result<String, String>`. Delegates to
+    /// [`ThemesConfig::add_theme_typed`].
     pub fn add_theme(
         &mut self,
         name: String,
         description: String,
         css: String,
     ) -> Result<String, String> {
+        self.add_theme_typed(name, description, css).map_err(|e| e.to_string())
+    }
+
+    /// The same add as [`ThemesConfig::add_theme`], with the failure typed so
+    /// the screen can word it from the catalog.
+    pub fn add_theme_typed(
+        &mut self,
+        name: String,
+        description: String,
+        css: String,
+    ) -> Result<String, ThemesError> {
         if name.trim().is_empty() {
-            return Err("Give it a name first.".to_string());
+            return Err(ThemesError::NameRequired);
         }
 
         // Check for duplicate names
         for theme in self.custom_themes.values() {
             if theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("You already have one with this name. Pick another name.".to_string());
+                return Err(ThemesError::NameTaken);
             }
         }
 
@@ -188,6 +300,9 @@ impl ThemesConfig {
 
         Ok(id)
     }
+    /// Kept in its `String` shape for the same reason as
+    /// [`ThemesConfig::add_theme`]; delegates to
+    /// [`ThemesConfig::update_theme_typed`].
     pub fn update_theme(
         &mut self,
         id: &str,
@@ -195,14 +310,25 @@ impl ThemesConfig {
         description: String,
         css: String,
     ) -> Result<(), String> {
+        self.update_theme_typed(id, name, description, css).map_err(|e| e.to_string())
+    }
+
+    /// The same edit as [`ThemesConfig::update_theme`], with the failure typed.
+    pub fn update_theme_typed(
+        &mut self,
+        id: &str,
+        name: String,
+        description: String,
+        css: String,
+    ) -> Result<(), ThemesError> {
         if name.trim().is_empty() {
-            return Err("Give it a name first.".to_string());
+            return Err(ThemesError::NameRequired);
         }
 
         // Check for duplicate names (excluding current theme)
         for (theme_id, theme) in &self.custom_themes {
             if theme_id != id && theme.name.to_lowercase() == name.to_lowercase() {
-                return Err("You already have one with this name. Pick another name.".to_string());
+                return Err(ThemesError::NameTaken);
             }
         }
 
@@ -214,16 +340,24 @@ impl ThemesConfig {
             self.last_updated = Utc::now();
             Ok(())
         } else {
-            Err("Theme not found".to_string())
+            Err(ThemesError::NotFound)
         }
     }
 
+    /// Kept in its `String` shape for the same reason as
+    /// [`ThemesConfig::add_theme`]; delegates to
+    /// [`ThemesConfig::delete_theme_typed`].
     pub fn delete_theme(&mut self, id: &str) -> Result<(), String> {
+        self.delete_theme_typed(id).map_err(|e| e.to_string())
+    }
+
+    /// The same removal as [`ThemesConfig::delete_theme`], with the failure typed.
+    pub fn delete_theme_typed(&mut self, id: &str) -> Result<(), ThemesError> {
         if self.custom_themes.remove(id).is_some() {
             self.last_updated = Utc::now();
             Ok(())
         } else {
-            Err("Theme not found".to_string())
+            Err(ThemesError::NotFound)
         }
     }
 
@@ -271,6 +405,90 @@ impl ThemesConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The constant the notice and the save error still use has to stay the
+    /// catalog's sentence, or the two drift apart and the user reads one of
+    /// each depending on which path reported.
+    #[test]
+    fn the_read_only_sentence_matches_the_catalog() {
+        assert_eq!(
+            READ_ONLY_ERROR,
+            crate::i18n::Language::En.strings().errors.colors_list_read_only
+        );
+        assert_eq!(ThemesError::ReadOnly.to_string(), READ_ONLY_ERROR);
+    }
+
+    /// The descriptions are the contract: the log reads the same in every
+    /// language, and only `ui_message` follows the catalog.
+    #[test]
+    fn a_description_is_english_whatever_language_the_catalog_is_in() {
+        use crate::i18n::Language;
+
+        let failures = [
+            ThemesError::ReadOnly,
+            ThemesError::DataDirectory("denied".to_string()),
+            ThemesError::NameRequired,
+            ThemesError::NameTaken,
+            ThemesError::NotFound,
+            ThemesError::Storage("no space left on device".to_string()),
+        ];
+        for failure in &failures {
+            let english = failure.to_string();
+            assert_eq!(
+                english,
+                failure.ui_message(&Language::En.strings().errors),
+                "the English catalog is the description"
+            );
+            for language in [Language::Zh, Language::Es] {
+                assert_eq!(
+                    failure.to_string(),
+                    english,
+                    "`{failure:?}` changed with {language:?}: a description must not follow the UI language"
+                );
+            }
+        }
+        // The wording the log had before the catalog was involved.
+        assert_eq!(ThemesError::NameRequired.to_string(), "Give it a name first.");
+        assert_eq!(
+            ThemesError::NameTaken.to_string(),
+            "You already have one with this name. Pick another name."
+        );
+        assert_eq!(ThemesError::NotFound.to_string(), "Theme not found");
+        assert_eq!(
+            ThemesError::DataDirectory("denied".to_string()).to_string(),
+            "Failed to create data directory: denied"
+        );
+        // The storage layer owns its sentence, so it passes through unchanged.
+        assert_eq!(
+            ThemesError::Storage("no space left on device".to_string()).to_string(),
+            "no space left on device"
+        );
+        assert_eq!(
+            ThemesError::NameTaken.ui_message(&Language::Es.strings().errors),
+            "Ya tienes uno con este nombre. Elige otro nombre."
+        );
+    }
+
+    /// The two notices the load can report, in all three languages, plus the
+    /// outcomes that report nothing.
+    #[test]
+    fn a_load_outcome_is_worded_from_the_catalog() {
+        use crate::i18n::Language;
+
+        let copy = PathBuf::from("/tmp/themes.json.corrupt");
+        let damaged = ThemesLoad::KeptAside(copy.clone());
+        assert_eq!(
+            damaged.ui_message(&Language::En.strings().errors),
+            Some("Your colors list was damaged. A copy was kept at /tmp/themes.json.corrupt.".to_string())
+        );
+        assert_eq!(
+            ThemesLoad::ReadOnly("could not read it".to_string())
+                .ui_message(&Language::Zh.strings().errors),
+            Some("无法读取你的颜色列表，因此其中的内容未被更改。请重启 Mechvibes 再试一次。".to_string())
+        );
+        assert_eq!(ThemesLoad::Fresh.ui_message(&Language::Es.strings().errors), None);
+        assert_eq!(ThemesLoad::Loaded.ui_message(&Language::Es.strings().errors), None);
+    }
 
     #[test]
     fn importing_reuses_the_same_theme_and_numbers_a_different_one() {
