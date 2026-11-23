@@ -6,6 +6,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Windows: sounds for on-screen keyboards.** Since Mechvibes 3, keys sent by software were silent on purpose, so input methods like Telex don't play a burst of sounds when they correct a word. That also silenced on-screen keyboards, including the one built into Windows, which some people type with every day. A new "Play on-screen keyboards" switch in Settings > Devices plays them, and keys sent by tools like AutoHotkey too. It is off by default. Thanks to masoul on Discord for letting us know.
+
 ### Fixed
 
 - **Linux: the AppImage starts on Fedora 45.** Fedora 45 moved to OpenSSL 4 and to a newer xdotool without `libxdo.so.3`, so the app stopped at "error while loading shared libraries". OpenSSL is now built into the app, and the AppImage carries its own copy of libxdo. Thanks to lambacher on Discord for tracking it down.

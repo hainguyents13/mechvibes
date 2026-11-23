@@ -327,8 +327,8 @@ fn handle_keyboard(raw: &RAWINPUT) {
 
         // Emitted before the up below so downstream sees a well-formed
         // down-then-up pair. Both carry the real `device_id`, so the
-        // per-device filter (`input_worker_host.rs`) and the injected-input
-        // filter (`input_worker.rs`) judge the synthesized down by exactly
+        // per-device filter and the injected-input filter (both in
+        // `input_worker_host.rs`) judge the synthesized down by exactly
         // the same rules as a real one - a claimed key on a disabled or
         // injected source stays silent.
         if transition == KeyTransition::OrphanUp {
@@ -380,8 +380,8 @@ enum KeyTransition {
 /// either filter that can drop a down:
 ///
 /// 1. `pressed_keys` (here) - sees every raw event, filters nothing.
-/// 2. `input_worker.rs::is_physical_keyboard_event` - drops NULL-hDevice
-///    (injected/IME) events on their way to the pipe.
+/// 2. `input_worker_host.rs::DeviceFilter::drops_injected_press` - drops NULL-hDevice
+///    (injected/IME) presses unless on-screen keyboard sounds are on.
 /// 3. `input_worker_host.rs::wire_for_event` - drops events from devices the
 ///    user disabled in Settings.
 ///
@@ -785,7 +785,7 @@ mod tests {
 
     #[test]
     fn a_down_dropped_by_a_downstream_filter_leaves_no_orphan() {
-        // Both the injected-input filter (input_worker.rs) and the per-device
+        // Both the injected-input filter and the per-device
         // filter (input_worker_host.rs) sit downstream of this bookkeeping,
         // so a down they drop was still recorded here. Its up must therefore
         // be a plain Up - no synthesized down, which would otherwise let a
