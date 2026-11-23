@@ -4,6 +4,16 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- **EG Oreo Classic.** A new built-in keyboard pack that sounds like EG Oreo did in Mechvibes 2: each key plays its whole sound when you press it. The EG Oreo pack stays as it is, with separate press and release sounds. Find it on the Sound packs page. Thanks to burakjohnes and cortaxvenas on Discord.
+
+### Fixed
+
+- **New sound packs show up without pressing Refresh.** The pack list only rescanned its folders when it was empty, so a pack added by an update, or a pack folder copied in by hand, stayed hidden until you pressed Refresh on the Sound packs page. It now rescans on start whenever the folders differ from the list.
+
 ## [3.5.8] - 2026-11-24
 
 ### Added

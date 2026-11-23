@@ -162,14 +162,44 @@ impl SoundpackCache {
             }
         };
 
-        // Auto-refresh if cache is empty or missing
-        if cache.soundpacks.is_empty() {
-            crate::always_print!("🔄 Cache is empty, refreshing from soundpack directories...");
+        // Rescan when the cache is empty, or when the pack folders on disk are
+        // not the ones it lists. The second case is an update that ships a new
+        // built-in pack, or a pack folder added or removed by hand: without
+        // it the list stays as it was until the user presses Refresh.
+        let on_disk = Self::pack_ids_on_disk();
+        if cache.soundpacks.is_empty() || !Self::lists_exactly(&cache, &on_disk) {
+            crate::always_print!("🔄 Soundpack folders changed, refreshing the cache...");
             cache.refresh_from_directory();
             cache.save();
         }
 
         cache
+    }
+
+    /// The ids `refresh_from_directory` would produce: one per entry in the
+    /// built-in and custom `keyboard/` and `mouse/` folders.
+    fn pack_ids_on_disk() -> std::collections::HashSet<String> {
+        let mut ids = std::collections::HashSet::new();
+        for root in [
+            paths::soundpacks::get_builtin_soundpacks_dir(),
+            paths::soundpacks::get_custom_soundpacks_dir(),
+        ] {
+            for kind in ["keyboard", "mouse"] {
+                let Ok(entries) = std::fs::read_dir(root.join(kind)) else {
+                    continue;
+                };
+                for entry in entries.flatten() {
+                    if let Some(name) = entry.file_name().to_str() {
+                        ids.insert(format!("{}/{}", kind, name));
+                    }
+                }
+            }
+        }
+        ids
+    }
+
+    fn lists_exactly(cache: &SoundpackCache, ids: &std::collections::HashSet<String>) -> bool {
+        cache.soundpacks.len() == ids.len() && ids.iter().all(|id| cache.soundpacks.contains_key(id))
     }
     pub fn new() -> Self {
         Self {
@@ -339,5 +369,45 @@ impl SoundpackCache {
             last_error: Some(error),
         };
         self.soundpacks.insert(full_soundpack_id.to_string(), error_metadata);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    fn cache_with(ids: &[&str]) -> SoundpackCache {
+        let mut cache = SoundpackCache::new();
+        for id in ids {
+            cache.insert_error_metadata(id, id, String::new(), id.starts_with("mouse/"));
+        }
+        cache
+    }
+
+    fn set(ids: &[&str]) -> HashSet<String> {
+        ids.iter().map(|id| id.to_string()).collect()
+    }
+
+    #[test]
+    fn a_cache_listing_every_pack_folder_is_kept() {
+        let cache = cache_with(&["keyboard/eg-oreo", "mouse/ping"]);
+        assert!(SoundpackCache::lists_exactly(&cache, &set(&["keyboard/eg-oreo", "mouse/ping"])));
+    }
+
+    #[test]
+    fn a_new_pack_folder_makes_the_cache_stale() {
+        // An update that ships a new built-in pack must show it without the
+        // user pressing Refresh.
+        let cache = cache_with(&["keyboard/eg-oreo"]);
+        assert!(
+            !SoundpackCache::lists_exactly(&cache, &set(&["keyboard/eg-oreo", "keyboard/eg-oreo-classic"]))
+        );
+    }
+
+    #[test]
+    fn a_removed_pack_folder_makes_the_cache_stale() {
+        let cache = cache_with(&["keyboard/eg-oreo", "keyboard/gone"]);
+        assert!(!SoundpackCache::lists_exactly(&cache, &set(&["keyboard/eg-oreo"])));
     }
 }
