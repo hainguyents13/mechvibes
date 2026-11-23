@@ -113,6 +113,16 @@ if echo "$NEEDED" | grep -q 'libbz2'; then
 fi
 echo "libbz2 check OK: compiled in, not needed from the host"
 
+# --- guard: no OpenSSL from the host ----------------------------------------
+# Fedora 45 ships OpenSSL 4, so a binary that needs libssl.so.3 does not start
+# there. OpenSSL is compiled in (the "vendored" openssl dependency in
+# Cargo.toml); this fails the build if the dynamic link comes back.
+if echo "$NEEDED" | grep -Eq 'libssl|libcrypto'; then
+  echo "::error::$BINARY links OpenSSL dynamically, which breaks on distributions with OpenSSL 4 (Fedora 45). Keep openssl's \"vendored\" feature on in Cargo.toml."
+  exit 1
+fi
+echo "OpenSSL check OK: compiled in, not needed from the host"
+
 # --- guard: runs on older distributions -------------------------------------
 # A binary needs the glibc it was linked against or newer. Built on Ubuntu
 # 24.04 it needed glibc 2.39, so the .deb could not install and the AppImage
@@ -205,11 +215,28 @@ cp assets/icon.png "$APPDIR/${APP_NAME}.png"
 # .DirIcon is what file managers read for the image's own thumbnail.
 cp assets/icon.png "$APPDIR/.DirIcon"
 
+# --- libxdo -----------------------------------------------------------------
+# The one host library the AppImage carries. muda (the tray and window menus)
+# links libxdo.so.3, and Fedora 45 moved to xdotool 4, which only has
+# libxdo.so.4, so the app did not start there. libxdo is small and only
+# depends on X11 libraries every desktop has under the same names. AppRun puts
+# this folder on the library path; on systems that have libxdo.so.3 the
+# bundled copy is the same library.
+LIBXDO=$(ldconfig -p | awk '/libxdo\.so\.3 .*x86-64/ { print $NF; exit }')
+if [ -z "$LIBXDO" ] || [ ! -f "$LIBXDO" ]; then
+  echo "::error::libxdo.so.3 not found on the build machine (install libxdo-dev)"
+  exit 1
+fi
+mkdir -p "$APPDIR/usr/lib/${APP_NAME}/libs"
+cp -L "$LIBXDO" "$APPDIR/usr/lib/${APP_NAME}/libs/libxdo.so.3"
+echo "Bundled $LIBXDO"
+
 # --- AppRun -----------------------------------------------------------------
-# Kept minimal on purpose. It does NOT bundle or preload system libraries:
-# webkit2gtk, GTK and libasound come from the host, which is the standard
-# trade-off for a webview app (a bundled webkit conflicts with the host's
-# GStreamer and portal stack more often than it helps).
+# Kept minimal on purpose. Apart from libxdo above, it does NOT bundle or
+# preload system libraries: webkit2gtk, GTK and libasound come from the host,
+# which is the standard trade-off for a webview app (a bundled webkit
+# conflicts with the host's GStreamer and portal stack more often than it
+# helps).
 #
 # APPDIR is exported because the AppImage runtime does so and tooling expects
 # it, but the app itself does not read it - paths.rs derives the AppDir from
@@ -221,6 +248,7 @@ HERE="$(dirname "$(readlink -f "${0}")")"
 export APPDIR="${HERE}"
 export PATH="${HERE}/usr/bin:${PATH}"
 export XDG_DATA_DIRS="${HERE}/usr/share:${XDG_DATA_DIRS:-/usr/local/share:/usr/share}"
+export LD_LIBRARY_PATH="${HERE}/usr/lib/mechvibes/libs${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 exec "${HERE}/usr/bin/mechvibes" "$@"
 APPRUN
 chmod 755 "$APPDIR/AppRun"
@@ -312,6 +340,12 @@ echo "fonts: image=$IMG_FONTS source=$SRC_FONTS"
 [ "$(head -c 4 "$IMG/usr/bin/${APP_NAME}" | od -An -tx1 | tr -d ' \n')" = "7f454c46" ] \
   || { echo "::error::bundled executable is not an ELF binary"; exit 1; }
 echo "ELF magic OK"
+# The bundled libxdo must resolve for the binary through AppRun's library path.
+grep -q 'usr/lib/mechvibes/libs' "$IMG/AppRun" \
+  || { echo "::error::AppRun does not put the bundled libraries on the library path"; exit 1; }
+LD_LIBRARY_PATH="$IMG/usr/lib/${APP_NAME}/libs" ldd "$IMG/usr/bin/${APP_NAME}" | grep 'libxdo.so.3' | grep -q "$IMG/usr/lib/${APP_NAME}/libs/" \
+  || { echo "::error::the binary does not pick up the bundled libxdo.so.3"; exit 1; }
+echo "libxdo OK: bundled and picked up"
 rm -rf "$VERIFY_DIR"
 
 assert_no_updater_collision dist
