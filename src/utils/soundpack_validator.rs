@@ -293,9 +293,11 @@ fn validate_v2_structure(
         missing_fields.push("name".to_string());
     }
 
-    if !config.get("author").is_some() && !config.get("m_author").is_some() {
-        missing_fields.push("author".to_string());
-    }
+    // `author` is deliberately not required. The documented schema requires
+    // `name` alone, and a V1 pack never carried an author, so requiring it made
+    // the app's own converter emit packs its validator then called incomplete
+    // (`missing_fields`), which is what every converted pack was flagged as.
+    // The legacy `m_author` spelling is still read wherever the author is shown.
 
     let definitions = key_definitions(config);
 
@@ -609,6 +611,36 @@ mod tests {
         }
 
         assert!(checked > 0, "expected to find bundled soundpack configs under {}", root.display());
+    }
+
+    /// A pack the V1-to-V2 converter just wrote has no author: V1 configs never
+    /// carried one and the converter only copies the fields V1 had. The schema
+    /// requires `name` alone, so the app must not call its own output
+    /// incomplete - that is what left every converted pack flagged
+    /// `missing_fields` in the cache.
+    #[test]
+    fn a_converter_written_v2_config_without_an_author_is_valid() {
+        let result = validate_json(
+            r#"{
+                "id": "thocky",
+                "name": "Lewis Toh Thocky (by z6)",
+                "config_version": "2",
+                "v1_conversion": 2,
+                "definition_method": "single",
+                "audio_file": "concatenated_audio.wav",
+                "created_at": "2026-11-16T19:46:35+00:00",
+                "options": { "random_pitch": false, "recommended_volume": 1.0 },
+                "definitions": { "KeyA": { "timing": [[0.0, 50.0]] } }
+            }"#
+        );
+
+        assert_eq!(
+            result.status,
+            SoundpackValidationStatus::Valid,
+            "a converted pack has no author to give; got: {}",
+            result.message
+        );
+        assert!(result.is_valid_v2);
     }
 
     /// `defs` is accepted as an alias so a config using the shorter spelling is

@@ -42,6 +42,8 @@ All links point to the [latest release](https://github.com/hainguyents13/mechvib
 
 A sound pack decides which sound plays for each key and mouse button.
 
+**The pickers on Home list the packs you starred.** The Home page has one picker for your keyboard and one for your mouse, and each shows the packs starred on the **Sound packs** page, most recently added first. The packs Mechvibes ships with start out starred, so a picker is never empty; star a pack of your own to have it there too.
+
 ### Add a sound pack
 
 From the [sound pack library](https://mechvibes.com/sound-packs) on Windows and Linux, click **Install in Mechvibes** on a pack's page. Mechvibes opens, shows the pack's name, author and size, and installs it when you click **Install**. A pack you already have is updated the same way when the library has a newer version. On macOS, download the ZIP from the pack's page and add it as below.
@@ -50,7 +52,7 @@ To add a ZIP yourself:
 
 1. Get the pack as a ZIP file, with `config.json` at the top of the ZIP.
 2. Open **Sound packs**, choose the **Keyboard** or **Mouse** tab, click **Add**, then **Select file**.
-3. Pick the pack on the **Home** page.
+3. Star the pack on the **Sound packs** page, then pick it on the **Home** page.
 
 Already have a pack as a folder? In **Sound packs > Manage**, open the custom sound packs folder, copy the folder in, then click **Refresh**.
 
