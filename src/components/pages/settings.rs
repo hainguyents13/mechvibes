@@ -32,6 +32,7 @@ pub fn SettingsPage() -> Element {
     let start_minimized = use_memo(move || config().start_minimized);
     let start_hidden = use_memo(move || config().start_hidden);
     let floating_dock = use_memo(move || config().floating_dock);
+    let play_on_screen_keyboard = use_memo(move || config().play_on_screen_keyboard);
     let mute_while_mic_in_use = use_memo(move || config().mute_while_mic_in_use);
     let mute_mood_with_sounds = use_memo(move || config().mute_mood_with_sounds);
     let enable_telemetry = use_memo(move || config().enable_telemetry);
@@ -277,6 +278,29 @@ pub fn SettingsPage() -> Element {
               div { class: "space-y-2",
                 // Audio Output Device
                 AudioOutputSelector {}
+                // Keys sent by software: on-screen keyboards, macro tools
+                if cfg!(target_os = "windows") {
+                  Toggler {
+                    title: "Play on-screen keyboards".to_string(),
+                    description: Some(
+                        "Also play keys typed on an on-screen keyboard or sent by apps like AutoHotkey. Leave it off if you type with Telex or another input method that corrects words as you type."
+                            .to_string(),
+                    ),
+                    checked: play_on_screen_keyboard(),
+                    on_change: {
+                        let update_config = update_config.clone();
+                        move |new_value: bool| {
+                            update_config(
+                                Box::new(move |config| {
+                                    config.play_on_screen_keyboard = new_value;
+                                }),
+                            );
+                            #[cfg(target_os = "windows")]
+                            crate::libs::input_worker_host::notify_config_changed();
+                        }
+                    },
+                  }
+                }
                 // Device Information
                 div { class: "text-xs mt-2 text-base-content/70",
                   "Device changes apply immediately — no restart needed. If audio ever stops working (e.g. after unplugging a device), restarting the app can help."

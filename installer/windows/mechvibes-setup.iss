@@ -282,19 +282,53 @@ begin
   end;
 end;
 
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+// Deletes everything in the data folder except `custom`. Mechvibes 2 shares
+// this folder and keeps the packs people added in `custom`; Mechvibes 3 only
+// copies them out (src/utils/legacy_migration.rs), so `custom` holds the
+// originals, often hand-cut and kept nowhere else. Deleting this app's data
+// must not take them along. Without a `custom` folder the whole folder goes.
+procedure DeleteDataKeepingMechvibes2Packs(Dir: String);
 var
-  ResultCode: Integer;
+  FindRec: TFindRec;
+  Path: String;
+begin
+  if not DirExists(Dir + '\custom') then
+  begin
+    DelTree(Dir, True, True, True);
+    exit;
+  end;
+  if FindFirst(Dir + '\*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Name <> '.') and (FindRec.Name <> '..') and
+          (CompareText(FindRec.Name, 'custom') <> 0) then
+        begin
+          Path := Dir + '\' + FindRec.Name;
+          if (FindRec.Attributes and FILE_ATTRIBUTE_DIRECTORY) <> 0 then
+            DelTree(Path, True, True, True)
+          else
+            DeleteFile(Path);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 begin
   if CurUninstallStep = usPostUninstall then
   begin
     // Defaults to No, and a silent uninstall keeps the data, so a reinstall
     // finds everything where it was.
     if SuppressibleMsgBox('Also delete your settings and imported sound packs?' + #13#10#13#10 +
-      'Choose No to keep them for when you install Mechvibes again.',
+      'Choose No to keep them for when you install Mechvibes again. ' +
+      'Sound packs you added to Mechvibes 2 are kept either way.',
       mbConfirmation, MB_YESNO or MB_DEFBUTTON2, IDNO) = IDYES then
     begin
-      DelTree(ExpandConstant('{userappdata}\Mechvibes'), True, True, True);
+      DeleteDataKeepingMechvibes2Packs(ExpandConstant('{userappdata}\Mechvibes'));
     end;
   end;
 end;

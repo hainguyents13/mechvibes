@@ -1,6 +1,6 @@
 [package]
 name = "mechvibes"
-version = "3.5.7"
+version = "3.5.8"
 authors = ["Hải Nguyễn <hainguyen.ts13@gmail.com>"]
 edition = "2024"
 rust-version = "1.88"
@@ -79,6 +79,12 @@ bzip2 = { version = "0.5", features = ["static"] }
 # PulseAudio or PipeWire sound server. A pure Rust client, so neither the .deb
 # nor the AppImage needs libpulse.
 pulseaudio = "0.3"
+# OpenSSL is compiled into the binary rather than taken from the host.
+# dioxus-desktop pulls it in on Linux (tungstenite's native-tls) whatever
+# reqwest uses, and a binary linked against libssl.so.3 does not start on
+# distributions that moved to OpenSSL 4, such as Fedora 45. The same version
+# native-tls already uses; "vendored" only changes how openssl-sys builds it.
+openssl = { version = "0.10", features = ["vendored"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 macos-accessibility-client = "0.0.1"
