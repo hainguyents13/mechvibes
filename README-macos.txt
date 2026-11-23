@@ -1,22 +1,18 @@
-Mechvibes for macOS - EXPERIMENTAL, UNTESTED
-==============================================
+Mechvibes for macOS
+===================
 
 READ THIS BEFORE INSTALLING.
 
-This build is produced by CI and has never been run on a real Mac by the
-maintainer. It carries only an ad-hoc signature and is NOT notarized. It is
-published so that macOS users can try it and report back - not because it is
-known to work.
+The app carries only an ad-hoc signature and is NOT notarized, so macOS
+needs a few extra steps before it runs. They are all below.
 
-Known and expected rough edges:
-  - Gatekeeper will refuse a normal double-click on first launch.
-  - Input capture needs Accessibility and Input Monitoring permission, which
-    the app cannot request properly without a signed bundle.
-  - The tray icon, audio device switching, and soundpack loading are all
-    unverified on macOS.
+Tested on a real Mac: 3.5.7 on an Apple Silicon M3 with macOS 27.3. Opening
+it past Gatekeeper, both permissions, key capture in other apps, the menu
+bar icon, every bundled soundpack and switching to headphones all worked.
+The Intel build has not been tried on a real Mac yet.
 
-If something is broken, please open an issue with the macOS version and the
-console output - that feedback is the whole point of this build.
+If something is broken, please open an issue with your macOS version, your
+Mac's chip and the console output.
 
 
 1. Installing

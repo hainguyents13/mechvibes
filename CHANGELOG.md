@@ -9,6 +9,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Windows: sounds for on-screen keyboards.** Since Mechvibes 3, keys sent by software were silent on purpose, so input methods like Telex don't play a burst of sounds when they correct a word. That also silenced on-screen keyboards, including the one built into Windows, which some people type with every day. A new "Play on-screen keyboards" switch in Settings > Devices plays them, and keys sent by tools like AutoHotkey too. It is off by default. Thanks to masoul on Discord for letting us know.
+### Fixed
+
+- **Linux: the .deb installs on Debian 12, Deepin and other older distributions again.** It was built on Ubuntu 24.04 and so asked for newer system libraries than these have, failing with "Broken dependencies: libxtst6". It is now built on Ubuntu 22.04 and installs on newer distributions as before. The AppImage gets the same fix (#193).
 
 ## [3.5.7] - 2026-11-12
 
