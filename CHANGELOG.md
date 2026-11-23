@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **macOS 12: the window shows its tabs, switches and sound packs again.** Mechvibes draws with the WebKit built into macOS, which on macOS 12 is older than the one Safari updates bring, and it skipped every nested style rule. Tabs showed as plain radio buttons, switches had no knob and the Sound packs page was empty, even with the newest Safari installed. The macOS build now flattens those rules when it is built. A few faint borders and tints may still look plainer on macOS 12. Thanks to diskordcendrum and marckyoto on Discord for the screenshots.
 - **Linux: the .deb installs on Debian 12, Deepin and other older distributions again.** It was built on Ubuntu 24.04 and so asked for newer system libraries than these have, failing with "Broken dependencies: libxtst6". It is now built on Ubuntu 22.04 and installs on newer distributions as before. The AppImage gets the same fix (#193).
 
 ## [3.5.7] - 2026-11-12
