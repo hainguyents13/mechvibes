@@ -76,7 +76,15 @@ jobs:
             # The installer only.
             paths: dist/Mechvibes-*-Setup-x64.exe
           - name: Linux packages
-            os: ubuntu-latest
+            # Pinned to the oldest supported Ubuntu, not ubuntu-latest. The
+            # binary needs the glibc it was linked against or newer, and
+            # cargo-deb's `$auto` depends are read from the runner's library
+            # versions. Built on 24.04, the .deb required glibc 2.39,
+            # libxtst6 1.2.5 and the 64-bit time_t (`t64`) package names, so
+            # it could not install on Debian 12 or Deepin (#193). Newer
+            # releases still accept these older names, through the `Provides`
+            # of their t64 packages.
+            os: ubuntu-22.04
             shell: bash
             # Produces the .deb and the AppImage from one binary.
             package: ./scripts/build-linux-appimage.sh "$VERSION"
