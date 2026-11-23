@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Use a sound pack straight from the Sound packs page.** Click a pack's name to use it, no trip back to Home needed. The pack in use is marked "In use". Thanks to bloodycop6385 on Discord for asking.
 - **Windows: sounds for on-screen keyboards.** Since Mechvibes 3, keys sent by software were silent on purpose, so input methods like Telex don't play a burst of sounds when they correct a word. That also silenced on-screen keyboards, including the one built into Windows, which some people type with every day. A new "Play on-screen keyboards" switch in Settings > Devices plays them, and keys sent by tools like AutoHotkey too. It is off by default. Thanks to masoul on Discord for letting us know.
 
 ### Fixed

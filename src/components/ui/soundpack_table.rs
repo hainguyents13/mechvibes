@@ -6,10 +6,11 @@ use crate::utils::config::use_config;
 use crate::utils::path::{ open_path, directory_exists };
 use dioxus::document::eval;
 use dioxus::prelude::*;
-use lucide_dioxus::{ ArrowDownAZ, Clock, FolderOpen, Plus, RefreshCw, Star, Trash };
+use lucide_dioxus::{ ArrowDownAZ, Check, Clock, FolderOpen, Plus, RefreshCw, Star, Trash };
 use std::sync::Arc;
 
 use super::{ ConfirmDeleteModal, PackCover };
+use crate::components::soundpack_selector::{ activate_soundpack, SelectorType };
 
 /// Open a soundpack folder in the system file manager
 /// Opens the specific soundpack folder
@@ -90,6 +91,8 @@ pub fn SoundpackTable(
 
     let seen_soundpacks = config().soundpacks_seen.clone();
     let pinned_soundpacks = config().pinned_soundpacks.clone();
+    let keyboard_in_use = config().keyboard_soundpack.clone();
+    let mouse_in_use = config().mouse_soundpack.clone();
     match sort_order() {
         SoundpackSort::Name => {
             filtered_soundpacks.sort_by(|a, b|
@@ -211,6 +214,8 @@ pub fn SoundpackTable(
                 tbody {
                   for pack in filtered_soundpacks {
                     SoundpackTableRow {
+                      in_use: pack.folder_path == keyboard_in_use
+                          || pack.folder_path == mouse_in_use,
                       is_new: crate::state::soundpack_library::is_new(
                           &seen_soundpacks,
                           &pack.folder_path,
@@ -233,9 +238,41 @@ pub fn SoundpackTable(
 }
 
 #[component]
-pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bool) -> Element {
+pub fn SoundpackTableRow(
+    soundpack: SoundpackMetadata,
+    is_new: bool,
+    starred: bool,
+    in_use: bool
+) -> Element {
     let state_trigger = use_state_trigger();
     let (_config, update_config) = use_config();
+    let audio_ctx: Arc<crate::libs::audio::AudioContext> = use_context();
+    let load_error = use_signal(String::new);
+    let is_loading = use_signal(|| false);
+
+    // Clicking the pack's name uses it right away, the same as picking it on
+    // Home, so nobody has to go back there to try a pack out.
+    let on_use = {
+        let folder_path = soundpack.folder_path.clone();
+        let selector_type = match soundpack.soundpack_type {
+            crate::state::soundpack::SoundpackType::Keyboard => SelectorType::Keyboard,
+            crate::state::soundpack::SoundpackType::Mouse => SelectorType::Mouse,
+        };
+        let update_config = update_config.clone();
+        move |_| {
+            if in_use || is_loading() {
+                return;
+            }
+            activate_soundpack(
+                selector_type,
+                folder_path.clone(),
+                audio_ctx.clone(),
+                update_config.clone(),
+                load_error,
+                is_loading
+            );
+        }
+    };
 
     // A starred pack is listed in the pack picker on Home.
     let on_toggle_star = {
@@ -310,11 +347,18 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bo
         }
     };
     rsx! {
-      tr { class: "hover:bg-base-100",
-        td { class: "flex items-center gap-4",
+      tr { class: if in_use { "bg-base-100" } else { "hover:bg-base-100" },
+        td {
+          class: if in_use { "flex items-center gap-4" } else { "flex items-center gap-4 cursor-pointer" },
+          title: if in_use { "In use" } else { "Use this sound pack" },
+          onclick: on_use,
           // Icon
           div { class: "flex items-center justify-center",
-            if let Some(icon) = &soundpack.icon {
+            if is_loading() {
+              div { class: "w-8 h-8 flex items-center justify-center",
+                span { class: "loading loading-spinner loading-sm" }
+              }
+            } else if let Some(icon) = &soundpack.icon {
               if !icon.is_empty() {
                 div { class: "w-8 h-8 rounded-lg overflow-hidden",
                   img {
@@ -336,11 +380,18 @@ pub fn SoundpackTableRow(soundpack: SoundpackMetadata, is_new: bool, starred: bo
               div { class: "font-medium text-sm text-base-content line-clamp-1",
                 "{soundpack.name}"
               }
-              if is_new {
+              if in_use {
+                span { class: "badge badge-primary badge-soft badge-xs shrink-0 ml-0.5 gap-0.5",
+                  Check { class: "w-3 h-3" }
+                  "In use"
+                }
+              } else if is_new {
                 span { class: "badge badge-primary badge-xs shrink-0 ml-0.5", "New" }
               }
             }
-            if let Some(author) = &soundpack.author {
+            if !load_error().is_empty() {
+              div { class: "text-xs text-error line-clamp-2", "{load_error}" }
+            } else if let Some(author) = &soundpack.author {
               div { class: "text-xs text-base-content/50", "by {author}" }
             }
           }
