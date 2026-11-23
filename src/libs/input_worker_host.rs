@@ -39,31 +39,52 @@ const HEALTHY_UPTIME: Duration = Duration::from_secs(30);
 /// the reader thread notices its cached filter is stale.
 static CONFIG_GENERATION: AtomicU64 = AtomicU64::new(0);
 
-/// The lists themselves, published alongside the generation so the reader
-/// thread never has to go looking for them. Reading them from the config
-/// authority costs a clone; the `AppConfig::load()` this replaced parsed JSON,
-/// read the registry for the auto-start state and could rewrite the file - none
-/// of which belongs on the thread draining the worker's pipe, because stalling
-/// that reader back-pressures the pipe and, through it, the worker's WndProc.
-static ENABLED_DEVICES: Mutex<Option<(Vec<String>, Vec<String>)>> = Mutex::new(None);
+/// The filter settings themselves, published alongside the generation so the
+/// reader thread never has to go looking for them. Reading them from the
+/// config authority costs a clone; the `AppConfig::load()` this replaced parsed
+/// JSON, read the registry for the auto-start state and could rewrite the file
+/// - none of which belongs on the thread draining the worker's pipe, because
+/// stalling that reader back-pressures the pipe and, through it, the worker's
+/// WndProc.
+static FILTER_SETTINGS: Mutex<Option<FilterSettings>> = Mutex::new(None);
 
-/// Call after `AppConfig`'s enabled-device lists change (from
-/// `device_selector.rs`) to make filtering take effect immediately.
+/// The parts of `AppConfig` the reader thread filters by.
+#[derive(Clone)]
+struct FilterSettings {
+    enabled_keyboards: Vec<String>,
+    enabled_mice: Vec<String>,
+    play_on_screen_keyboard: bool,
+}
+
+impl FilterSettings {
+    fn current() -> Self {
+        let config = crate::state::config_writer::current();
+        Self {
+            enabled_keyboards: config.enabled_keyboards,
+            enabled_mice: config.enabled_mice,
+            play_on_screen_keyboard: config.play_on_screen_keyboard,
+        }
+    }
+}
+
+/// Call after `AppConfig`'s enabled-device lists or the on-screen keyboard
+/// setting change (from `device_selector.rs` and Settings) to make filtering
+/// take effect immediately.
 pub fn notify_config_changed() {
-    let config = crate::state::config_writer::current();
-    *ENABLED_DEVICES.lock().unwrap() = Some((config.enabled_keyboards, config.enabled_mice));
-    // Published after the lists, so a reader that sees the new generation is
-    // guaranteed to find the new lists behind it.
+    *FILTER_SETTINGS.lock().unwrap() = Some(FilterSettings::current());
+    // Published after the settings, so a reader that sees the new generation
+    // is guaranteed to find the new settings behind it.
     CONFIG_GENERATION.fetch_add(1, Ordering::Release);
 }
 
-/// Cached copy of the enabled-device filter, refreshed only when
+/// Cached copy of the filter settings, refreshed only when
 /// `CONFIG_GENERATION` moves - re-reading config per keystroke is what the
 /// audio path was fixed away from in Phase 1/2.
 struct DeviceFilter {
     generation: u64,
     enabled_keyboards: Vec<String>,
     enabled_mice: Vec<String>,
+    play_on_screen_keyboard: bool,
 }
 
 impl DeviceFilter {
@@ -71,14 +92,20 @@ impl DeviceFilter {
     /// supervisor thread before the read loop begins - never from inside it.
     fn load() -> Self {
         let generation = CONFIG_GENERATION.load(Ordering::Acquire);
-        let (enabled_keyboards, enabled_mice) = ENABLED_DEVICES.lock()
+        let settings = FILTER_SETTINGS.lock()
             .unwrap()
             .clone()
-            .unwrap_or_else(|| {
-                let config = crate::state::config_writer::current();
-                (config.enabled_keyboards, config.enabled_mice)
-            });
-        Self { generation, enabled_keyboards, enabled_mice }
+            .unwrap_or_else(FilterSettings::current);
+        Self::from_settings(generation, settings)
+    }
+
+    fn from_settings(generation: u64, settings: FilterSettings) -> Self {
+        Self {
+            generation,
+            enabled_keyboards: settings.enabled_keyboards,
+            enabled_mice: settings.enabled_mice,
+            play_on_screen_keyboard: settings.play_on_screen_keyboard,
+        }
     }
 
     fn refresh_if_stale(&mut self) {
@@ -86,11 +113,28 @@ impl DeviceFilter {
         if generation == self.generation {
             return;
         }
-        if let Some((keyboards, mice)) = ENABLED_DEVICES.lock().unwrap().clone() {
-            self.enabled_keyboards = keyboards;
-            self.enabled_mice = mice;
+        if let Some(settings) = FILTER_SETTINGS.lock().unwrap().clone() {
+            *self = Self::from_settings(generation, settings);
+        } else {
+            self.generation = generation;
         }
-        self.generation = generation;
+    }
+
+    /// Whether a key press is dropped because software sent it.
+    ///
+    /// The worker marks a keyboard event without a source device as `-`, and
+    /// Raw Input gives no source device exactly for injected keys. Input
+    /// methods send their corrections that way: typing `dd` in Telex makes the
+    /// IME inject backspaces plus the replacement within a few milliseconds,
+    /// which played as a burst of sounds for keys nobody pressed. On-screen
+    /// keyboards (including the one in Windows), AutoHotkey and remote-desktop
+    /// clients send keys the same way, and people who type with them want to
+    /// hear those, so it is a setting, off by default.
+    ///
+    /// Presses only: a release goes through `held`, so a key pressed while the
+    /// setting was on still gets its release after it is switched off.
+    fn drops_injected_press(&self, event: &WorkerEvent<'_>) -> bool {
+        event.is_down && event.kind == 'K' && event.device_id == "-" && !self.play_on_screen_keyboard
     }
 
     /// Empty list = all devices allowed, matching
@@ -305,6 +349,12 @@ fn pump_worker(
 
         filter.refresh_if_stale();
 
+        // Before the hotkey on purpose: with the setting off, an injected
+        // Ctrl+Alt+M (a macro tool) must not toggle mute either, as before.
+        if filter.drops_injected_press(&event) {
+            continue;
+        }
+
         if event.kind == 'K' {
             // Hotkey tracking runs before the device filter on purpose: the
             // global mute toggle should work from any keyboard, even one the
@@ -468,6 +518,7 @@ mod tests {
             generation: 0,
             enabled_keyboards: Vec::new(),
             enabled_mice: Vec::new(),
+            play_on_screen_keyboard: false,
         };
         assert!(filter.allows('K', "anything"));
         assert!(filter.allows('M', "anything"));
@@ -479,6 +530,7 @@ mod tests {
             generation: 0,
             enabled_keyboards: vec!["kb1".to_string()],
             enabled_mice: vec!["m1".to_string()],
+            play_on_screen_keyboard: false,
         };
         assert!(filter.allows('K', "kb1"));
         assert!(!filter.allows('K', "kb2"));
@@ -539,11 +591,52 @@ mod tests {
             generation: 0,
             enabled_keyboards: keyboards.into_iter().map(String::from).collect(),
             enabled_mice: Vec::new(),
+            play_on_screen_keyboard: false,
         }
     }
 
     fn event<'a>(device_id: &'a str, code: &'a str, is_down: bool) -> WorkerEvent<'a> {
         WorkerEvent { kind: 'K', device_id, code, is_down }
+    }
+
+    #[test]
+    fn injected_key_presses_are_dropped_by_default() {
+        // The IME case: the correction burst after "dd" in Telex arrives with
+        // no source device and must stay silent unless the user asks for it.
+        let filter = filter_for(vec![]);
+        assert!(filter.drops_injected_press(&event("-", "Backspace", true)));
+    }
+
+    #[test]
+    fn on_screen_keyboard_sounds_let_injected_presses_through() {
+        let mut filter = filter_for(vec![]);
+        filter.play_on_screen_keyboard = true;
+        assert!(!filter.drops_injected_press(&event("-", "KeyA", true)));
+    }
+
+    #[test]
+    fn real_keys_and_mouse_input_are_never_dropped_as_injected() {
+        let filter = filter_for(vec![]);
+        // A resolved device id means a real keyboard produced the event.
+        assert!(!filter.drops_injected_press(&event("a1b2c3d4", "KeyA", true)));
+        // Synthetic clicks are something users expect to hear.
+        let click = WorkerEvent { kind: 'M', device_id: "-", code: "MouseLeft", is_down: true };
+        assert!(!filter.drops_injected_press(&click));
+    }
+
+    #[test]
+    fn an_injected_key_held_when_the_setting_goes_off_still_releases() {
+        let mut filter = filter_for(vec![]);
+        filter.play_on_screen_keyboard = true;
+        let mut held = Vec::new();
+        let down = event("-", "KeyA", true);
+        assert!(!filter.drops_injected_press(&down));
+        assert_eq!(wire_for_event(&down, &filter, &mut held).as_deref(), Some("KeyA"));
+
+        filter.play_on_screen_keyboard = false;
+        let up = event("-", "KeyA", false);
+        assert!(!filter.drops_injected_press(&up), "releases are never dropped here");
+        assert_eq!(wire_for_event(&up, &filter, &mut held).as_deref(), Some("UP:KeyA"));
     }
 
     #[test]
@@ -619,6 +712,7 @@ mod tests {
             generation: 0,
             enabled_keyboards: Vec::new(),
             enabled_mice: vec!["m1".to_string()],
+            play_on_screen_keyboard: false,
         };
         let mut held = Vec::new();
         let scroll = WorkerEvent { kind: 'M', device_id: "m2", code: "MouseWheelUp", is_down: true };

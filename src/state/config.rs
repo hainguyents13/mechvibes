@@ -183,6 +183,10 @@ pub struct AppConfig {
     /// Show the bottom dock as a floating pill instead of a full-width bar.
     /// Off by default, so an absent field keeps the existing look.
     pub floating_dock: bool,
+    /// Windows: play keys that software sends, such as on-screen keyboards.
+    /// Off by default, because input methods (Telex and the like) send their
+    /// corrections the same way and would otherwise play bursts of sounds.
+    pub play_on_screen_keyboard: bool,
     pub auto_update: AutoUpdateConfig, // Auto-update settings
     /// Send one anonymous launch event (OS + app version) per start.
     /// Opt-out, so an absent field must land on `true` - `bool::default()`
@@ -349,6 +353,7 @@ impl AppConfig {
             && self.mute_mood_with_sounds == other.mute_mood_with_sounds
             && self.landscape_mode == other.landscape_mode
             && self.floating_dock == other.floating_dock
+            && self.play_on_screen_keyboard == other.play_on_screen_keyboard
             && self.auto_update == other.auto_update
             && self.enable_telemetry == other.enable_telemetry
     }
@@ -536,6 +541,7 @@ impl Default for AppConfig {
             mute_mood_with_sounds: true,
             landscape_mode: false, // Default landscape mode disabled
             floating_dock: false, // Default to the full-width dock
+            play_on_screen_keyboard: false,
             auto_update: AutoUpdateConfig::default(), // Default auto-update settings
             enable_telemetry: true, // Opt-out: on by default, disclosed in README and Settings
         }
@@ -670,6 +676,22 @@ mod tests {
 
         let mut toggled = restored.clone();
         toggled.floating_dock = true;
+        assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
+    }
+
+    /// A config from before the on-screen keyboard switch loads with it off,
+    /// so input-method corrections stay silent, and switching it on is saved.
+    #[test]
+    fn on_screen_keyboard_sounds_are_off_until_switched_on_and_are_saved() {
+        let mut value = serde_json::to_value(AppConfig::default()).expect("config serializes");
+        value.as_object_mut().expect("config is a json object").remove("play_on_screen_keyboard");
+        let restored: AppConfig = serde_json
+            ::from_value(value)
+            .expect("configs predating play_on_screen_keyboard must deserialize, not reset");
+        assert!(!restored.play_on_screen_keyboard);
+
+        let mut toggled = restored.clone();
+        toggled.play_on_screen_keyboard = true;
         assert!(!toggled.data_equals(&restored), "the toggle must mark the config dirty");
     }
 
