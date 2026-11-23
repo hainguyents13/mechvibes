@@ -123,6 +123,20 @@ if echo "$NEEDED" | grep -Eq 'libssl|libcrypto'; then
 fi
 echo "OpenSSL check OK: compiled in, not needed from the host"
 
+# --- guard: runs on older distributions -------------------------------------
+# A binary needs the glibc it was linked against or newer. Built on Ubuntu
+# 24.04 it needed glibc 2.39, so the .deb could not install and the AppImage
+# could not start on Debian 12 or Deepin (#193). CI builds on Ubuntu 22.04
+# (glibc 2.35) for that reason; this fails the build if the binary asks for
+# more, for example after the runner is moved to a newer image.
+MAX_GLIBC="2.35"
+NEEDED_GLIBC=$(readelf -V --wide "$BINARY" | grep -o 'GLIBC_[0-9][0-9.]*' | sed 's/GLIBC_//' | sort -uV | tail -1)
+echo "Newest glibc the binary needs: ${NEEDED_GLIBC:-none}"
+if [ -n "$NEEDED_GLIBC" ] && ! _version_ge "$MAX_GLIBC" "$NEEDED_GLIBC"; then
+  echo "::error::$BINARY needs glibc $NEEDED_GLIBC, newer than $MAX_GLIBC. Build on Ubuntu 22.04 so the packages install on Debian 12 and other older distributions."
+  exit 1
+fi
+
 # --- .deb -------------------------------------------------------------------
 # Built from the same binary as the AppImage (--no-build: cargo-deb's own build
 # would not reuse it, and the file list lives in [package.metadata.deb] in
@@ -144,6 +158,15 @@ if [ "$BUILD_DEB" -eq 1 ]; then
   fi
   mkdir -p dist
   cp "$DEB_SOURCE" "dist/${APP_NAME}_${VERSION}_amd64.deb"
+  # The `t64` package names exist only on Ubuntu 24.04 and Debian 13 or newer.
+  # cargo-deb picks them up from the build machine, and they make the package
+  # uninstallable everywhere older.
+  DEPENDS=$(dpkg-deb -f "dist/${APP_NAME}_${VERSION}_amd64.deb" Depends)
+  echo "Depends: $DEPENDS"
+  if echo "$DEPENDS" | grep -q 't64'; then
+    echo "::error::The .deb depends on t64 package names, which older distributions do not have. Build on Ubuntu 22.04."
+    exit 1
+  fi
   echo "=== Built dist/${APP_NAME}_${VERSION}_amd64.deb ==="
 fi
 
