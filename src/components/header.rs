@@ -5,7 +5,9 @@ use dioxus::document::eval;
 use dioxus::prelude::*;
 
 const FAVICON: Asset = asset!("/assets/icon.ico");
-const GLOBAL_STYLES_CSS: &str = include_str!("../../assets/style.css");
+// assets/style.css as build.rs prepared it for the target (lowered for the
+// older WebKit on macOS, unchanged elsewhere).
+const GLOBAL_STYLES_CSS: &str = include_str!(concat!(env!("OUT_DIR"), "/style.css"));
 
 // Font assets
 const LATO_REGULAR: Asset = asset!("/assets/fonts/Lato-Regular.ttf");

@@ -131,6 +131,8 @@ winapi = { version = "0.3", features = [
 [build-dependencies]
 chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1.0.140"
+# Rewrites the stylesheet for the older WebKit on macOS 12 (see build.rs).
+lightningcss = { version = "1.0.0-alpha.72", default-features = false }
 
 [target.'cfg(windows)'.build-dependencies]
 winresource = "0.1"

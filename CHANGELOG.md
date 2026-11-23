@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **macOS 12: the window shows its tabs, switches and sound packs again.** Mechvibes draws with the WebKit built into macOS, which on macOS 12 is older than the one Safari updates bring, and it skipped every nested style rule. Tabs showed as plain radio buttons, switches had no knob and the Sound packs page was empty, even with the newest Safari installed. The macOS build now flattens those rules when it is built. A few faint borders and tints may still look plainer on macOS 12. Thanks to diskordcendrum and marckyoto on Discord for the screenshots.
+
 ## [3.5.8] - 2026-11-24
 
 ### Added

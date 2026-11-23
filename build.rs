@@ -1,4 +1,4 @@
-use std::fs;
+﻿use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -71,8 +71,49 @@ fn copy_changed(src: &Path, dst: &Path) -> io::Result<()> {
     Ok(())
 }
 
+/// Writes the stylesheet the app inlines to `OUT_DIR/style.css`.
+///
+/// On macOS the window draws with the WebKit built into the OS, not the one
+/// Safari updates bring along. On macOS 12 that WebKit predates CSS nesting,
+/// so every nested rule in the Tailwind/daisyUI output (tabs, toggles, pack
+/// lists) is dropped and the window comes up half empty even with Safari 17.6
+/// installed. For macOS builds the sheet is rewritten for Safari 15: nested
+/// rules are flattened and colors get fallbacks where they can be computed.
+/// Windows and Linux keep the sheet exactly as written.
+fn write_stylesheet() -> io::Result<()> {
+    const SOURCE: &str = "assets/style.css";
+    println!("cargo:rerun-if-changed={SOURCE}");
+
+    let css = fs::read_to_string(SOURCE)?;
+    let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"))
+        .join("style.css");
+
+    let for_macos = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos");
+    let css = if for_macos { lower_for_old_webkit(&css).map_err(io::Error::other)? } else { css };
+    fs::write(out, css)
+}
+
+fn lower_for_old_webkit(css: &str) -> Result<String, String> {
+    use lightningcss::stylesheet::{MinifyOptions, ParserOptions, PrinterOptions, StyleSheet};
+    use lightningcss::targets::{Browsers, Targets};
+
+    // Version bytes are major, minor, patch: Safari 15.0.
+    let targets = Targets::from(Browsers { safari: Some(15 << 16), ..Browsers::default() });
+
+    let mut sheet = StyleSheet::parse(css, ParserOptions::default())
+        .map_err(|e| format!("could not parse assets/style.css: {e}"))?;
+    sheet
+        .minify(MinifyOptions { targets, ..MinifyOptions::default() })
+        .map_err(|e| format!("could not lower assets/style.css: {e}"))?;
+    let printed = sheet
+        .to_css(PrinterOptions { targets, ..PrinterOptions::default() })
+        .map_err(|e| format!("could not print assets/style.css: {e}"))?;
+    Ok(printed.code)
+}
+
 fn main() -> io::Result<()> {
     sync_soundpacks();
+    write_stylesheet()?;
 
     // Only compile resources on Windows
     #[cfg(windows)]
