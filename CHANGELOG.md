@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Windows: uninstalling keeps your Mechvibes 2 sound packs.** Mechvibes 2 and 3 share one data folder. Answering Yes to "Also delete your settings and imported sound packs?" deleted all of it, including the `custom` folder where Mechvibes 2 keeps the packs you added. Mechvibes 3 only copies those packs, so that folder can be the only original. The uninstaller now leaves it alone.
+
 ## [3.5.7] - 2026-11-12
 
 ### Added
