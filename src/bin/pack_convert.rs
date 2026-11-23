@@ -71,7 +71,7 @@ use serde_json::{json, Value};
 use std::fs::{self, File};
 use std::io::{self, Read, Write};
 use std::path::{Component, Path, PathBuf};
-use utils::config_converter::convert_v1_to_v2;
+use utils::config_converter::{ convert_v1_to_v2, UNKNOWN_AUTHOR };
 use utils::soundpack_validator::{validate_soundpack_config, SoundpackValidationStatus};
 
 /// Upper bound on what one archive may expand to. Inputs are untrusted downloads.
@@ -149,27 +149,22 @@ fn convert(
         _ => return Err(format!("not a convertible sound pack: {}", validation.message)),
     };
 
-    // V1 configs have no author, so the converter leaves it out and the app's
-    // validator then calls the result incomplete. The caller supplies it here.
+    // V1 configs have no author, so the converter names the author "Unknown".
+    // The caller's `--author` replaces that placeholder, never a real name.
     if let Some(author) = author {
         let mut config = read_json(config_path)?;
-        if config.get("author").is_none() {
+        let current = config.get("author").and_then(Value::as_str).map(str::to_owned);
+        let is_placeholder = current.as_deref() == Some(UNKNOWN_AUTHOR);
+        if current.is_none() || is_placeholder {
             config["author"] = Value::String(author.to_string());
             let text = serde_json::to_string_pretty(&config).map_err(|e| format!("cannot serialise config.json: {}", e))?;
             fs::write(config_path, text).map_err(|e| format!("cannot write config.json: {}", e))?;
         }
     }
 
-    // Never emit a pack the app itself would refuse to load. A missing author is
-    // the one tolerated gap: the importer writes it when it publishes the pack.
+    // Never emit a pack the app itself would refuse to load.
     let revalidation = validate_soundpack_config(config_str);
-    let only_author_missing = matches!(
-        &revalidation.status,
-        SoundpackValidationStatus::MissingRequiredFields(fields) if fields.as_slice() == ["author"]
-    );
-    if only_author_missing {
-        eprintln!("pack-convert: warning: output has no author; pass --author to set one");
-    } else if revalidation.status != SoundpackValidationStatus::Valid {
+    if revalidation.status != SoundpackValidationStatus::Valid {
         return Err(format!("converted pack failed validation: {}", revalidation.message));
     }
 

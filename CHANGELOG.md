@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Packs converted from Mechvibes 2 are no longer called incomplete.** A V1 config never named an author, and the conversion copied the field across the way V1 had it (not at all), while the validator asked for one, so every converted pack was filed as `missing_fields`. The validator now asks for `name` and `definitions` only, as the format documents, and a conversion writes `"Unknown"` as the author rather than leave it out.
+
 ## [3.5.7] - 2026-11-12
 
 ### Added

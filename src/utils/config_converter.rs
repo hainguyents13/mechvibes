@@ -90,6 +90,11 @@ pub fn v1_backup_path(config_path: &Path) -> PathBuf {
 /// The file a V1 "multi" pack's sounds are joined into.
 const CONCATENATED_AUDIO: &str = "concatenated_audio.wav";
 
+/// The author a converted pack carries when the V1 config named none, which is
+/// the usual case: V1 packs never had an author field. Also the placeholder the
+/// `pack-convert` tool's `--author` replaces.
+pub const UNKNOWN_AUTHOR: &str = "Unknown";
+
 /// Converts a keyboard pack again from the V1 config kept next to it, when an
 /// older conversion wrote its config. Returns whether it did.
 ///
@@ -203,9 +208,14 @@ pub fn convert_v1_to_v2(
         converted_config.insert("description".to_string(), description.clone());
     }
 
-    if let Some(author) = config.get("author") {
-        converted_config.insert("author".to_string(), author.clone());
-    }
+    // V1 configs never carried an author, and leaving the field out made the
+    // converter emit a pack the app's own validator then called incomplete. The
+    // real name is unknown, so say that rather than drop the field.
+    let author = config
+        .get("author")
+        .cloned()
+        .unwrap_or_else(|| Value::String(UNKNOWN_AUTHOR.to_string()));
+    converted_config.insert("author".to_string(), author);
 
     if let Some(version) = config.get("version") {
         converted_config.insert("version".to_string(), version.clone());
@@ -1289,6 +1299,48 @@ mod tests {
 
         assert_eq!(definitions["KeyA"]["timing"], serde_json::json!([[100.0, 180.0]]));
         assert_eq!(definitions["KeyB"]["timing"], serde_json::json!([[300.0, 360.0]]));
+    }
+
+    /// V1 configs never carried an author, and the converter only copies what
+    /// V1 had. A converted pack still has to be a complete V2 config: the
+    /// missing author is what made every converted pack fail validation, so
+    /// say the author is unknown instead of leaving the field out.
+    #[test]
+    fn a_v1_pack_without_an_author_converts_to_a_complete_v2_config() {
+        let dir = temp_dir("v1-no-author");
+        let config_path = dir.join("config.json");
+        write_tone_wav(&dir.join("sound.wav"), 44100, 2, 1000);
+
+        std::fs
+            ::write(
+                &config_path,
+                r#"{
+  "id": "thocky",
+  "name": "Lewis Toh Thocky (by z6)",
+  "key_define_type": "single",
+  "includes_numpad": false,
+  "sound": "sound.wav",
+  "defines": { "30": [100, 80] }
+}"#
+            )
+            .expect("write v1 config");
+
+        super::convert_v1_to_v2(
+            config_path.to_str().unwrap(),
+            config_path.to_str().unwrap(),
+            Some(dir.to_str().unwrap()),
+            false
+        ).expect("conversion must succeed");
+
+        let converted: serde_json::Value = serde_json
+            ::from_str(&std::fs::read_to_string(&config_path).expect("read converted"))
+            .expect("converted config must be valid JSON");
+
+        assert_eq!(
+            converted["author"],
+            serde_json::json!("Unknown"),
+            "a converted pack must still name an author"
+        );
     }
 
     /// Every key Mechvibes 2 knew, by the code it recorded in V1 packs (its

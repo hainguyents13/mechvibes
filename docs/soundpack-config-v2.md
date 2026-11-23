@@ -40,15 +40,11 @@ soundpacks/
 
 ### Required Fields
 
-These three fields are what the validator actually checks. A config missing any of them is rejected with a "Missing required V2 fields" error.
+These two fields are what the validator actually checks. A config missing either of them is rejected with a "Missing required V2 fields" error.
 
 #### `name` (string)
 Human-readable name displayed in the UI and settings.
 - Example: `"Cherry MX Black - ABS keycaps"`
-
-#### `author` (string)
-Pack creator name. Required: validation fails without it (the legacy spelling `m_author` is also accepted).
-- Example: `"Mechvibes"`, `"John Smith"`
 
 #### `definitions` or `defs` (object, required)
 A mapping of key names to their timing information. Both `"definitions"` and `"defs"` are accepted; use either.
@@ -99,6 +95,11 @@ Configuration format version. Should be `"2"` or `2` (both forms are accepted).
 #### `description` (string)
 Longer description of the soundpack (UI tooltip or details).
 - Example: `"Cherry MX Black switches with ABS keycaps"`
+
+#### `author` (string)
+Pack creator name. Not required: a pack without one is a valid V2 pack and the app shows the author line as `by N/A`. The legacy spelling `m_author` is also accepted.
+- Example: `"Mechvibes"`, `"John Smith"`
+- A pack converted from V1 carries `"Unknown"`: V1 configs never named an author, and the converter writes that rather than leave the field out.
 
 #### `version` (string)
 Pack version in any format (e.g., `"1.0.0"`, `"2025-01-15"`).
@@ -179,7 +180,7 @@ For a library pack `version` is an integer written as a string (`"1"`, `"2"`, ..
 
 ### `author` and `author_url`
 
-- The server writes `author` when it publishes a library pack, replacing whatever the upload carried. The validator requires `author` (`validate_v2_structure` in `src/utils/soundpack_validator.rs`); the legacy `m_author` spelling is accepted there too.
+- The server writes `author` when it publishes a library pack, replacing whatever the upload carried. The validator does not require it (`validate_v2_structure` in `src/utils/soundpack_validator.rs`): the documented schema requires `name` alone, and a V1 pack never had an author to give. The legacy `m_author` spelling is accepted too.
 - The server may also write `author_url`, a link to the author's profile. It is optional and informational.
 
 ### Unknown fields
@@ -442,15 +443,6 @@ The `name` field is not in the config. Add it:
 }
 ```
 
-#### "Missing required fields: author"
-The `author` field is missing. Add it:
-```json
-{
-  "author": "Your Name",
-  ...
-}
-```
-
 #### "Missing required fields: definitions"
 The `definitions` (or `defs`) field is empty or missing. Ensure at least one key is defined:
 ```json
@@ -499,7 +491,7 @@ For single-method packs, at least one audio file must be present in the soundpac
    - Use an online JSON validator
 
 2. **Verify required fields exist**
-   - `name`, `author`, `definitions` (or `defs`), `definition_method`, `audio_file`
+   - `name`, `definitions` (or `defs`), `definition_method`, `audio_file`
 
 3. **Confirm audio file exists**
    - File must be in the soundpack folder
