@@ -9,6 +9,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Added
 
 - **Use a sound pack straight from the Sound packs page.** Click a pack's name to use it, no trip back to Home needed. The pack in use is marked "In use". Thanks to bloodycop6385 on Discord for asking.
+- **EG Oreo Classic.** A new built-in keyboard pack that sounds like EG Oreo did in Mechvibes 2: each key plays its whole sound when you press it. The EG Oreo pack stays as it is, with separate press and release sounds. Find it on the Sound packs page. Thanks to burakjohnes and cortaxvenas on Discord.
+
+### Fixed
+
+- **New sound packs show up without pressing Refresh.** The pack list only rescanned its folders when it was empty, so a pack added by an update, or a pack folder copied in by hand, stayed hidden until you pressed Refresh on the Sound packs page. It now rescans on start whenever the folders differ from the list.
+- **macOS 12: the window shows its tabs, switches and sound packs again.** Mechvibes draws with the WebKit built into macOS, which on macOS 12 is older than the one Safari updates bring, and it skipped every nested style rule. Tabs showed as plain radio buttons, switches had no knob and the Sound packs page was empty, even with the newest Safari installed. The macOS build now flattens those rules when it is built. A few faint borders and tints may still look plainer on macOS 12. Thanks to diskordcendrum and marckyoto on Discord for the screenshots.
+
+## [3.5.8] - 2026-11-24
+
+### Added
+
 - **Windows: sounds for on-screen keyboards.** Since Mechvibes 3, keys sent by software were silent on purpose, so input methods like Telex don't play a burst of sounds when they correct a word. That also silenced on-screen keyboards, including the one built into Windows, which some people type with every day. A new "Play on-screen keyboards" switch in Settings > Devices plays them, and keys sent by tools like AutoHotkey too. It is off by default. Thanks to masoul on Discord for letting us know.
 
 ### Fixed

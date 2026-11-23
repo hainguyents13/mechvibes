@@ -35,6 +35,7 @@ appimagetool-*.AppImage
 !/soundpacks/keyboard/cherrymx-red-pbt/
 !/soundpacks/keyboard/eg-crystal-purple/
 !/soundpacks/keyboard/eg-oreo/
+!/soundpacks/keyboard/eg-oreo-classic/
 !/soundpacks/keyboard/topre-purple-hybrid-pbt/
 
 /soundpacks/mouse/*
