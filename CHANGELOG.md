@@ -9,6 +9,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 ### Fixed
 
 - **Windows: uninstalling keeps your Mechvibes 2 sound packs.** Mechvibes 2 and 3 share one data folder. Answering Yes to "Also delete your settings and imported sound packs?" deleted all of it, including the `custom` folder where Mechvibes 2 keeps the packs you added. Mechvibes 3 only copies those packs, so that folder can be the only original. The uninstaller now leaves it alone.
+- **Linux: the .deb installs on Debian 12, Deepin and other older distributions again.** It was built on Ubuntu 24.04 and so asked for newer system libraries than these have, failing with "Broken dependencies: libxtst6". It is now built on Ubuntu 22.04 and installs on newer distributions as before. The AppImage gets the same fix (#193).
 
 ## [3.5.7] - 2026-11-12
 
