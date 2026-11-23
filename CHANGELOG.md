@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Linux: the AppImage starts on Fedora 45.** Fedora 45 moved to OpenSSL 4 and to a newer xdotool without `libxdo.so.3`, so the app stopped at "error while loading shared libraries". OpenSSL is now built into the app, and the AppImage carries its own copy of libxdo. Thanks to lambacher on Discord for tracking it down.
+
 ## [3.5.7] - 2026-11-12
 
 ### Added
