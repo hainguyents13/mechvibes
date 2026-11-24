@@ -78,11 +78,14 @@ fn copy_changed(src: &Path, dst: &Path) -> io::Result<()> {
 /// so every nested rule in the Tailwind/daisyUI output (tabs, toggles, pack
 /// lists) is dropped and the window comes up half empty even with Safari 17.6
 /// installed. For macOS builds the sheet is rewritten for Safari 15: nested
-/// rules are flattened and colors get fallbacks where they can be computed.
-/// Windows and Linux keep the sheet exactly as written.
+/// rules are flattened, colors get fallbacks where they can be computed, and
+/// each `color-mix()` becomes the color that makes up most of it (see
+/// `build/old_webkit_colors.rs`). Windows and Linux keep the sheet exactly as
+/// written.
 fn write_stylesheet() -> io::Result<()> {
     const SOURCE: &str = "assets/style.css";
     println!("cargo:rerun-if-changed={SOURCE}");
+    println!("cargo:rerun-if-changed=build/old_webkit_colors.rs");
 
     let css = fs::read_to_string(SOURCE)?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"))
@@ -100,7 +103,8 @@ fn lower_for_old_webkit(css: &str) -> Result<String, String> {
     // Version bytes are major, minor, patch: Safari 15.0.
     let targets = Targets::from(Browsers { safari: Some(15 << 16), ..Browsers::default() });
 
-    let mut sheet = StyleSheet::parse(css, ParserOptions::default())
+    let css = old_webkit_colors::replace_color_mix(css);
+    let mut sheet = StyleSheet::parse(&css, ParserOptions::default())
         .map_err(|e| format!("could not parse assets/style.css: {e}"))?;
     sheet
         .minify(MinifyOptions { targets, ..MinifyOptions::default() })
@@ -110,6 +114,9 @@ fn lower_for_old_webkit(css: &str) -> Result<String, String> {
         .map_err(|e| format!("could not print assets/style.css: {e}"))?;
     Ok(printed.code)
 }
+
+#[path = "build/old_webkit_colors.rs"]
+mod old_webkit_colors;
 
 fn main() -> io::Result<()> {
     sync_soundpacks();

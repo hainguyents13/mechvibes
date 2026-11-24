@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **macOS 12: buttons and pack cards are readable again.** On Monterey, buttons like Share, Import and Open and the sound pack cards on Home showed dark text on a dark fill. The app's colors now have plain stand-ins that the older WebKit on macOS 12 can show. Faint lines and fills look a little plainer there. Thanks to diskordcendrum on Discord.
+
 ## [3.5.10] - 2026-11-24
 
 ### Fixed
