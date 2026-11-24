@@ -1,4 +1,4 @@
-﻿use std::fs;
+use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
@@ -80,12 +80,12 @@ fn copy_changed(src: &Path, dst: &Path) -> io::Result<()> {
 /// installed. For macOS builds the sheet is rewritten for Safari 15: nested
 /// rules are flattened, colors get fallbacks where they can be computed, and
 /// each `color-mix()` becomes the color that makes up most of it (see
-/// `build/old_webkit_colors.rs`). Windows and Linux keep the sheet exactly as
-/// written.
+/// `src/build_support/old_webkit_colors.rs`). Windows and Linux keep the
+/// sheet exactly as written.
 fn write_stylesheet() -> io::Result<()> {
     const SOURCE: &str = "assets/style.css";
     println!("cargo:rerun-if-changed={SOURCE}");
-    println!("cargo:rerun-if-changed=build/old_webkit_colors.rs");
+    println!("cargo:rerun-if-changed=src/build_support/old_webkit_colors.rs");
 
     let css = fs::read_to_string(SOURCE)?;
     let out = PathBuf::from(std::env::var_os("OUT_DIR").expect("OUT_DIR is set by cargo"))
@@ -115,7 +115,7 @@ fn lower_for_old_webkit(css: &str) -> Result<String, String> {
     Ok(printed.code)
 }
 
-#[path = "build/old_webkit_colors.rs"]
+#[path = "src/build_support/old_webkit_colors.rs"]
 mod old_webkit_colors;
 
 fn main() -> io::Result<()> {
