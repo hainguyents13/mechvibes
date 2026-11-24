@@ -8,6 +8,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Use a sound pack straight from the Sound packs page.** Click a pack's name to use it, no trip back to Home needed. The pack in use is marked "In use". Thanks to bloodycop6385 on Discord for asking.
 - **EG Oreo Classic.** A new built-in keyboard pack that sounds like EG Oreo did in Mechvibes 2: each key plays its whole sound when you press it. The EG Oreo pack stays as it is, with separate press and release sounds. Find it on the Sound packs page. Thanks to burakjohnes and cortaxvenas on Discord.
 
 ### Fixed

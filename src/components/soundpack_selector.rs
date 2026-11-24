@@ -34,8 +34,9 @@ pub fn SoundpackSelector(props: SoundpackSelectorProps) -> Element {
 }
 
 /// Persists the chosen soundpack to config, then loads it into the audio
-/// engine asynchronously. Shared by the dropdown list and the randomize button.
-fn activate_soundpack(
+/// engine asynchronously. Shared by the dropdown list, the randomize button and
+/// the rows on the Sound packs page.
+pub(crate) fn activate_soundpack(
     soundpack_type: SelectorType,
     pack_id: String,
     audio_ctx: Arc<AudioContext>,
