@@ -518,6 +518,12 @@ pub mod data {
         get_writable_data_dir().join("mechvibes2-packs-imported")
     }
 
+    /// Present once the packs in Mechvibes 2's older `~/mechvibes_custom`
+    /// folder have been brought over
+    pub fn mechvibes2_home_import_marker() -> PathBuf {
+        get_writable_data_dir().join("mechvibes2-home-packs-imported")
+    }
+
     /// Present once the user has been asked about the old MechvibesDX.app
     #[cfg(target_os = "macos")]
     pub fn mechvibesdx_app_marker() -> PathBuf {

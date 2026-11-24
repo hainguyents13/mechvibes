@@ -20,33 +20,28 @@ fn mechvibes2_custom_dir() -> Option<PathBuf> {
         .map(|dirs| dirs.config_dir().join("Mechvibes").join("custom"))
 }
 
-/// Bring the packs added to Mechvibes 2 into this app, once.
+/// Where Mechvibes 2 kept them before December 2024: `mechvibes_custom` in the
+/// home folder. Later versions offered once to move them into the folder
+/// above, so anyone who installed nothing newer, or said no, still has them
+/// here.
+fn mechvibes2_home_custom_dir() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.home_dir().join("mechvibes_custom"))
+}
+
+/// Bring the packs added to Mechvibes 2 into this app, once per folder.
 ///
 /// The originals are copied, not moved, so nothing is lost if a pack fails to
 /// come over. Packs in the old format are converted by the regular scan, the
-/// same way an imported one is.
+/// same way an imported one is. Each folder has its own marker, so the older
+/// folder is still picked up on a machine that already imported the newer one.
 pub fn import_mechvibes2_packs() {
-    let Some(legacy_dir) = mechvibes2_custom_dir() else {
-        return;
-    };
-    if !legacy_dir.is_dir() {
-        return;
-    }
-    let marker = paths::data::mechvibes2_import_marker();
-    if marker.exists() {
-        return;
-    }
-
-    let imported = import_packs_from(
-        &legacy_dir,
+    let imported = import_each_once(
+        &[
+            (mechvibes2_custom_dir(), paths::data::mechvibes2_import_marker()),
+            (mechvibes2_home_custom_dir(), paths::data::mechvibes2_home_import_marker()),
+        ],
         &paths::soundpacks::get_custom_soundpacks_dir()
     );
-
-    // Written whatever came over, so a pack that could not be installed is not
-    // retried on every start.
-    if let Err(e) = std::fs::write(&marker, "") {
-        crate::always_eprint!("⚠️  Could not record the Mechvibes 2 pack import: {}", e);
-    }
     if imported.is_empty() {
         return;
     }
@@ -62,11 +57,31 @@ pub fn import_mechvibes2_packs() {
         }
     });
 
-    // The list is read from a cache that is only rebuilt when it is empty, so
-    // without this the packs would not appear until the user refreshes it.
+    // Rebuilt here so the packs appear in this session, whatever has already
+    // read the cache.
     let mut cache = crate::state::soundpack::SoundpackCache::load();
     cache.refresh_from_directory();
     cache.save();
+}
+
+/// Import each `(folder, marker)` whose folder exists and whose marker does
+/// not, then write that marker whatever came over, so a pack that could not be
+/// installed is not retried on every start.
+fn import_each_once(sources: &[(Option<PathBuf>, PathBuf)], soundpacks_dir: &Path) -> Vec<String> {
+    let mut imported = Vec::new();
+    for (legacy_dir, marker) in sources {
+        let Some(legacy_dir) = legacy_dir else {
+            continue;
+        };
+        if !legacy_dir.is_dir() || marker.exists() {
+            continue;
+        }
+        imported.extend(import_packs_from(legacy_dir, soundpacks_dir));
+        if let Err(e) = std::fs::write(marker, "") {
+            crate::always_eprint!("⚠️  Could not record the Mechvibes 2 pack import: {}", e);
+        }
+    }
+    imported
 }
 
 /// Install every pack in `legacy_dir` into `soundpacks_dir` and return the
@@ -335,6 +350,42 @@ mod tests {
             std::fs::read(taken.join("mine.ogg")).expect("installed pack untouched"),
             b"mine"
         );
+    }
+
+    #[test]
+    fn the_older_home_folder_is_imported_even_after_the_newer_one_was() {
+        // Machines that ran the first import already have its marker; the
+        // `~/mechvibes_custom` packs must still come over, once.
+        let newer = scratch_dir();
+        let older = scratch_dir();
+        let data = scratch_dir();
+        let base = scratch_dir();
+        folder_pack(&newer, "n", "from-newer");
+        folder_pack(&older, "o", "from-older");
+        let newer_marker = data.join("newer-done");
+        let older_marker = data.join("older-done");
+        std::fs::write(&newer_marker, "").expect("newer marker");
+
+        let sources = [
+            (Some(newer.clone()), newer_marker.clone()),
+            (Some(older.clone()), older_marker.clone()),
+        ];
+        assert_eq!(import_each_once(&sources, &base), vec!["keyboard/from-older".to_string()]);
+        assert!(older_marker.exists(), "the older folder is recorded as done");
+        assert!(import_each_once(&sources, &base).is_empty(), "and never imported twice");
+    }
+
+    #[test]
+    fn a_missing_folder_is_skipped_without_a_marker() {
+        let data = scratch_dir();
+        let base = scratch_dir();
+        let marker = data.join("done");
+        let sources = [
+            (None, data.join("unused")),
+            (Some(data.join("does-not-exist")), marker.clone()),
+        ];
+        assert!(import_each_once(&sources, &base).is_empty());
+        assert!(!marker.exists(), "a folder that appears later is still picked up");
     }
 
     #[test]
