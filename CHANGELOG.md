@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- **Packs from older Mechvibes 2 versions come over too.** Before December 2024, Mechvibes 2 kept the packs you added in a `mechvibes_custom` folder in your home folder, and later versions only offered once to move them. Mechvibes 3 now also copies the packs from `~/mechvibes_custom` on its next start, even if it already brought over the ones from the newer folder. Thanks to diskordcendrum on Discord.
+
 ## [3.5.9] - 2026-11-24
 
 ### Added
