@@ -6,6 +6,11 @@ mod libs;
 mod state;
 mod utils;
 
+// Used by build.rs; compiled here only so its tests run with the app's.
+#[cfg(test)]
+#[path = "build_support/old_webkit_colors.rs"]
+mod old_webkit_colors;
+
 use dioxus::desktop::{ Config, LogicalSize, WindowBuilder };
 use dioxus::prelude::*;
 use utils::constants::{ APP_NAME };
